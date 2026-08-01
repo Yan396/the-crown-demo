@@ -977,6 +977,7 @@ export function createMapRenderer(canvas) {
     const position = worldToScreen(interpolatedPosition(state.player, alpha));
     const breath = motionOff() ? 0 : (Math.sin(now / 620) * 0.5 + 0.5);
     const half = 10;
+    const titleKey = state.player.act >= 2 ? "map.playerTitleAct2" : "map.playerTitleAct1";
 
     drawTrail("player", TOKENS.cinnabar);
 
@@ -1005,6 +1006,14 @@ export function createMapRenderer(canvas) {
     context.textBaseline = "middle";
     context.fillText(translate(language, "map.playerSeal"), position.x, position.y + 0.5);
     context.restore();
+
+    inkLabel(
+      position.x,
+      position.y + half + 3,
+      translate(language, titleKey),
+      `600 11px ${TOKENS.fontDisplay}`,
+      0.82
+    );
   }
 
   function recordFrameTime(milliseconds, now) {

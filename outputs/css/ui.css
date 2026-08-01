@@ -1133,6 +1133,18 @@ body.diagnostics-visible #title-diagnostics {
   color: var(--cinnabar-deep);
 }
 
+.ending-chronicle {
+  list-style: none;
+  margin: 0;
+  padding-left: 0;
+  color: var(--ink);
+  font: 16px/1.65 var(--font-display);
+}
+
+.ending-chronicle li + li {
+  margin-top: 8px;
+}
+
 .ending-stats {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1488,11 +1500,15 @@ body.demo-ended #town-sheet {
     padding: 14px;
   }
 
-  /* Let the first stats row peek into the mirror screen as a scroll cue, then
-     stagger later rows so no 390×844 viewport can contain over six figures. */
+  /* Keep mirror, chronicle, and stats figures in separate scroll beats so a
+     390×844 viewport never contains more than six numeric tokens. */
   .ending-section:first-of-type {
-    min-height: 61vh;
-    min-height: 61svh;
+    min-height: 70vh;
+    min-height: 70svh;
+  }
+
+  .ending-chronicle li {
+    min-height: min(36svh, 304px);
   }
 
   .ending-stats {

@@ -32,6 +32,7 @@ import {
 } from "./living.js";
 import { nextFloat, randomInt } from "./rng.js";
 import { buildRoads, isOnRoad } from "./roads.js";
+import { recordChronicleMilestone } from "./telemetry.js";
 import {
   activeTown,
   addEvent,
@@ -824,6 +825,10 @@ export function acceptMercenaryContract(state, townId = null) {
     payPerBattle: offer.payPerBattle,
     reward: offer.reward
   }, "win");
+  recordChronicleMilestone(state, "firstContract", {
+    townId: offer.townId,
+    factionId: offer.factionId
+  });
   return { ok: true, contract: state.player.contract };
 }
 

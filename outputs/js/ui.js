@@ -1,4 +1,5 @@
 import { CONFIG, ROAD_EVENTS } from "./data.js";
+import { buildChronicleEntries } from "./chronicle.js";
 import { actTroopCap, getDailyWage } from "./demo.js";
 import {
   activeTown,
@@ -136,6 +137,8 @@ export function createUi(callbacks) {
     endingSeal: element("ending-seal"),
     mirrorTitle: element("mirror-title"),
     mirrorTable: element("mirror-table"),
+    endingChronicleTitle: element("ending-chronicle-title"),
+    endingChronicle: element("ending-chronicle"),
     endingStatsTitle: element("ending-stats-title"),
     endingStats: element("ending-stats"),
     endingLine: element("ending-line"),
@@ -388,6 +391,7 @@ export function createUi(callbacks) {
     refs.roadEventKicker.textContent = t("roadEvent.kicker");
     refs.endingSeal.textContent = t("ending.seal");
     refs.mirrorTitle.textContent = t("ending.mirrorTitle");
+    refs.endingChronicleTitle.textContent = t("ending.chronicleTitle");
     refs.endingStatsTitle.textContent = t("ending.statsTitle");
     refs.endingLine.textContent = t("ending.line");
     refs.shareResult.textContent = t("ending.share");
@@ -476,6 +480,13 @@ export function createUi(callbacks) {
       row.append(label, said, did);
       refs.mirrorTable.appendChild(row);
     });
+    refs.endingChronicle.replaceChildren();
+    for (const entry of buildChronicleEntries(state.telemetry, language())) {
+      const item = document.createElement("li");
+      item.dataset.eventType = entry.type;
+      item.textContent = entry.text;
+      refs.endingChronicle.appendChild(item);
+    }
     const battles = state.stats.battles || 0;
     const winRate = battles ? Math.round((state.stats.wins || 0) / battles * 100) : 0;
     refs.endingStats.replaceChildren();

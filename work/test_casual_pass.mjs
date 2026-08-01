@@ -680,6 +680,25 @@ test("UI structure: default log ticker, Act 1 contract hiding, title triple-tap 
   assert.equal(mirrorHidingRule, undefined, "no active gameplay state may hide the permanent exceeded mirror line or its parent");
 });
 
+test("identity: the player map label follows the current act in both languages", () => {
+  assert.equal(translation("zh", "map.playerTitleAct1"), "流浪佣兵");
+  assert.equal(translation("zh", "map.playerTitleAct2"), "自由队长");
+  assert.equal(translation("en", "map.playerTitleAct1"), "Wandering Mercenary");
+  assert.equal(translation("en", "map.playerTitleAct2"), "Free Captain");
+
+  const map = read("js/map.js");
+  assert.match(
+    map,
+    /state\.player\.act\s*>=\s*2\s*\?\s*["']map\.playerTitleAct2["']\s*:\s*["']map\.playerTitleAct1["']/,
+    "map renderer must choose the player title from the live act"
+  );
+  assert.match(
+    map,
+    /inkLabel\([\s\S]{0,220}translate\(language,\s*titleKey\)[\s\S]{0,160}TOKENS\.fontDisplay/,
+    "player title must use the existing ink-label typography and art token"
+  );
+});
+
 test("juice: 100ms pressed state, meaningful motion, and reduced-motion safety", () => {
   const css = read("css/ui.css");
   const activeRules = [...css.matchAll(/([^{}]*:(?:active|focus-visible)[^{}]*)\{([^}]*)\}/gis)];

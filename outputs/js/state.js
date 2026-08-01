@@ -445,7 +445,11 @@ export function isValidState(value) {
   if (
     !Number.isFinite(value.telemetry.totalActiveSeconds) ||
     value.telemetry.totalActiveSeconds < 0 ||
-    !Array.isArray(value.telemetry.eventChoices)
+    !Array.isArray(value.telemetry.eventChoices) ||
+    !value.telemetry.promiseCrossings ||
+    typeof value.telemetry.promiseCrossings !== "object" ||
+    !value.telemetry.chronicle ||
+    typeof value.telemetry.chronicle !== "object"
   ) return false;
   if (!Number.isSafeInteger(value.nextBanditId) || value.nextBanditId < 1) return false;
   if (value.battle !== null && (!value.battle || typeof value.battle.banditId !== "string")) return false;

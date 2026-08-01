@@ -1,6 +1,10 @@
 import { CONFIG, TROOP_TYPES } from "./data.js";
 import { addEvent, getTroopCount } from "./state.js";
-import { finalizeTelemetry } from "./telemetry.js";
+import {
+  finalizeTelemetry,
+  recordChronicleMilestone,
+  recordPromiseCrossing
+} from "./telemetry.js";
 
 function timestamp(value) {
   return value || new Date().toISOString();
@@ -86,6 +90,13 @@ export function updatePromiseOvershoots(state) {
       promise.exceeded = true;
       promise.exceededAtTick = state.tick;
     }
+    if (promise.exceeded) {
+      recordPromiseCrossing(state, promise.kind, {
+        tick: promise.exceededAtTick ?? state.tick,
+        statedGoal: promise.statedGoal,
+        actual: actual > promise.statedGoal ? actual : null
+      });
+    }
   }
 }
 
@@ -144,6 +155,7 @@ export function advanceActIfNeeded(state, occurredAt) {
     state.demo.pauseReason = "actTransition";
     state.paused = true;
     state.telemetry.actTimestamps.act2 ||= now;
+    recordChronicleMilestone(state, "act2", { renown: state.player.renown });
     addEvent(state, "log.act2", {}, "win");
     return { type: "act2", tick: state.tick };
   }
@@ -177,6 +189,7 @@ export function completeDemo(state, occurredAt) {
   state.demo.pauseReason = "ending";
   state.paused = true;
   state.ending = { complete: true, visible: true, tick: state.tick };
+  recordChronicleMilestone(state, "ending", { renown: state.player.renown });
   finalizeTelemetry(state, timestamp(occurredAt));
   return { type: "ending", tick: state.tick };
 }

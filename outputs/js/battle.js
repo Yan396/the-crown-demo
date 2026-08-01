@@ -8,6 +8,10 @@ import {
 } from "./casual.js";
 import { nextFloat } from "./rng.js";
 import {
+  recordBattleOutcome,
+  recordBiggestBattle
+} from "./telemetry.js";
+import {
   ensureLivingState,
   removeBanditAndMaintainElite
 } from "./living.js";
@@ -159,6 +163,15 @@ function finishBattle(state, winner, bandit) {
     : playerBattleLoser(state, bandit);
   result.balance = battle.balance || null;
   result.playerAttackMultiplier = battle.playerAttackMultiplier || 1;
+  recordBattleOutcome(state, {
+    tick: battle.startedAtTick ?? state.tick,
+    outcome: result.type,
+    banditId: bandit.id,
+    townId: battle.nearTownId || nearestTown(state, state.player.pos)?.id || null,
+    playerStart: battle.playerStart,
+    enemyStart: battle.banditStart,
+    elite: battle.elite ?? Boolean(bandit.elite || bandit.isElite)
+  });
   state.battle = null;
   return result;
 }
@@ -217,14 +230,21 @@ export function startBattle(state, bandit) {
   }
   const balance = prepareStarterBattle(state, bandit);
   const playerAttackMultiplier = consumePlayerAttackMultiplier(state);
+  const playerStart = getTroopCount(state.player);
+  const banditStart = getTroopCount(bandit);
+  const elite = Boolean(bandit.elite || bandit.isElite);
+  const nearTownId = nearestTown(state, state.player.pos)?.id || null;
   state.player.moveTarget = null;
   state.stats.battles += 1;
   incrementTelemetry(state, "battlesFought");
   if (state.demo && state.demo.firstBattleTick === null) state.demo.firstBattleTick = state.tick;
   state.battle = {
     banditId: bandit.id,
-    playerStart: getTroopCount(state.player),
-    banditStart: getTroopCount(bandit),
+    playerStart,
+    banditStart,
+    startedAtTick: state.tick,
+    nearTownId,
+    elite,
     playerCasualties: 0,
     banditCasualties: 0,
     round: 0,
@@ -233,10 +253,18 @@ export function startBattle(state, bandit) {
     balance,
     playerAttackMultiplier
   };
+  recordBiggestBattle(state, {
+    tick: state.tick,
+    banditId: bandit.id,
+    townId: nearTownId,
+    playerStart,
+    enemyStart: banditStart,
+    elite
+  });
   addEvent(state, "log.encounter", {
-    playerCount: getTroopCount(state.player),
-    banditCount: getTroopCount(bandit),
-    elite: Boolean(bandit.elite || bandit.isElite)
+    playerCount: playerStart,
+    banditCount: banditStart,
+    elite
   }, "round");
 
   if (getTroopCount(state.player) <= 0) return finishBattle(state, "bandit", bandit);
@@ -301,6 +329,15 @@ export function attemptFlee(state) {
   }
   state.player.moveTarget = null;
   state.player.encounterCooldownUntil = state.tick + CONFIG.RESPAWN_GRACE_TICKS;
+  recordBattleOutcome(state, {
+    tick: battle.startedAtTick ?? state.tick,
+    outcome: "fled",
+    banditId: battle.banditId,
+    townId: battle.nearTownId || nearestTown(state, state.player.pos)?.id || null,
+    playerStart: battle.playerStart,
+    enemyStart: battle.banditStart,
+    elite: battle.elite ?? Boolean(bandit?.elite || bandit?.isElite)
+  });
   state.battle = null;
   incrementTelemetry(state, "battlesFled");
   addEvent(state, "log.retreatSuccess", { banditId: battle.banditId }, "win");

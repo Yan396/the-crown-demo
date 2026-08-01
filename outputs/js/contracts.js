@@ -1,5 +1,6 @@
 import { CONFIG } from "./data.js";
 import { activeTown, addEvent } from "./state.js";
+import { recordChronicleMilestone } from "./telemetry.js";
 
 export function getContractOffer(state) {
   if (state.player.act < 2 || state.demo?.ended || state.battle) return null;
@@ -31,9 +32,12 @@ export function acceptContract(state, offer = getContractOffer(state)) {
     townId: offer.townId,
     factionId: offer.factionId
   }, "win");
+  recordChronicleMilestone(state, "firstContract", {
+    townId: offer.townId,
+    factionId: offer.factionId
+  });
   return { ok: true, contract: state.player.contract };
 }
 
 export const generateContractOffer = getContractOffer;
 export const takeContract = acceptContract;
-

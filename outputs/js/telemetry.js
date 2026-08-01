@@ -21,6 +21,14 @@ export function createTelemetry(options = {}) {
     eventChoices: [],
     promiseValues: { troops: null, gold: null },
     promiseFinalActuals: { troops: null, gold: null },
+    promiseCrossings: { troops: null, gold: null },
+    chronicle: {
+      firstWin: null,
+      firstContract: null,
+      biggestBattle: null,
+      act2: null,
+      ending: null
+    },
     actTimestamps: { act1: startedAt, act2: null, ending: null },
     quitPoint: null,
     tooltipViews: { town: 0, lowGold: 0, act2: 0 },
@@ -46,6 +54,8 @@ export function normalizeTelemetry(value, options = {}) {
       : [],
     promiseValues: { ...fallback.promiseValues, ...(value.promiseValues || {}) },
     promiseFinalActuals: { ...fallback.promiseFinalActuals, ...(value.promiseFinalActuals || {}) },
+    promiseCrossings: { ...fallback.promiseCrossings, ...(value.promiseCrossings || {}) },
+    chronicle: { ...fallback.chronicle, ...(value.chronicle || {}) },
     actTimestamps: { ...fallback.actTimestamps, ...(value.actTimestamps || {}) },
     tooltipViews: { ...fallback.tooltipViews, ...(value.tooltipViews || {}) }
   };
@@ -61,6 +71,116 @@ export function normalizeTelemetry(value, options = {}) {
     normalized[key] = Math.max(0, Number(normalized[key]) || 0);
   });
   return normalized;
+}
+
+function telemetryMoment(state, tick = state?.tick) {
+  const normalizedTick = Math.max(0, Math.floor(Number(tick) || 0));
+  const currentTick = Math.max(0, Math.floor(Number(state?.tick) || 0));
+  const activeSeconds = normalizedTick === currentTick
+    ? Math.max(0, Number(state?.telemetry?.totalActiveSeconds) || 0)
+    : normalizedTick * CONFIG.LOGIC_MS / 1000;
+  const sessionStart = Date.parse(state?.telemetry?.sessionStart || "");
+  return {
+    tick: normalizedTick,
+    day: Math.floor(normalizedTick / CONFIG.TICKS_PER_DAY) + 1,
+    activeSeconds: Number(activeSeconds.toFixed(3)),
+    at: Number.isFinite(sessionStart)
+      ? new Date(sessionStart + activeSeconds * 1000).toISOString()
+      : null
+  };
+}
+
+function ensureNarrativeTelemetry(state) {
+  if (!state?.telemetry) return null;
+  state.telemetry.promiseCrossings = {
+    troops: null,
+    gold: null,
+    ...(state.telemetry.promiseCrossings || {})
+  };
+  state.telemetry.chronicle = {
+    firstWin: null,
+    firstContract: null,
+    biggestBattle: null,
+    act2: null,
+    ending: null,
+    ...(state.telemetry.chronicle || {})
+  };
+  return state.telemetry;
+}
+
+export function recordPromiseCrossing(state, kind, details = {}) {
+  const telemetry = ensureNarrativeTelemetry(state);
+  if (!telemetry || !Object.hasOwn(telemetry.promiseCrossings, kind)) return null;
+  if (telemetry.promiseCrossings[kind]) return telemetry.promiseCrossings[kind];
+  const actual = details.actual === null || details.actual === undefined
+    ? null
+    : Number(details.actual);
+  const statedGoal = details.statedGoal === null || details.statedGoal === undefined
+    ? null
+    : Number(details.statedGoal);
+  const crossing = {
+    ...telemetryMoment(state, details.tick),
+    statedGoal: Number.isFinite(statedGoal) ? statedGoal : null,
+    actual: Number.isFinite(actual) ? actual : null
+  };
+  telemetry.promiseCrossings[kind] = crossing;
+  return crossing;
+}
+
+export function recordChronicleMilestone(state, kind, details = {}) {
+  const telemetry = ensureNarrativeTelemetry(state);
+  if (!telemetry || !Object.hasOwn(telemetry.chronicle, kind) || kind === "biggestBattle") return null;
+  if (telemetry.chronicle[kind]) return telemetry.chronicle[kind];
+  const entry = { ...telemetryMoment(state, details.tick), ...details };
+  telemetry.chronicle[kind] = entry;
+  return entry;
+}
+
+export function recordBiggestBattle(state, details = {}) {
+  const telemetry = ensureNarrativeTelemetry(state);
+  if (!telemetry) return null;
+  const playerStart = Math.max(0, Math.floor(Number(details.playerStart) || 0));
+  const enemyStart = Math.max(0, Math.floor(Number(details.enemyStart) || 0));
+  const totalStart = playerStart + enemyStart;
+  const previous = telemetry.chronicle.biggestBattle;
+  if (previous && Number(previous.totalStart) >= totalStart) return previous;
+  const entry = {
+    ...telemetryMoment(state, details.tick),
+    banditId: details.banditId || null,
+    townId: details.townId || null,
+    playerStart,
+    enemyStart,
+    totalStart,
+    elite: Boolean(details.elite),
+    outcome: null
+  };
+  telemetry.chronicle.biggestBattle = entry;
+  return entry;
+}
+
+export function recordBattleOutcome(state, details = {}) {
+  const telemetry = ensureNarrativeTelemetry(state);
+  if (!telemetry) return null;
+  const biggest = telemetry.chronicle.biggestBattle;
+  const battleTick = Math.max(0, Math.floor(Number(details.tick) || 0));
+  if (
+    biggest &&
+    biggest.tick === battleTick &&
+    (!biggest.banditId || !details.banditId || biggest.banditId === details.banditId)
+  ) {
+    biggest.outcome = details.outcome || null;
+  }
+  if (details.outcome === "victory" && !telemetry.chronicle.firstWin) {
+    telemetry.chronicle.firstWin = {
+      ...telemetryMoment(state, battleTick),
+      banditId: details.banditId || null,
+      townId: details.townId || null,
+      playerStart: Math.max(0, Math.floor(Number(details.playerStart) || 0)),
+      enemyStart: Math.max(0, Math.floor(Number(details.enemyStart) || 0)),
+      elite: Boolean(details.elite)
+    };
+  }
+  return biggest;
 }
 
 export function recordActiveTime(state, elapsedMilliseconds) {
@@ -91,6 +211,14 @@ export function finalizeTelemetry(state, endedAt = nowIso()) {
   state.telemetry.promiseValues.gold = goldPromise?.statedGoal ?? null;
   state.telemetry.promiseFinalActuals.troops = troopPromise?.actualAtActEnd ?? null;
   state.telemetry.promiseFinalActuals.gold = goldPromise?.actualAtActEnd ?? null;
+  for (const promise of [troopPromise, goldPromise]) {
+    if (!promise?.exceeded) continue;
+    recordPromiseCrossing(state, promise.kind, {
+      tick: promise.exceededAtTick,
+      statedGoal: promise.statedGoal,
+      actual: null
+    });
+  }
 }
 
 export function buildPlaytestPayload(state) {
@@ -106,7 +234,8 @@ export function buildPlaytestPayload(state) {
       kind: entry.kind,
       statedGoal: entry.statedGoal,
       actualAtActEnd: entry.actualAtActEnd,
-      exceeded: Boolean(entry.exceeded)
+      exceeded: Boolean(entry.exceeded),
+      exceededAtTick: entry.exceededAtTick ?? null
     })),
     stats: {
       days: state.stats?.days || 0,
