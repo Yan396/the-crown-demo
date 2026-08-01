@@ -140,8 +140,8 @@ export function advanceActIfNeeded(state, occurredAt) {
     state.telemetry.promiseFinalActuals.troops = promise.actualAtActEnd;
     state.player.act = 2;
     state.demo.act2Tick = state.tick;
-    state.demo.modal = "goldPromise";
-    state.demo.pauseReason = "promise";
+    state.demo.modal = "act2Transition";
+    state.demo.pauseReason = "actTransition";
     state.paused = true;
     state.telemetry.actTimestamps.act2 ||= now;
     addEvent(state, "log.act2", {}, "win");
@@ -153,6 +153,14 @@ export function advanceActIfNeeded(state, occurredAt) {
     return completeDemo(state, now);
   }
   return null;
+}
+
+export function beginAct2Promise(state) {
+  if (state.demo?.modal !== "act2Transition") return { advanced: false };
+  state.demo.modal = "goldPromise";
+  state.demo.pauseReason = "promise";
+  state.paused = true;
+  return { advanced: true, promise: "gold" };
 }
 
 export function completeDemo(state, occurredAt) {

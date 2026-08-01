@@ -297,12 +297,36 @@ function createDemoState(options = {}) {
     endingTick: null,
     firstBattleTick: null,
     lastTownId: null,
+    roadEvent: null,
+    activeRoadEvent: null,
     tooltipsSeen: {
       town: Boolean(options.tooltipsSeen?.town),
       lowGold: Boolean(options.tooltipsSeen?.lowGold),
       act2: Boolean(options.tooltipsSeen?.act2)
     },
     pendingTooltips: []
+  };
+}
+
+function createCasualState() {
+  return {
+    roadEventDay: -1,
+    roadEventsToday: 0,
+    lastRoadEventRollDay: -1,
+    firstRoadEventDay: null,
+    firstRoadEventTick: null,
+    firstRoadEventSeconds: null,
+    eventHistory: [],
+    openingBattlesPrepared: 0,
+    playerBattlesResolved: 0,
+    winStreak: 0,
+    lossStreak: 0,
+    recoverySpawnsRemaining: 0,
+    largeSpawnPending: false,
+    banditBattlesBlockedDay: -1,
+    nextBattleAttackMultiplier: 1,
+    lastBattleBalance: null,
+    lastSpawnBalance: null
   };
 }
 
@@ -352,6 +376,7 @@ export function createInitialState(seed = CONFIG.SEED, options = {}) {
       startedAt: options.startedAt || null,
       replayCount: options.replayCount || 0
     }),
+    casual: createCasualState(),
     demo,
     ending: { complete: false, visible: false, tick: null },
     battle: null,
@@ -410,7 +435,13 @@ export function isValidState(value) {
   if (!Array.isArray(value.bandits) || !value.bandits.every(isParty)) return false;
   if (new Set(value.bandits.map((bandit) => bandit.id)).size !== value.bandits.length) return false;
   if (value.bandits.length && value.bandits.filter((bandit) => bandit.elite).length !== 1) return false;
-  if (!Array.isArray(value.eventLog) || !value.stats || !value.telemetry || !value.demo) return false;
+  if (!Array.isArray(value.eventLog) || !value.stats || !value.telemetry || !value.demo || !value.casual) return false;
+  if (
+    !Array.isArray(value.casual.eventHistory) ||
+    !Number.isSafeInteger(value.casual.openingBattlesPrepared) ||
+    !Number.isSafeInteger(value.casual.playerBattlesResolved) ||
+    !Number.isSafeInteger(value.casual.recoverySpawnsRemaining)
+  ) return false;
   if (!Number.isFinite(value.telemetry.totalActiveSeconds) || value.telemetry.totalActiveSeconds < 0) return false;
   if (!Number.isSafeInteger(value.nextBanditId) || value.nextBanditId < 1) return false;
   if (value.battle !== null && (!value.battle || typeof value.battle.banditId !== "string")) return false;
@@ -452,12 +483,36 @@ function migrateState(state) {
   state.stats.peakTroops = Math.max(state.stats.peakTroops || 0, getTroopCount(state.player));
   state.stats.peakGold = Math.max(state.stats.peakGold || 0, state.player.gold);
   state.telemetry = normalizeTelemetry(state.telemetry, { replayCount: state.telemetry?.replayCount || 0 });
+  state.casual = { ...createCasualState(), ...(state.casual || {}) };
+  state.casual.eventHistory = Array.isArray(state.casual.eventHistory)
+    ? state.casual.eventHistory.slice(-CONFIG.ROAD_EVENT_HISTORY_LIMIT)
+    : [];
+  [
+    "roadEventsToday",
+    "openingBattlesPrepared",
+    "playerBattlesResolved",
+    "winStreak",
+    "lossStreak",
+    "recoverySpawnsRemaining"
+  ].forEach((key) => {
+    state.casual[key] = Math.max(0, Math.floor(Number(state.casual[key]) || 0));
+  });
+  state.casual.largeSpawnPending = Boolean(state.casual.largeSpawnPending);
+  state.casual.banditBattlesBlockedDay = Number.isInteger(state.casual.banditBattlesBlockedDay)
+    ? state.casual.banditBattlesBlockedDay
+    : -1;
+  state.casual.nextBattleAttackMultiplier = Math.max(
+    1,
+    Number(state.casual.nextBattleAttackMultiplier) || 1
+  );
   state.demo = state.demo ? {
     ...createDemoState({ skipOnboarding: state.demo.onboardingComplete, tooltipsSeen: state.demo.tooltipsSeen }),
     ...state.demo,
     tooltipsSeen: { ...createDemoState().tooltipsSeen, ...(state.demo.tooltipsSeen || {}) },
     pendingTooltips: Array.isArray(state.demo.pendingTooltips) ? state.demo.pendingTooltips : []
   } : createDemoState();
+  state.demo.roadEvent = state.demo.roadEvent || state.demo.activeRoadEvent || null;
+  state.demo.activeRoadEvent = state.demo.activeRoadEvent || state.demo.roadEvent || null;
   state.ending ||= {
     complete: Boolean(state.demo.ended),
     visible: Boolean(state.demo.ended),

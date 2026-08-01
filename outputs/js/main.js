@@ -3,6 +3,7 @@ import { CONFIG, SUPPORTED_LANGUAGES } from "./data.js";
 import {
   advanceActIfNeeded,
   advanceOnboarding,
+  beginAct2Promise,
   checkLowGoldTooltip,
   consumeTooltip,
   submitPromise,
@@ -13,6 +14,7 @@ import { createMapRenderer } from "./map.js";
 import { stampSeal } from "./seal.js";
 import {
   acceptMercenaryContract,
+  chooseRoadEvent,
   recruitMilitia,
   setAutoplay,
   worldTick
@@ -56,6 +58,7 @@ let activePointerId = null;
 let ui;
 let lastTooltipTownId = null;
 let autoplayStopped = false;
+let actIntroTimer = null;
 
 const autoplayMetrics = {
   enabled: autoplayEnabled,
@@ -87,11 +90,29 @@ function handleBattleResult(result) {
   if (!result) return;
   if (result.type === "victory") {
     stampSeal(ui.text("map.victorySeal"));
+    ui.playVictoryFx(result.loot, result.renown);
     ui.showToast("toast.victory", { loot: result.loot });
   } else if (result.type === "defeat") {
     stampSeal(ui.text("map.defeatSeal"), { tone: "loss" });
     ui.showToast("toast.defeat", { townId: result.townId });
   }
+}
+
+function scheduleAct2Intro() {
+  if (state.demo?.modal !== "act2Transition") return;
+  if (autoplayEnabled) {
+    beginAct2Promise(state);
+    return;
+  }
+  if (actIntroTimer) clearTimeout(actIntroTimer);
+  const pauseMs = CONFIG.ACT_TRANSITION_PAUSE_MS ?? 1000;
+  stampSeal(ui.text("map.act2Seal"), { hold: Math.max(220, pauseMs - 320) });
+  actIntroTimer = setTimeout(() => {
+    actIntroTimer = null;
+    if (!beginAct2Promise(state).advanced) return;
+    persist(true);
+    sync();
+  }, pauseMs);
 }
 
 function sync() {
@@ -116,12 +137,20 @@ function recordAutoplayMilestone(name, seconds) {
 
 function resolveAutoplayModal() {
   if (!autoplayEnabled || !state.demo?.modal) return false;
+  if (state.demo.modal === "roadEvent") {
+    chooseRoadEvent(state, CONFIG.AUTOPLAY_ROAD_EVENT_CHOICE_INDEX);
+    return true;
+  }
   if (state.demo.modal === "onboarding") {
     advanceOnboarding(state);
     return true;
   }
   if (state.demo.modal === "troopPromise") {
     submitPromise(state, CONFIG.AUTOPLAY_TROOP_PROMISE, new Date(state.tick * CONFIG.LOGIC_MS).toISOString());
+    return true;
+  }
+  if (state.demo.modal === "act2Transition") {
+    beginAct2Promise(state);
     return true;
   }
   if (state.demo.modal === "goldPromise") {
@@ -168,10 +197,13 @@ ui = createUi({
     sync();
   },
   onRecruit() {
+    const town = activeTown(state);
+    const from = town ? renderer.worldToScreen(town.pos) : null;
     const result = recruitMilitia(state);
     if (result.ok) {
       updateSessionPeaks(state);
       persist(true);
+      ui.playRecruitFx(from, renderer.worldToScreen(state.player.pos));
       ui.showToast("toast.recruited");
     } else if (result.reason === "gold") {
       ui.showToast("toast.goldInsufficient");
@@ -196,6 +228,14 @@ ui = createUi({
     }
     sync();
   },
+  onRoadEventChoice(choiceIndex) {
+    const result = chooseRoadEvent(state, choiceIndex);
+    if (!result.ok) return;
+    updateSessionPeaks(state);
+    persist(true);
+    sync();
+    ui.showRoadEventResult(result.choice?.result);
+  },
   onSkipBattle() {
     if (state.paused) {
       ui.showToast("toast.paused");
@@ -205,7 +245,7 @@ ui = createUi({
     handleBattleResult(result);
     updateSessionPeaks(state);
     const transition = advanceActIfNeeded(state);
-    if (transition?.type === "act2") persist();
+    if (transition?.type === "act2") scheduleAct2Intro();
     persist(true);
     sync();
   },
@@ -255,6 +295,7 @@ ui = createUi({
 });
 
 finishAutoplaySetup();
+if (!autoplayEnabled && state.demo?.modal === "act2Transition") scheduleAct2Intro();
 
 function runLogicStep() {
   if (autoplayStopped) return;
@@ -279,6 +320,7 @@ function runLogicStep() {
   while (resolveAutoplayModal()) {
     // Resolve the Act 2 mirror question before the next simulated tick.
   }
+  if (transition?.type === "act2" && !autoplayEnabled) scheduleAct2Intro();
 
   const townId = activeTown(state)?.id || null;
   if (townId !== lastTooltipTownId || result.dayAdvanced || result.battleResult) showNextTooltip();

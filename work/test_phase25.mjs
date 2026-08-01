@@ -167,10 +167,11 @@ const onboardingModule = await importOptional("js/onboarding.js");
 const telemetryModule = await importOptional("js/telemetry.js");
 const demoModule = await importOptional("js/demo.js");
 const livingModule = await importOptional("js/living.js");
+const casualModule = await importOptional("js/casual.js");
 const contractsModule = await importOptional("js/contracts.js");
 const shareModule = await importOptional("js/share.js");
 const autoplayModule = await importOptional("js/autoplay.js");
-const optionalModules = [demoModule, livingModule, actsModule, onboardingModule, telemetryModule, contractsModule, shareModule, autoplayModule];
+const optionalModules = [demoModule, livingModule, casualModule, actsModule, onboardingModule, telemetryModule, contractsModule, shareModule, autoplayModule];
 
 const CONFIG = dataModule?.CONFIG || {};
 const TROOP_TYPES = dataModule?.TROOP_TYPES || {};
@@ -192,6 +193,13 @@ function advance(state, ticks, storage = null) {
   let result = null;
   for (let index = 0; index < ticks; index += 1) {
     result = worldTick(state);
+    if (!result?.advanced && state.demo?.modal === "roadEvent") {
+      const chooseRoadEvent = firstFunction([casualModule, simModule], ["chooseRoadEvent", "applyRoadEventChoice"]);
+      assert.ok(chooseRoadEvent, "deterministic continuation tests need the production road-event choice resolver");
+      assert.equal(chooseRoadEvent(state, CONFIG.AUTOPLAY_ROAD_EVENT_CHOICE_INDEX ?? 0)?.ok, true);
+      index -= 1;
+      continue;
+    }
     if (storage && autosaveState) autosaveState(state, result, storage);
   }
   return result;
@@ -719,6 +727,7 @@ test("telemetry: full semantic schema and gameplay counters", () => {
 
 test("telemetry: production loss and flee paths update exact counters", () => {
   const loss = createInitialState(82, { skipOnboarding: true });
+  if (loss.casual) loss.casual.openingBattlesPrepared = CONFIG.STARTER_BATTLE_COUNT ?? 2;
   loss.player.troops = [{ type: "militia", count: 1, xp: 0 }];
   const crusher = {
     id: `bandit_${loss.nextBanditId++}`,
@@ -789,20 +798,28 @@ test("time/pause: strict freeze and active-time accounting", () => {
   assert.ok(/paused/.test(main) && /modal|isDemoModalOpen/.test(main), "pause and blocking modals must gate active-time recording");
 });
 
-test("economy: deterministic daily wages and HUD rate", () => {
+test("economy: deterministic day-3 wage start and HUD rate", () => {
   const state = createInitialState(101, { skipOnboarding: true });
   state.player.gold = 100;
   state.player.troops = [
     { type: "militia", count: 5, xp: 0 },
     { type: "veteran", count: 2, xp: 0 }
   ];
-  state.tick = CONFIG.TICKS_PER_DAY - 1;
   state.bandits.forEach((bandit) => {
     bandit.pos = { x: CONFIG.WORLD_SIZE - 20, y: 20 };
     bandit.moveTarget = null;
   });
+  for (let day = 1; day <= 2; day += 1) {
+    state.tick = day * CONFIG.TICKS_PER_DAY - 1;
+    state.stats.days = day - 1;
+    worldTick(state);
+    assert.equal(state.player.gold, 100, `day ${day} must remain inside the wage grace period`);
+    assert.equal(state.stats.wagesPaid, 0, `day ${day} must not record wages`);
+  }
+  state.tick = CONFIG.TICKS_PER_DAY * 3 - 1;
+  state.stats.days = 2;
   worldTick(state);
-  assert.equal(state.player.gold, 89, "daily wages must deduct 5×1 + 2×3 exactly");
+  assert.equal(state.player.gold, 89, "day 3 wages must deduct 5×1 + 2×3 exactly");
   assert.equal(totalTroops(state.player), 7, "unpaid/desertion mechanics were not requested");
   worldTick(state);
   assert.equal(state.player.gold, 89, "wages must not deduct again outside a day boundary");
@@ -810,18 +827,20 @@ test("economy: deterministic daily wages and HUD rate", () => {
   const poor = createInitialState(102, { skipOnboarding: true });
   poor.player.gold = 5;
   poor.player.troops = [{ type: "militia", count: 5, xp: 0 }, { type: "veteran", count: 2, xp: 0 }];
-  poor.tick = CONFIG.TICKS_PER_DAY - 1;
+  poor.tick = CONFIG.TICKS_PER_DAY * 3 - 1;
+  poor.stats.days = 2;
   poor.bandits.forEach((bandit) => { bandit.pos = { x: CONFIG.WORLD_SIZE - 20, y: 20 }; });
   worldTick(poor);
-  assert.equal(poor.player.gold, 0, "insufficient wages must clamp gold at zero without adding desertion");
+  assert.equal(poor.player.gold, 0, "insufficient day-3 wages must clamp gold at zero without adding desertion");
   assert.equal(totalTroops(poor.player), 7);
 
   const paused = createInitialState(103, { skipOnboarding: true });
   paused.player.gold = 100;
-  paused.tick = CONFIG.TICKS_PER_DAY - 1;
+  paused.tick = CONFIG.TICKS_PER_DAY * 3 - 1;
+  paused.stats.days = 2;
   paused.paused = true;
   worldTick(paused);
-  assert.equal(paused.tick, CONFIG.TICKS_PER_DAY - 1);
+  assert.equal(paused.tick, CONFIG.TICKS_PER_DAY * 3 - 1);
   assert.equal(paused.player.gold, 100, "paused time must never pay wages");
 
   for (const language of ["zh", "en"]) {
@@ -1151,6 +1170,7 @@ test("bandits/loot: one persistent elite, seeded randomized loot, 10% jackpot", 
   assert.ok(jackpotEntries.every((entry) => (typeof entry === "number" ? entry : entry.amount) >= 200), "every jackpot must pay at least 200 gold");
 
   state.player.troops = [{ type: "veteran", count: 200, xp: 0 }];
+  if (state.casual) state.casual.openingBattlesPrepared = CONFIG.STARTER_BATTLE_COUNT ?? 2;
   elite.pos = clone(state.player.pos);
   elite.prevPos = clone(state.player.pos);
   battleModule.startBattle(state, elite);

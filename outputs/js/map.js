@@ -1058,5 +1058,5 @@ export function createMapRenderer(canvas) {
     if (PERF_MODE) recordFrameTime(performance.now() - started, now);
   }
 
-  return { render, resize, screenToWorld };
+  return { render, resize, screenToWorld, worldToScreen };
 }

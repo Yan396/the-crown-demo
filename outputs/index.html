@@ -26,7 +26,7 @@
       </div>
 
       <div id="stats" class="stats">
-        <div class="stat">
+        <div class="stat gold-stat">
           <span class="stat-head">
             <!-- Square-holed cash coin, not a generic disc. -->
             <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -38,7 +38,7 @@
           <small id="gold-promise" class="promise-marker" hidden></small>
           <small id="wage-label" class="wage-marker"></small>
         </div>
-        <div class="stat">
+        <div class="stat troop-stat">
           <span class="stat-head">
             <!-- Ge-style spear head on a shaft. -->
             <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -49,7 +49,7 @@
           <strong id="troop-value"></strong>
           <small id="troop-promise" class="promise-marker" hidden></small>
         </div>
-        <div class="stat">
+        <div class="stat renown-stat">
           <span class="stat-head">
             <!-- laurel: two facing sprigs -->
             <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -60,7 +60,7 @@
           </span>
           <strong id="renown-value"></strong>
         </div>
-        <div class="stat">
+        <div class="stat day-stat">
           <span class="stat-head">
             <!-- sun over the horizon: the passing day -->
             <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -110,10 +110,20 @@
 
     <section id="report">
       <div class="report-head">
-        <strong id="report-title"></strong>
+        <button id="report-toggle" type="button" aria-expanded="false">
+          <strong id="report-title"></strong>
+          <span id="report-chevron" aria-hidden="true">⌃</span>
+        </button>
         <div class="battle-actions">
           <button id="retreat-battle" type="button" hidden></button>
           <button id="skip-battle" type="button" hidden></button>
+        </div>
+      </div>
+      <div id="battle-comparison" hidden>
+        <strong id="encounter-verdict"></strong>
+        <div class="strength-bars" aria-hidden="true">
+          <span><i id="player-strength-bar"></i><small id="player-strength-value"></small></span>
+          <span><i id="enemy-strength-bar"></i><small id="enemy-strength-value"></small></span>
         </div>
       </div>
       <ol id="battle-log" aria-live="polite"></ol>
@@ -169,10 +179,14 @@
       </div>
       <div class="onboarding-copy">
         <small id="onboarding-step"></small>
+        <p id="onboarding-story"></p>
         <p id="onboarding-line"></p>
         <span id="onboarding-tap"></span>
       </div>
-      <button id="title-new-seed" class="ghost-button" type="button"></button>
+      <div class="title-actions">
+        <button id="title-new-seed" class="ghost-button" type="button"></button>
+        <small id="title-diagnostics"></small>
+      </div>
     </section>
 
     <section id="promise-modal" class="modal-layer" hidden>
@@ -188,6 +202,17 @@
     </section>
 
     <button id="context-tooltip" type="button" hidden></button>
+
+    <section id="road-event-modal" class="full-screen-layer road-event-layer" hidden>
+      <article class="road-event-card" role="dialog" aria-modal="true">
+        <small id="road-event-kicker"></small>
+        <p id="road-event-text"></p>
+        <div class="road-event-actions">
+          <button id="road-event-choice-a" class="primary-button" type="button"></button>
+          <button id="road-event-choice-b" class="ghost-button" type="button"></button>
+        </div>
+      </article>
+    </section>
 
     <section id="demo-ending" class="full-screen-layer ending-layer" hidden>
       <div class="ending-scroll">
@@ -205,11 +230,12 @@
           <button id="share-result" class="primary-button" type="button"></button>
           <button id="replay-button" class="ghost-button" type="button"></button>
         </div>
-        <code id="result-code" class="result-code"></code>
+        <code id="result-code" class="result-code" data-number-budget-exempt></code>
       </div>
     </section>
 
     <small id="version-label" class="version-label"></small>
+    <div id="fx-layer" aria-hidden="true"></div>
     <div id="toast" role="status" aria-live="polite"></div>
   </main>
 

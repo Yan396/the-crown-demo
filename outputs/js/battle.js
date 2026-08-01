@@ -1,4 +1,11 @@
 import { CONFIG } from "./data.js";
+import {
+  areBanditBattlesBlocked,
+  consumePlayerAttackMultiplier,
+  isStarterBattleProtected,
+  prepareStarterBattle,
+  recordPlayerBattleOutcome
+} from "./casual.js";
 import { nextFloat } from "./rng.js";
 import {
   ensureLivingState,
@@ -102,6 +109,7 @@ function playerBattleWinner(state, battle, bandit) {
     addEvent(state, "log.jackpot", { banditId: bandit.id, bonus: loot, elite }, "win");
   }
   if (elite) addEvent(state, "log.eliteVictory", { banditId: bandit.id, loot }, "win");
+  const casualOutcome = recordPlayerBattleOutcome(state, "win");
   return {
     type: "victory",
     loot,
@@ -109,6 +117,7 @@ function playerBattleWinner(state, battle, bandit) {
     elite,
     jackpot: Boolean(bandit.jackpot),
     contractPay,
+    casualOutcome,
     progressionCheck: true
   };
 }
@@ -133,7 +142,8 @@ function playerBattleLoser(state, bandit) {
   state.player.moveTarget = null;
   state.player.encounterCooldownUntil = state.tick + CONFIG.RESPAWN_GRACE_TICKS;
   addEvent(state, "log.defeat", { lostGold, townId: refuge.id }, "loss");
-  return { type: "defeat", lostGold, townId: refuge.id, progressionCheck: false };
+  const casualOutcome = recordPlayerBattleOutcome(state, "loss");
+  return { type: "defeat", lostGold, townId: refuge.id, casualOutcome, progressionCheck: false };
 }
 
 function finishBattle(state, winner, bandit) {
@@ -147,6 +157,8 @@ function finishBattle(state, winner, bandit) {
   const result = winner === "player"
     ? playerBattleWinner(state, battle, bandit)
     : playerBattleLoser(state, bandit);
+  result.balance = battle.balance || null;
+  result.playerAttackMultiplier = battle.playerAttackMultiplier || 1;
   state.battle = null;
   return result;
 }
@@ -166,7 +178,7 @@ export function resolveBattleRound(state) {
     return finishBattle(state, winner, bandit);
   }
 
-  const playerAttack = getPartyStrength(state.player);
+  const playerAttack = getPartyStrength(state.player) * (battle.playerAttackMultiplier || 1);
   const banditAttack = getPartyStrength(bandit);
   const playerMultiplier = CONFIG.BATTLE_DAMAGE_MIN + nextFloat(state.rng) * (
     CONFIG.BATTLE_DAMAGE_MAX - CONFIG.BATTLE_DAMAGE_MIN
@@ -197,6 +209,14 @@ export function resolveBattleRound(state) {
 export function startBattle(state, bandit) {
   ensureLivingState(state);
   if (state.battle) return null;
+  if (areBanditBattlesBlocked(state)) {
+    return { type: "blocked", reason: "escort", day: state.stats.days, banditId: bandit.id };
+  }
+  if (isStarterBattleProtected(state, bandit)) {
+    return { type: "blocked", reason: "starterProtection", banditId: bandit.id };
+  }
+  const balance = prepareStarterBattle(state, bandit);
+  const playerAttackMultiplier = consumePlayerAttackMultiplier(state);
   state.player.moveTarget = null;
   state.stats.battles += 1;
   incrementTelemetry(state, "battlesFought");
@@ -209,7 +229,9 @@ export function startBattle(state, bandit) {
     banditCasualties: 0,
     round: 0,
     nextRoundTick: state.tick + CONFIG.BATTLE_ROUND_TICKS,
-    counted: true
+    counted: true,
+    balance,
+    playerAttackMultiplier
   };
   addEvent(state, "log.encounter", {
     playerCount: getTroopCount(state.player),
@@ -222,10 +244,17 @@ export function startBattle(state, bandit) {
 }
 
 export function checkForEncounter(state) {
-  if (state.battle || state.tick < state.player.encounterCooldownUntil) return null;
+  if (
+    state.battle ||
+    areBanditBattlesBlocked(state) ||
+    state.tick < state.player.encounterCooldownUntil
+  ) return null;
   const candidates = state.bandits
     .map((bandit) => ({ bandit, separation: distance(state.player.pos, bandit.pos) }))
-    .filter((entry) => entry.separation <= CONFIG.ENCOUNTER_RADIUS)
+    .filter((entry) => (
+      entry.separation <= CONFIG.ENCOUNTER_RADIUS &&
+      !isStarterBattleProtected(state, entry.bandit)
+    ))
     .sort((first, second) => first.separation - second.separation || first.bandit.id.localeCompare(second.bandit.id));
   return candidates.length ? startBattle(state, candidates[0].bandit) : null;
 }

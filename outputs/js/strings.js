@@ -10,6 +10,8 @@ export const STRINGS = Object.freeze({
       stats: "角色状态",
       legend: "地图图例",
       report: "行军战报",
+      toggleReport: "展开或收起边闻",
+      roadEvent: "路遇抉择",
       town: "城镇招募",
       settings: "游戏设置",
       onboarding: "试玩引导",
@@ -30,12 +32,16 @@ export const STRINGS = Object.freeze({
       title: "王冠",
       subtitle: "朋友试玩版"
     }),
+    story: Object.freeze({
+      opening: "边军解散,你带着最后 5 个弟兄流落河湾。传闻:乱世将至,王座虚悬。"
+    }),
     hud: Object.freeze({
       gold: "金币",
       troops: "兵力",
       renown: "声望",
       day: "天数",
       wages: "-{wage}/日",
+      wageGrace: "第3天起发军饷",
       renownGateAct1: "声望 {renown}/50 → 自由队长",
       renownGateAct2: "声望 {renown}/100 → 完整版",
       promiseCompact: "你说 {goal}",
@@ -46,7 +52,7 @@ export const STRINGS = Object.freeze({
     }),
     hint: Object.freeze({
       move: "荒野与战争正在自行运转",
-      battle: "交战中 · 每 {seconds} 秒自动进行一轮",
+      battle: "交战中 · 双方正在交锋",
       paused: "世界已暂停 · 点击继续恢复行军"
     }),
     legend: Object.freeze({
@@ -56,13 +62,17 @@ export const STRINGS = Object.freeze({
     report: Object.freeze({
       march: "行军战报",
       battle: "交战记录",
+      quiet: "路上暂且无事",
+      verdictSureWin: "稳赢",
+      verdictEven: "势均力敌",
+      verdictOutmatched: "打不过",
       skip: "立即结算",
-      retreat: "撤退 70%"
+      retreat: "撤退"
     }),
     townPanel: Object.freeze({
       entered: "已进入城镇",
       territory: "{faction}领地",
-      recruit: "招募民兵 +1",
+      recruit: "招募民兵",
       recruitCost: "花费 {cost} 金币",
       recruitCapped: "兵力已达本幕上限 {cap}",
       tavern: "酒馆合同",
@@ -123,7 +133,11 @@ export const STRINGS = Object.freeze({
       townCaptured: "{lord}为{faction}夺取了{town}。",
       factionFallen: "{faction}失去了最后一座城镇，诸领主各奔东西。",
       lordDefected: "{lord}转投{faction}。",
-      lordBattle: "{winner}击退了{loser}。"
+      lordBattle: "{winner}击退了{loser}。",
+      roadEvent: "路上遇到一桩小事，队伍停下来商量。",
+      roadEventResolved: "这桩路边小事有了结果。",
+      largeBanditNearby: "附近出现大股匪帮",
+      banditParty: "匪队"
     }),
     map: Object.freeze({
       you: "你",
@@ -131,7 +145,8 @@ export const STRINGS = Object.freeze({
       eliteBandit: "精锐 {count}",
       playerSeal: "帥",
       victorySeal: "大捷",
-      defeatSeal: "败退"
+      defeatSeal: "败退",
+      act2Seal: "自由队长"
     }),
     onboarding: Object.freeze({
       seal: "王",
@@ -146,6 +161,8 @@ export const STRINGS = Object.freeze({
     promise: Object.freeze({
       act1Kicker: "第一幕 · 流浪佣兵",
       act2Kicker: "第二幕 · 自由队长",
+      act1Fiction: "河湾的炊烟在身后散去,五双眼睛等你拿主意。",
+      act2Fiction: "你的名字先于你进了酒馆,柜台后的眼睛开始重新估价。",
       troopsQuestion: "多少兵力会让你觉得安全?",
       goldQuestion: "上一幕你说 {said} 就够,你招到了 {actual}。这一幕,多少金币才够?",
       confirm: "我记住了"
@@ -154,6 +171,12 @@ export const STRINGS = Object.freeze({
       town: "在这里招兵",
       lowGold: "军饷快发不出了",
       act2: "酒馆里有雇佣合同"
+    }),
+    roadEvent: Object.freeze({
+      kicker: "路上 · 一桩小事"
+    }),
+    fx: Object.freeze({
+      renown: "+{renown} 声望"
     }),
     ending: Object.freeze({
       seal: "试玩终",
@@ -226,6 +249,8 @@ export const STRINGS = Object.freeze({
       stats: "Character status",
       legend: "Map legend",
       report: "Campaign report",
+      toggleReport: "Expand or collapse the road ticker",
+      roadEvent: "Roadside choice",
       town: "Town recruitment",
       settings: "Game settings",
       onboarding: "Demo onboarding",
@@ -246,12 +271,16 @@ export const STRINGS = Object.freeze({
       title: "The Crown",
       subtitle: "Friend-test demo"
     }),
+    story: Object.freeze({
+      opening: "The border army is disbanded. You drift into Riverbend with your last five companions. War is coming, and the throne stands empty."
+    }),
     hud: Object.freeze({
       gold: "Gold",
       troops: "Troops",
       renown: "Renown",
       day: "Day",
       wages: "-{wage}/day",
+      wageGrace: "Wages begin on Day 3",
       renownGateAct1: "Renown {renown}/50 → Free Captain",
       renownGateAct2: "Renown {renown}/100 → Full game",
       promiseCompact: "You said {goal}",
@@ -262,7 +291,7 @@ export const STRINGS = Object.freeze({
     }),
     hint: Object.freeze({
       move: "The wilds and their wars keep moving",
-      battle: "In battle · One round resolves every {seconds} seconds",
+      battle: "In battle · the lines are clashing",
       paused: "World paused · Resume to continue the march"
     }),
     legend: Object.freeze({
@@ -272,13 +301,17 @@ export const STRINGS = Object.freeze({
     report: Object.freeze({
       march: "Campaign Report",
       battle: "Battle Record",
+      quiet: "The road is quiet for now",
+      verdictSureWin: "Easy win",
+      verdictEven: "Even match",
+      verdictOutmatched: "Outmatched",
       skip: "Resolve Now",
-      retreat: "Retreat 70%"
+      retreat: "Retreat"
     }),
     townPanel: Object.freeze({
       entered: "Inside town",
       territory: "{faction} territory",
-      recruit: "Recruit Militia +1",
+      recruit: "Recruit Militia",
       recruitCost: "Costs {cost} gold",
       recruitCapped: "Act troop cap reached: {cap}",
       tavern: "Tavern Contract",
@@ -339,7 +372,11 @@ export const STRINGS = Object.freeze({
       townCaptured: "{lord} captured {town} for {faction}.",
       factionFallen: "{faction} lost its final town; its lords scattered.",
       lordDefected: "{lord} defected to {faction}.",
-      lordBattle: "{winner} drove back {loser}."
+      lordBattle: "{winner} drove back {loser}.",
+      roadEvent: "A small roadside matter brought the company to a halt.",
+      roadEventResolved: "The roadside matter was settled.",
+      largeBanditNearby: "A large bandit pack has appeared nearby.",
+      banditParty: "bandits"
     }),
     map: Object.freeze({
       you: "You",
@@ -347,7 +384,8 @@ export const STRINGS = Object.freeze({
       eliteBandit: "Elite {count}",
       playerSeal: "P",
       victorySeal: "大捷",
-      defeatSeal: "败退"
+      defeatSeal: "败退",
+      act2Seal: "CAPT"
     }),
     onboarding: Object.freeze({
       seal: "C",
@@ -362,6 +400,8 @@ export const STRINGS = Object.freeze({
     promise: Object.freeze({
       act1Kicker: "Act I · Wandering Mercenary",
       act2Kicker: "Act II · Free Captain",
+      act1Fiction: "Riverbend's smoke fades behind you; five pairs of eyes wait for your decision.",
+      act2Fiction: "Your name reaches the tavern before you do, and the room quietly revises your price.",
       troopsQuestion: "How many troops would make you feel safe?",
       goldQuestion: "Last act you said {said} was enough, then recruited {actual}. How much gold is enough this time?",
       confirm: "Remember this"
@@ -370,6 +410,12 @@ export const STRINGS = Object.freeze({
       town: "Recruit troops here",
       lowGold: "Your troop wages are running out",
       act2: "Mercenary contracts wait in taverns"
+    }),
+    roadEvent: Object.freeze({
+      kicker: "On the road · A small matter"
+    }),
+    fx: Object.freeze({
+      renown: "+{renown} renown"
     }),
     ending: Object.freeze({
       seal: "DEMO END",

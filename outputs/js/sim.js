@@ -11,10 +11,18 @@ import {
   resolveAiBattle,
   resolveBattleRound
 } from "./battle.js";
+import {
+  applyCasualSpawnBalance,
+  chooseRoadEvent as applyRoadEventChoice,
+  ensureCasualState,
+  getActiveRoadEvent,
+  processDailyRoadEvent as rollDailyRoadEvent
+} from "./casual.js";
 import { CONFIG, TROOP_TYPES } from "./data.js";
 import {
   advanceActIfNeeded,
   advanceOnboarding,
+  beginAct2Promise,
   submitPromise
 } from "./demo.js";
 import {
@@ -145,6 +153,7 @@ function declareWarInternal(state, first, second, relation) {
 
 export function initializeLivingWorld(state) {
   ensureLivingState(state);
+  ensureCasualState(state);
   normalizeFactionState(state);
   normalizeTownState(state);
   normalizeLordState(state);
@@ -158,7 +167,8 @@ export function initializeLivingWorld(state) {
 
   if (CONFIG.STARTER_BANDIT_ENABLED && !state.living.starterBanditSeeded) {
     state.living.starterBanditSeeded = true;
-    spawnScaledBandit(state, { townId: CONFIG.START_TOWN_ID });
+    const starter = spawnScaledBandit(state, { townId: CONFIG.START_TOWN_ID });
+    applyCasualSpawnBalance(state, starter);
   }
 
   if (CONFIG.DEMO && !state.living.demoWarSeeded) {
@@ -260,7 +270,10 @@ function processDailyEconomy(state) {
   }, 0);
   state.player.gold += fiefTax;
   state.stats.goldEarned += fiefTax;
-  const playerWage = payWage(state.player);
+  const wagesStarted = state.stats.days > CONFIG.WAGE_GRACE_DAYS;
+  const playerWage = wagesStarted
+    ? payWage(state.player)
+    : { due: dailyWage(state.player), paid: 0, unpaid: 0, deferred: true };
   state.stats.wagesPaid += playerWage.paid;
 
   let lordWagesPaid = 0;
@@ -287,20 +300,23 @@ function processDailyEconomy(state) {
     }
   });
 
-  addEvent(
-    state,
-    playerWage.unpaid > 0 ? "log.wagesShort" : "log.wages",
-    {
-      day: state.stats.days,
-      wage: playerWage.due,
-      paid: playerWage.paid,
-      unpaid: playerWage.unpaid,
-      fiefTax,
-      lordWagesPaid,
-      recruitPoolsGrew: recruitDay
-    },
-    playerWage.unpaid > 0 ? "loss" : ""
-  );
+  if (wagesStarted) {
+    addEvent(
+      state,
+      playerWage.unpaid > 0 ? "log.wagesShort" : "log.wages",
+      {
+        day: state.stats.days,
+        wage: playerWage.due,
+        paid: playerWage.paid,
+        unpaid: playerWage.unpaid,
+        fiefTax,
+        lordWagesPaid,
+        recruitPoolsGrew: recruitDay
+      },
+      playerWage.unpaid > 0 ? "loss" : ""
+    );
+  }
+  return { fiefTax, playerWage, lordWagesPaid, recruitPoolsGrew: recruitDay };
 }
 
 function resetSiege(state, town, lifted = true, preserveProgress = false) {
@@ -517,6 +533,21 @@ function movementSpeed(state, party, baseSpeed) {
     : CONFIG.OFF_ROAD_SPEED_MULTIPLIER);
 }
 
+export function processDailyRoadEvent(state, options = {}) {
+  const roads = buildRoads(state.seed);
+  const geometricallyOnRoad = typeof options.onRoad === "boolean"
+    ? options.onRoad
+    : isOnRoad(roads, state.player.pos.x, state.player.pos.y);
+  const onRoad = geometricallyOnRoad && !activeTown(state);
+  return rollDailyRoadEvent(state, { ...options, onRoad });
+}
+
+export function chooseRoadEvent(state, choiceIndex) {
+  return applyRoadEventChoice(state, choiceIndex);
+}
+
+export { getActiveRoadEvent };
+
 function progressionHook(state) {
   const target = state.player.act >= CONFIG.DEMO_MAX_ACT
     ? CONFIG.DEMO_END_RENOWN
@@ -545,6 +576,16 @@ function nearestBandit(state, includeElite = false) {
 
 function autoplayDecision(state) {
   if (!state.autoplay?.enabled || state.battle || state.demo?.ended) return;
+  const catchupActive = (
+    state.player.act >= 2 &&
+    state.telemetry.totalActiveSeconds >= CONFIG.AUTOPLAY_CATCHUP_START_SECONDS
+  );
+  if (catchupActive) {
+    state.autoplay.nextHuntTick = Math.min(
+      state.autoplay.nextHuntTick || state.tick,
+      state.tick + CONFIG.AUTOPLAY_CATCHUP_RECOVERY_TICKS
+    );
+  }
   const town = activeTown(state);
   const troopCap = state.player.act >= 2 ? CONFIG.ACT2_TROOP_CAP : CONFIG.ACT1_TROOP_CAP;
   const troops = getTroopCount(state.player);
@@ -631,6 +672,7 @@ export function worldTick(state) {
       dayAdvanced: false,
       battleResult: null,
       aiBattleResults: [],
+      roadEventResult: null,
       progression: progressionHook(state),
       events: []
     };
@@ -672,11 +714,16 @@ export function worldTick(state) {
     battleResult = checkForEncounter(state) || battleResult;
   }
   if (battleResult && state.autoplay?.enabled) {
-    state.autoplay.nextHuntTick = state.tick + (
-      state.player.act >= 2
-        ? CONFIG.AUTOPLAY_ACT2_RECOVERY_TICKS
-        : CONFIG.AUTOPLAY_ACT1_RECOVERY_TICKS
+    const catchupActive = (
+      state.player.act >= 2 &&
+      state.telemetry.totalActiveSeconds >= CONFIG.AUTOPLAY_CATCHUP_START_SECONDS
     );
+    const recoveryTicks = catchupActive
+      ? CONFIG.AUTOPLAY_CATCHUP_RECOVERY_TICKS
+      : state.player.act >= 2
+        ? CONFIG.AUTOPLAY_ACT2_RECOVERY_TICKS
+        : CONFIG.AUTOPLAY_ACT1_RECOVERY_TICKS;
+    state.autoplay.nextHuntTick = state.tick + recoveryTicks;
   }
 
   const aiBattleResults = resolveAiEncounters(state);
@@ -685,10 +732,17 @@ export function worldTick(state) {
   if (state.tick % CONFIG.AI_REEVALUATE_TICKS === 0) reevaluateAllLords(state);
 
   const dayAdvanced = state.tick % CONFIG.TICKS_PER_DAY === 0;
+  let dailyEconomyResult = null;
+  let spawnBalance = null;
+  let roadEventResult = null;
   if (dayAdvanced) {
     state.stats.days += 1;
-    processDailyEconomy(state);
-    if (state.bandits.length < CONFIG.MAX_BANDITS) spawnScaledBandit(state);
+    dailyEconomyResult = processDailyEconomy(state);
+    if (state.bandits.length < CONFIG.MAX_BANDITS) {
+      const spawned = spawnScaledBandit(state);
+      spawnBalance = applyCasualSpawnBalance(state, spawned);
+    }
+    roadEventResult = processDailyRoadEvent(state);
   }
   if (state.tick % CONFIG.DIPLOMACY_INTERVAL_TICKS === 0) updateDiplomacy(state);
   ensureEliteBandit(state);
@@ -698,6 +752,9 @@ export function worldTick(state) {
     dayAdvanced,
     battleResult,
     aiBattleResults,
+    dailyEconomyResult,
+    spawnBalance,
+    roadEventResult,
     progression: progressionHook(state),
     events: eventsSince(state, previousNewestEvent)
   };
@@ -771,12 +828,20 @@ function deterministicTimestamp(state) {
 
 function resolveAutoplayModal(state) {
   if (!state.demo?.modal) return false;
+  if (state.demo.modal === "roadEvent") {
+    chooseRoadEvent(state, CONFIG.AUTOPLAY_ROAD_EVENT_CHOICE_INDEX);
+    return true;
+  }
   if (state.demo.modal === "onboarding") {
     advanceOnboarding(state);
     return true;
   }
   if (state.demo.modal === "troopPromise") {
     submitPromise(state, CONFIG.AUTOPLAY_TROOP_PROMISE, deterministicTimestamp(state));
+    return true;
+  }
+  if (state.demo.modal === "act2Transition") {
+    beginAct2Promise(state);
     return true;
   }
   if (state.demo.modal === "goldPromise") {
@@ -799,6 +864,7 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
     Number(options.maxActiveSeconds) || CONFIG.AUTOPLAY_MAX_ACTIVE_SECONDS
   );
   let firstBattleSeconds = null;
+  let firstEventSeconds = null;
   let act2Seconds = null;
   let endingSeconds = null;
 
@@ -812,6 +878,9 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
       }
       const activeSeconds = state.telemetry.totalActiveSeconds;
       if (firstBattleSeconds === null && state.stats.battles > 0) firstBattleSeconds = activeSeconds;
+      if (firstEventSeconds === null && result.roadEventResult?.triggered) {
+        firstEventSeconds = activeSeconds;
+      }
       const transition = advanceActIfNeeded(state, deterministicTimestamp(state));
       if (transition?.type === "act2" && act2Seconds === null) act2Seconds = activeSeconds;
       if (transition?.type === "ending") endingSeconds = activeSeconds;
@@ -826,11 +895,13 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
   return {
     state,
     firstBattleSeconds,
+    firstEventSeconds,
     act2Seconds,
     endingSeconds,
     activeSeconds: state.telemetry.totalActiveSeconds,
     targets: {
       firstBattleMax: CONFIG.AUTOPLAY_FIRST_BATTLE_TARGET_SECONDS,
+      firstEventMax: CONFIG.ROAD_FIRST_EVENT_TARGET_SECONDS,
       act2Min: CONFIG.AUTOPLAY_ACT2_TARGET_MIN_SECONDS,
       act2Max: CONFIG.AUTOPLAY_ACT2_TARGET_MAX_SECONDS,
       endingMin: CONFIG.AUTOPLAY_END_TARGET_MIN_SECONDS,

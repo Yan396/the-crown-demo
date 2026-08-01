@@ -1,12 +1,20 @@
-import { CONFIG } from "./data.js";
+import { CONFIG, ROAD_EVENTS } from "./data.js";
 import { actTroopCap, getDailyWage } from "./demo.js";
-import { activeTown, getFaction, getLord, getTown, getTroopCount } from "./state.js";
+import {
+  activeTown,
+  getFaction,
+  getLord,
+  getPartyStrength,
+  getTown,
+  getTroopCount
+} from "./state.js";
 import { buildResultCode } from "./telemetry.js";
 import { lordName, translate } from "./strings.js";
 
 const reducedMotion = typeof window.matchMedia === "function"
   ? window.matchMedia("(prefers-reduced-motion: reduce)")
   : { matches: false };
+const numberBudgetDiagnostics = new URLSearchParams(window.location.search).get("qa") === "1";
 
 function motionOff() {
   return reducedMotion.matches;
@@ -14,6 +22,29 @@ function motionOff() {
 
 function element(id) {
   return document.getElementById(id);
+}
+
+export function countVisibleNumberTokens(root = globalThis.document?.body) {
+  if (!root || typeof globalThis.getComputedStyle !== "function") return 0;
+  const nodes = [root, ...root.querySelectorAll("*")];
+  const viewportWidth = globalThis.innerWidth || globalThis.document?.documentElement?.clientWidth || 0;
+  const viewportHeight = globalThis.innerHeight || globalThis.document?.documentElement?.clientHeight || 0;
+  let count = 0;
+  for (const node of nodes) {
+    if (node.matches?.("script, style, [aria-hidden='true'], [data-number-budget-exempt]")) continue;
+    if (node.closest?.("[data-number-budget-exempt]") && !node.matches?.("[data-number-budget-exempt]")) continue;
+    const style = getComputedStyle(node);
+    if (node.hidden || style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) continue;
+    if (node !== root && typeof node.getClientRects === "function") {
+      const rects = [...node.getClientRects()];
+      if (!rects.some((rect) => rect.right > 0 && rect.bottom > 0 && rect.left < viewportWidth && rect.top < viewportHeight)) continue;
+    }
+    for (const child of node.childNodes) {
+      if (child.nodeType !== Node.TEXT_NODE) continue;
+      count += child.textContent.match(/\d+(?:[.,]\d+)*/g)?.length || 0;
+    }
+  }
+  return count;
 }
 
 export function createUi(callbacks) {
@@ -42,7 +73,14 @@ export function createUi(callbacks) {
     legendText: element("legend-text"),
     seed: element("seed-label"),
     report: element("report"),
+    reportToggle: element("report-toggle"),
     reportTitle: element("report-title"),
+    battleComparison: element("battle-comparison"),
+    encounterVerdict: element("encounter-verdict"),
+    playerStrengthBar: element("player-strength-bar"),
+    enemyStrengthBar: element("enemy-strength-bar"),
+    playerStrengthValue: element("player-strength-value"),
+    enemyStrengthValue: element("enemy-strength-value"),
     skipBattle: element("skip-battle"),
     retreatBattle: element("retreat-battle"),
     battleLog: element("battle-log"),
@@ -72,9 +110,11 @@ export function createUi(callbacks) {
     onboardingSeal: element("onboarding-seal"),
     onboardingTitle: element("onboarding-title"),
     onboardingStep: element("onboarding-step"),
+    onboardingStory: element("onboarding-story"),
     onboardingLine: element("onboarding-line"),
     onboardingTap: element("onboarding-tap"),
     titleNewSeed: element("title-new-seed"),
+    titleDiagnostics: element("title-diagnostics"),
     promiseModal: element("promise-modal"),
     promiseCard: document.querySelector(".promise-card"),
     promiseKicker: element("promise-kicker"),
@@ -86,6 +126,11 @@ export function createUi(callbacks) {
     promiseMax: element("promise-max"),
     promiseConfirm: element("promise-confirm"),
     contextTooltip: element("context-tooltip"),
+    roadEventModal: element("road-event-modal"),
+    roadEventKicker: element("road-event-kicker"),
+    roadEventText: element("road-event-text"),
+    roadEventChoiceA: element("road-event-choice-a"),
+    roadEventChoiceB: element("road-event-choice-b"),
     ending: element("demo-ending"),
     endingSeal: element("ending-seal"),
     mirrorTitle: element("mirror-title"),
@@ -97,6 +142,7 @@ export function createUi(callbacks) {
     replay: element("replay-button"),
     resultCode: element("result-code"),
     version: element("version-label"),
+    fxLayer: element("fx-layer"),
     toast: element("toast"),
     description: document.querySelector('meta[name="description"]')
   };
@@ -109,6 +155,14 @@ export function createUi(callbacks) {
   let activeToast = null;
   let tooltipTimer = null;
   let promiseMode = null;
+  let numberBudgetFrame = 0;
+  let victoryFxTimer = 0;
+  let reportExpanded = false;
+  let diagnosticsVisible = false;
+  let titleTapCount = 0;
+  let lastTitleTapAt = 0;
+  let lastRenown = null;
+  let progressGlowTimer = null;
 
   function language() {
     return currentState?.settings.language || "zh";
@@ -137,7 +191,9 @@ export function createUi(callbacks) {
 
   function translatedLord(id) {
     const lord = currentState ? getLord(currentState, id) : null;
-    return lord ? lordName(language(), lord.nameIndex) : id;
+    if (lord) return lordName(language(), lord.nameIndex);
+    if (/^bandit_\d+$/.test(String(id))) return t("log.banditParty");
+    return id;
   }
 
   function resolveParameters(parameters = {}) {
@@ -167,14 +223,53 @@ export function createUi(callbacks) {
     return resolved;
   }
 
+  function compactEventText(copy) {
+    const replacement = language() === "zh" ? "若干" : "some";
+    const compact = copy
+      .replace(/[+−-]?\d+(?:[.,]\d+)?%?/g, replacement)
+      .replace(/\s+/g, " ")
+      .trim();
+    return language() === "zh" ? compact.replace(/\s*若干\s*/g, "若干") : compact;
+  }
+
   function renderEventLog() {
     refs.battleLog.replaceChildren();
-    currentState.eventLog.slice(0, CONFIG.VISIBLE_LOG_ENTRIES).forEach((entry) => {
+    const entries = currentState.eventLog.slice(0, CONFIG.VISIBLE_LOG_ENTRIES);
+    if (!entries.length) {
+      const quiet = document.createElement("li");
+      quiet.textContent = t("report.quiet");
+      refs.battleLog.appendChild(quiet);
+    }
+    entries.forEach((entry) => {
       const item = document.createElement("li");
-      item.textContent = t(entry.key, resolveParameters(entry.parameters));
+      const copy = t(entry.key, resolveParameters(entry.parameters));
+      item.textContent = compactEventText(copy);
       if (entry.tone) item.className = entry.tone;
       refs.battleLog.appendChild(item);
     });
+    refs.report.dataset.expanded = String(reportExpanded);
+    refs.reportToggle.setAttribute("aria-expanded", String(reportExpanded));
+  }
+
+  function localizedRoadCopy(value) {
+    if (typeof value === "string") return value;
+    return value?.[language()] || value?.zh || value?.en || "";
+  }
+
+  function syncRoadEvent(state) {
+    const active = state.demo?.activeRoadEvent || state.demo?.roadEvent || null;
+    const visible = state.demo?.modal === "roadEvent" && Boolean(active);
+    refs.roadEventModal.hidden = !visible;
+    if (!visible) return;
+    const eventId = typeof active === "string" ? active : (active.eventId || active.id);
+    const definition = ROAD_EVENTS.find((entry) => entry.id === eventId);
+    if (!definition) {
+      refs.roadEventModal.hidden = true;
+      return;
+    }
+    refs.roadEventText.textContent = localizedRoadCopy(definition.text);
+    refs.roadEventChoiceA.textContent = localizedRoadCopy(definition.choices[0]?.label);
+    refs.roadEventChoiceB.textContent = localizedRoadCopy(definition.choices[1]?.label);
   }
 
   function syncRenownGate(state) {
@@ -184,6 +279,43 @@ export function createUi(callbacks) {
     refs.renownGate.hidden = state.demo.ended;
     refs.renownGateFill.style.width = `${Math.min(100, (renown / gate) * 100)}%`;
     refs.renownGateLabel.textContent = t(key, { renown: Math.min(renown, gate) });
+    if (lastRenown !== null && renown > lastRenown && !motionOff()) {
+      refs.renownGateFill.classList.remove("growing");
+      void refs.renownGateFill.offsetWidth;
+      refs.renownGateFill.classList.add("growing");
+      if (progressGlowTimer) clearTimeout(progressGlowTimer);
+      progressGlowTimer = setTimeout(() => refs.renownGateFill.classList.remove("growing"), 560);
+    }
+    lastRenown = renown;
+  }
+
+  function battleVerdict(state) {
+    const bandit = state.battle
+      ? state.bandits.find((entry) => entry.id === state.battle.banditId)
+      : null;
+    if (!bandit) return null;
+    const playerStrength = getPartyStrength(state.player);
+    const enemyStrength = getPartyStrength(bandit);
+    const ratio = playerStrength / Math.max(1, enemyStrength);
+    const key = ratio >= CONFIG.ENCOUNTER_SURE_WIN_RATIO
+      ? "report.verdictSureWin"
+      : ratio <= CONFIG.ENCOUNTER_OUTMATCHED_RATIO
+        ? "report.verdictOutmatched"
+        : "report.verdictEven";
+    return { key, playerStrength, enemyStrength };
+  }
+
+  function syncBattleComparison(state) {
+    const comparison = battleVerdict(state);
+    refs.battleComparison.hidden = !comparison;
+    document.body.classList.toggle("battle-active", Boolean(comparison));
+    if (!comparison) return;
+    refs.encounterVerdict.textContent = t(comparison.key);
+    refs.playerStrengthValue.textContent = String(comparison.playerStrength);
+    refs.enemyStrengthValue.textContent = String(comparison.enemyStrength);
+    const maximum = Math.max(1, comparison.playerStrength, comparison.enemyStrength);
+    refs.playerStrengthBar.style.width = `${Math.max(8, comparison.playerStrength / maximum * 100)}%`;
+    refs.enemyStrengthBar.style.width = `${Math.max(8, comparison.enemyStrength / maximum * 100)}%`;
   }
 
   function syncPromiseMarker(node, promise, actual, key) {
@@ -202,6 +334,7 @@ export function createUi(callbacks) {
     syncPromiseMarker(refs.goldPromise, goldPromise, state.player.gold, "hud.goldOvershoot");
     document.body.classList.toggle("has-troop-overshoot", Boolean(troopPromise?.exceeded));
     document.body.classList.toggle("has-gold-overshoot", Boolean(goldPromise?.exceeded));
+    document.body.classList.toggle("has-gold-promise", Boolean(goldPromise));
   }
 
   function syncStaticStrings() {
@@ -214,11 +347,13 @@ export function createUi(callbacks) {
     refs.stats.setAttribute("aria-label", t("aria.stats"));
     refs.legend.setAttribute("aria-label", t("aria.legend"));
     refs.report.setAttribute("aria-label", t("aria.report"));
+    refs.reportToggle.setAttribute("aria-label", t("aria.toggleReport"));
     refs.townSheet.setAttribute("aria-label", t("aria.town"));
     refs.settingsSheet.setAttribute("aria-label", t("aria.settings"));
     refs.settingsScrim.setAttribute("aria-label", t("aria.closeSettings"));
     refs.onboarding.setAttribute("aria-label", t("aria.onboarding"));
     refs.promiseCard.setAttribute("aria-label", t("aria.promise"));
+    refs.roadEventModal.setAttribute("aria-label", t("aria.roadEvent"));
     refs.contextTooltip.setAttribute("aria-label", t("aria.tooltip"));
     refs.ending.setAttribute("aria-label", t("aria.ending"));
     refs.brandTitle.textContent = t("brand.title");
@@ -248,6 +383,7 @@ export function createUi(callbacks) {
     refs.titleNewSeed.textContent = t("onboarding.newSeed");
     refs.titleNewSeed.setAttribute("aria-label", t("aria.newSeed"));
     refs.promiseConfirm.textContent = t("promise.confirm");
+    refs.roadEventKicker.textContent = t("roadEvent.kicker");
     refs.endingSeal.textContent = t("ending.seal");
     refs.mirrorTitle.textContent = t("ending.mirrorTitle");
     refs.endingStatsTitle.textContent = t("ending.statsTitle");
@@ -257,6 +393,7 @@ export function createUi(callbacks) {
     refs.replay.textContent = t("ending.replay");
     refs.replay.setAttribute("aria-label", t("aria.replay"));
     refs.version.textContent = CONFIG.BUILD_VERSION;
+    refs.titleDiagnostics.textContent = `${t("legend.seed", { seed: currentState.seed })} · ${CONFIG.BUILD_VERSION}`;
     if (activeToast) refs.toast.textContent = t(activeToast.key, resolveParameters(activeToast.parameters));
   }
 
@@ -266,6 +403,8 @@ export function createUi(callbacks) {
     if (!visible) return;
     const current = state.demo.onboardingStep + 1;
     refs.onboardingStep.textContent = t("onboarding.step", { current });
+    refs.onboardingStory.hidden = current !== 1;
+    refs.onboardingStory.textContent = current === 1 ? t("story.opening") : "";
     refs.onboardingLine.textContent = t(`onboarding.step${current}`);
   }
 
@@ -286,7 +425,8 @@ export function createUi(callbacks) {
         said: actOne?.statedGoal ?? 0,
         actual: actOne?.actualAtActEnd ?? getTroopCount(state.player)
       });
-    refs.promiseContext.hidden = true;
+    refs.promiseContext.hidden = false;
+    refs.promiseContext.textContent = t(troops ? "promise.act1Fiction" : "promise.act2Fiction");
     if (promiseMode !== mode) {
       promiseMode = mode;
       const minimum = troops ? CONFIG.PROMISE_TROOPS_MIN : CONFIG.PROMISE_GOLD_MIN;
@@ -354,7 +494,9 @@ export function createUi(callbacks) {
     setCounter(refs.troops, getTroopCount(state.player));
     setCounter(refs.renown, state.player.renown);
     setCounter(refs.day, state.stats.days + 1);
-    refs.wage.textContent = t("hud.wages", { wage: getDailyWage(state.player) });
+    refs.wage.textContent = state.stats.days < CONFIG.WAGE_GRACE_DAYS
+      ? t("hud.wageGrace", { day: CONFIG.WAGE_GRACE_DAYS })
+      : t("hud.wages", { wage: getDailyWage(state.player) });
     refs.seed.textContent = t("legend.seed", { seed: state.seed });
     syncRenownGate(state);
     syncMirrorHud(state);
@@ -374,6 +516,7 @@ export function createUi(callbacks) {
     refs.skipBattle.hidden = !state.battle || state.paused;
     refs.retreatBattle.hidden = !state.battle || state.paused;
     renderEventLog();
+    syncBattleComparison(state);
 
     const town = !state.paused && !state.battle && !settingsOpen && !state.demo.modal ? activeTown(state) : null;
     refs.townSheet.hidden = !town;
@@ -406,6 +549,7 @@ export function createUi(callbacks) {
     refs.settingsSheet.hidden = !settingsOpen;
     refs.settingsScrim.hidden = !settingsOpen;
     document.body.classList.toggle("settings-open", settingsOpen);
+    document.body.classList.toggle("act-two", state.player.act >= 2);
     document.body.classList.toggle("paused", state.paused);
     document.body.classList.toggle("demo-modal-open", Boolean(state.demo.modal) && !state.demo.ended);
     refs.languageZh.setAttribute("aria-pressed", String(language() === "zh"));
@@ -415,7 +559,21 @@ export function createUi(callbacks) {
       : t("settings.autosaveUnavailable");
     syncOnboarding(state);
     configurePromiseModal(state);
+    syncRoadEvent(state);
     renderEnding(state);
+    updateNumberBudget();
+  }
+
+  function updateNumberBudget() {
+    if (!numberBudgetDiagnostics && !diagnosticsVisible) return;
+    if (numberBudgetFrame) cancelAnimationFrame(numberBudgetFrame);
+    numberBudgetFrame = requestAnimationFrame(() => {
+      document.documentElement.dataset.crownVisibleNumbers = String(countVisibleNumberTokens());
+      numberBudgetFrame = requestAnimationFrame(() => {
+        numberBudgetFrame = 0;
+        document.documentElement.dataset.crownVisibleNumbers = String(countVisibleNumberTokens());
+      });
+    });
   }
 
   function setSettingsOpen(nextOpen) {
@@ -429,12 +587,30 @@ export function createUi(callbacks) {
     activeToast = { key, parameters };
     refs.toast.textContent = t(key, resolveParameters(parameters));
     refs.toast.classList.add("show");
+    updateNumberBudget();
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(() => {
       refs.toast.classList.remove("show");
       refs.toast.textContent = "";
       activeToast = null;
+      updateNumberBudget();
     }, 1600);
+  }
+
+  function showRoadEventResult(copy) {
+    if (!currentState) return;
+    const message = localizedRoadCopy(copy);
+    if (!message) return;
+    activeToast = null;
+    refs.toast.textContent = message;
+    refs.toast.classList.add("show");
+    updateNumberBudget();
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      refs.toast.classList.remove("show");
+      refs.toast.textContent = "";
+      updateNumberBudget();
+    }, 1800);
   }
 
   function showContextTooltip(id) {
@@ -445,10 +621,93 @@ export function createUi(callbacks) {
     tooltipTimer = setTimeout(() => { refs.contextTooltip.hidden = true; }, 3200);
   }
 
+  function toggleDiagnosticsFromTitle(event) {
+    event.stopPropagation();
+    const now = performance.now();
+    const windowMs = CONFIG.TITLE_TRIPLE_TAP_WINDOW_MS ?? 650;
+    titleTapCount = now - lastTitleTapAt <= windowMs ? titleTapCount + 1 : 1;
+    lastTitleTapAt = now;
+    if (titleTapCount < 3) return;
+    titleTapCount = 0;
+    diagnosticsVisible = !diagnosticsVisible;
+    document.body.classList.toggle("diagnostics-visible", diagnosticsVisible);
+    updateNumberBudget();
+  }
+
+  function removeFx(node, delay = 900) {
+    window.setTimeout(() => {
+      node.remove();
+      updateNumberBudget();
+    }, delay);
+  }
+
+  function playVictoryFx(loot, renown) {
+    document.body.classList.add("victory-fx-active");
+    if (victoryFxTimer) clearTimeout(victoryFxTimer);
+    victoryFxTimer = setTimeout(() => {
+      victoryFxTimer = 0;
+      document.body.classList.remove("victory-fx-active");
+      updateNumberBudget();
+    }, 1700);
+    updateNumberBudget();
+    if (motionOff()) return;
+    const target = refs.gold.getBoundingClientRect();
+    const fromX = window.innerWidth * 0.5;
+    const fromY = window.innerHeight * 0.58;
+    const toX = target.left + target.width * 0.5;
+    const toY = target.top + target.height * 0.5;
+    const coinCount = Math.max(4, Math.min(8, Math.ceil(Math.max(1, loot) / 35)));
+    for (let index = 0; index < coinCount; index += 1) {
+      const coin = document.createElement("span");
+      coin.className = "fx-coin";
+      coin.textContent = "贝";
+      coin.style.setProperty("--from-x", `${fromX + (index - coinCount / 2) * 10}px`);
+      coin.style.setProperty("--from-y", `${fromY + (index % 2) * 8}px`);
+      coin.style.setProperty("--to-x", `${toX}px`);
+      coin.style.setProperty("--to-y", `${toY}px`);
+      coin.style.animationDelay = `${index * 34}ms`;
+      refs.fxLayer.appendChild(coin);
+      removeFx(coin, 950 + index * 34);
+    }
+    if (renown > 0) {
+      const gain = document.createElement("span");
+      gain.className = "fx-renown";
+      gain.textContent = t("fx.renown", { renown });
+      gain.style.setProperty("--from-x", `${Math.max(20, fromX - 50)}px`);
+      gain.style.setProperty("--from-y", `${fromY - 30}px`);
+      refs.fxLayer.appendChild(gain);
+      removeFx(gain, 900);
+    }
+    updateNumberBudget();
+  }
+
+  function playRecruitFx(from, to) {
+    if (motionOff() || !from || !to) return;
+    const start = Math.hypot(to.x - from.x, to.y - from.y) < 18
+      ? { x: from.x - 52, y: from.y + 22 }
+      : from;
+    for (let index = 0; index < 3; index += 1) {
+      const token = document.createElement("span");
+      token.className = "fx-recruit";
+      token.textContent = "卒";
+      token.style.setProperty("--from-x", `${start.x - index * 14}px`);
+      token.style.setProperty("--from-y", `${start.y + (index % 2) * 5}px`);
+      token.style.setProperty("--to-x", `${to.x}px`);
+      token.style.setProperty("--to-y", `${to.y}px`);
+      token.style.animationDelay = `${index * 45}ms`;
+      refs.fxLayer.appendChild(token);
+      removeFx(token, 760 + index * 45);
+    }
+  }
+
   refs.pause.addEventListener("click", () => callbacks.onTogglePause());
   refs.settingsButton.addEventListener("click", () => setSettingsOpen(true));
   refs.settingsClose.addEventListener("click", () => setSettingsOpen(false));
   refs.settingsScrim.addEventListener("click", () => setSettingsOpen(false));
+  refs.reportToggle.addEventListener("click", () => {
+    reportExpanded = !reportExpanded;
+    if (currentState) renderEventLog();
+  });
   refs.languageZh.addEventListener("click", () => callbacks.onLanguageChange("zh"));
   refs.languageEn.addEventListener("click", () => callbacks.onLanguageChange("en"));
   refs.recruit.addEventListener("click", () => callbacks.onRecruit());
@@ -456,6 +715,8 @@ export function createUi(callbacks) {
   refs.skipBattle.addEventListener("click", () => callbacks.onSkipBattle());
   refs.retreatBattle.addEventListener("click", () => callbacks.onRetreat());
   refs.onboarding.addEventListener("click", () => callbacks.onAdvanceOnboarding());
+  refs.onboardingTitle.addEventListener("click", toggleDiagnosticsFromTitle);
+  refs.brandTitle.addEventListener("click", toggleDiagnosticsFromTitle);
   refs.titleNewSeed.addEventListener("click", (event) => {
     event.stopPropagation();
     callbacks.onNewSeed(false);
@@ -465,13 +726,19 @@ export function createUi(callbacks) {
   });
   refs.promiseConfirm.addEventListener("click", () => callbacks.onSubmitPromise(Number(refs.promiseSlider.value)));
   refs.contextTooltip.addEventListener("click", () => { refs.contextTooltip.hidden = true; });
+  refs.roadEventChoiceA.addEventListener("click", () => callbacks.onRoadEventChoice(0));
+  refs.roadEventChoiceB.addEventListener("click", () => callbacks.onRoadEventChoice(1));
   refs.shareResult.addEventListener("click", () => callbacks.onShare());
   refs.replay.addEventListener("click", () => callbacks.onNewSeed(true));
+  refs.ending.addEventListener("scroll", updateNumberBudget, { passive: true });
+  window.addEventListener("resize", updateNumberBudget, { passive: true });
+  document.fonts?.ready?.then(updateNumberBudget);
 
   [
     refs.pause,
     refs.settingsButton,
     refs.settingsClose,
+    refs.reportToggle,
     refs.languageZh,
     refs.languageEn,
     refs.recruit,
@@ -482,6 +749,8 @@ export function createUi(callbacks) {
     refs.promiseSlider,
     refs.promiseConfirm,
     refs.contextTooltip,
+    refs.roadEventChoiceA,
+    refs.roadEventChoiceB,
     refs.shareResult,
     refs.replay
   ].forEach((control) => control.addEventListener("pointerdown", (event) => event.stopPropagation()));
@@ -490,7 +759,10 @@ export function createUi(callbacks) {
     text: t,
     sync,
     showToast,
+    showRoadEventResult,
     showContextTooltip,
+    playVictoryFx,
+    playRecruitFx,
     isSettingsOpen: () => settingsOpen,
     closeSettings: () => setSettingsOpen(false)
   };
