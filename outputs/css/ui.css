@@ -212,22 +212,30 @@ body.paused canvas {
   display: none !important;
 }
 
+/* The mirror line.
+   Under the line: a 2px ink tick under the counter — the promise, stated
+   quietly. Over the line: the promise turns cinnabar and sits on the same
+   baseline as the number it broke. This is the ONLY persistent cinnabar text
+   in the game; everything else was demoted to ink to keep it meaning something. */
+.stat .promise-marker {
+  display: block;
+  width: 18px;
+  height: 2px;
+  margin: 3px auto 0;
+  overflow: hidden;
+  background: var(--paper-dim);
+  color: transparent;
+  font: 700 9px/1.2 var(--font-display);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .stat .promise-marker.exceeded {
-  position: fixed;
-  z-index: 7;
-  top: calc(max(10px, env(safe-area-inset-top)) + 57px);
-  left: 50%;
-  width: max-content;
-  max-width: calc(100vw - 24px);
-  margin: 0;
-  padding: 3px 8px;
-  transform: translateX(-50%);
-  border: 1px solid rgba(176, 58, 46, 0.32);
-  border-radius: 999px;
-  background: rgba(232, 220, 195, 0.9);
-  color: var(--cinnabar-deep);
-  font: 700 10px/1.2 var(--font-display);
-  box-shadow: 0 4px 16px rgba(43, 38, 32, 0.12);
+  width: auto;
+  height: auto;
+  margin: 1px 0 0;
+  background: none;
+  color: var(--cinnabar-on-lacquer);
 }
 
 #gold-promise.exceeded {
@@ -416,7 +424,7 @@ body.has-gold-overshoot #hint {
 
 #hint.battle #hint-dot,
 #hint.paused #hint-dot {
-  background: var(--cinnabar);
+  background: var(--paper-dim);
   box-shadow: 0 0 0 3px rgba(176, 58, 46, 0.22);
 }
 
@@ -676,7 +684,7 @@ body.battle-active #stats .promise-marker:not(.exceeded) {
 }
 
 #battle-log li.loss {
-  color: var(--cinnabar-on-lacquer);
+  color: var(--paper-on-lacquer);
 }
 
 #battle-log li.round {
@@ -756,9 +764,9 @@ body.battle-active #stats .promise-marker:not(.exceeded) {
   min-width: 146px;
   min-height: 54px;
   padding: 8px 14px;
-  border: 1px solid var(--cinnabar-deep);
+  border: 1px solid var(--rule-on-lacquer);
   border-radius: 13px;
-  background: var(--cinnabar-deep);
+  background: transparent;
   box-shadow: 0 7px 18px rgba(0, 0, 0, 0.28);
   color: var(--paper);
   font: 700 15px var(--font-display);
@@ -846,7 +854,7 @@ body.battle-active #stats .promise-marker:not(.exceeded) {
 }
 
 #onboarding-step {
-  color: var(--cinnabar-deep);
+  color: var(--ink-faint);
   font: 700 11px var(--font-body);
   letter-spacing: 0.22em;
 }
@@ -885,8 +893,8 @@ body.battle-active #stats .promise-marker:not(.exceeded) {
 }
 
 .primary-button {
-  border: 1px solid var(--cinnabar-deep);
-  background: var(--cinnabar-deep);
+  border: 1px solid var(--rule-on-lacquer);
+  background: transparent;
   color: var(--paper);
   box-shadow: 0 8px 24px rgba(43, 38, 32, 0.2);
 }
@@ -939,7 +947,7 @@ body.diagnostics-visible #title-diagnostics {
 }
 
 #promise-kicker {
-  color: var(--cinnabar-deep);
+  color: var(--ink-faint);
   font: 700 10px var(--font-body);
   letter-spacing: 0.22em;
 }
@@ -966,7 +974,6 @@ body.diagnostics-visible #title-diagnostics {
 #promise-slider {
   width: 100%;
   height: 44px;
-  accent-color: var(--cinnabar-deep);
 }
 
 .promise-range {
@@ -994,7 +1001,7 @@ body.diagnostics-visible #title-diagnostics {
   border: 1px solid rgba(176, 58, 46, 0.55);
   border-radius: 999px;
   background: var(--paper);
-  color: var(--cinnabar-deep);
+  color: var(--ink);
   box-shadow: 0 16px 44px rgba(0, 0, 0, 0.28);
   font: 700 15px var(--font-display);
   pointer-events: auto;
@@ -1021,7 +1028,7 @@ body.diagnostics-visible #title-diagnostics {
 }
 
 #road-event-kicker {
-  color: var(--cinnabar-deep);
+  color: var(--ink-faint);
   font: 700 10px var(--font-body);
   letter-spacing: 0.22em;
 }
@@ -1231,13 +1238,13 @@ body.diagnostics-visible #title-diagnostics {
 }
 
 .fx-recruit {
-  color: var(--cinnabar-deep);
+  color: var(--ink);
   font: 700 20px/1 var(--font-display);
   animation: recruit-march 500ms steps(5, end) both;
 }
 
 .fx-renown {
-  color: var(--cinnabar-deep);
+  color: var(--green-ink);
   font: 700 20px/1 var(--font-display);
   text-shadow: 0 2px 8px rgba(232, 220, 195, 0.85);
   animation: renown-float 760ms ease-out both;

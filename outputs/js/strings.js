@@ -45,8 +45,8 @@ export const STRINGS = Object.freeze({
       renownGateAct1: "声望 {renown}/50 → 自由队长",
       renownGateAct2: "声望 {renown}/100 → 试玩终点",
       promiseCompact: "你说 {goal}",
-      troopOvershoot: "兵力 {actual} ▸ 你说 {goal}",
-      goldOvershoot: "金币 {actual} ▸ 你说 {goal}",
+      troopOvershoot: "▸ 你说 {goal}",
+      goldOvershoot: "▸ 你说 {goal}",
       pauseGlyph: "Ⅱ",
       resumeGlyph: "▶"
     }),
@@ -297,8 +297,8 @@ export const STRINGS = Object.freeze({
       renownGateAct1: "Renown {renown}/50 → Free Captain",
       renownGateAct2: "Renown {renown}/100 → Demo End",
       promiseCompact: "You said {goal}",
-      troopOvershoot: "Troops {actual} ▸ you said {goal}",
-      goldOvershoot: "Gold {actual} ▸ you said {goal}",
+      troopOvershoot: "▸ you said {goal}",
+      goldOvershoot: "▸ you said {goal}",
       pauseGlyph: "Ⅱ",
       resumeGlyph: "▶"
     }),
