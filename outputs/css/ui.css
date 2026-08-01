@@ -1121,11 +1121,6 @@ body.diagnostics-visible #title-diagnostics {
   font-variant-numeric: tabular-nums;
 }
 
-.mirror-row.overshot strong:last-child,
-.mirror-row.overshot .overshoot-mark {
-  color: var(--cinnabar-deep);
-}
-
 .ending-chronicle {
   list-style: none;
   margin: 0;
@@ -2003,4 +1998,107 @@ body.demo-ended #town-sheet {
    the map keeps reading underneath while the drawer is open. */
 #report {
   background: rgba(28, 25, 22, 0.85);
+}
+
+/* ---- 6: the demo ending, as an edict scroll ----------------------------- */
+/* The seal is the same object stampSeal presses: square vermilion field,
+   reserved double rim, characters in paper. */
+.ending-seal {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  border: 2.4px solid var(--paper);
+  outline: 1.1px solid rgba(232, 220, 195, 0.66);
+  outline-offset: -6px;
+  background: var(--cinnabar-deep);
+  color: var(--paper);
+  font: 700 26px/1.15 var(--font-display);
+  text-align: center;
+}
+
+/* The mirror table is the centrepiece: what you said, what you did. */
+.mirror-row {
+  gap: 14px;
+  padding: 14px 0;
+}
+
+.mirror-row span {
+  color: var(--ink-faint);
+  font: 12px var(--font-body);
+  letter-spacing: 0.1em;
+}
+
+.mirror-row strong {
+  color: var(--ink-faint);
+  font-weight: 400;
+}
+
+/* 你做 carries the gap. Cinnabar only when the promise was overshot — that is
+   the confession the whole screen exists to make. Size and weight are set
+   explicitly on both halves so an overshot row can never render quieter than a
+   kept one. */
+.mirror-row strong {
+  font-size: 23px;
+  line-height: 1.2;
+}
+
+.mirror-row strong:last-child {
+  color: var(--ink);
+  font-size: 23px;
+  font-weight: 700;
+}
+
+.mirror-row.overshot strong:last-child {
+  color: var(--cinnabar-deep);
+}
+
+/* Chronicle: Songti lines, each opened by a small ink dot. */
+.ending-chronicle li {
+  position: relative;
+  padding-left: 18px;
+}
+
+.ending-chronicle li::before {
+  position: absolute;
+  top: 0.62em;
+  left: 2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink);
+  opacity: 0.55;
+  content: "";
+}
+
+.ending-stat {
+  border-radius: 0;
+}
+
+/* The one filled cinnabar chip in the whole build. Everything else was demoted
+   in task 3 so that this single button carries weight. */
+#share-result {
+  min-height: 52px;
+  border: 1px solid var(--cinnabar-deep);
+  border-radius: 2px;
+  background: var(--cinnabar-deep);
+  color: var(--paper);
+  font: 600 15px var(--font-body);
+}
+
+#replay-button {
+  min-height: 52px;
+  border: 1px solid rgba(43, 38, 32, 0.55);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--ink);
+  font: 500 15px var(--font-body);
+}
+
+/* The result code is machinery, not reading matter: it recedes. */
+.result-code {
+  border-radius: 0;
+  color: var(--ink-faint);
+  font: 10px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+  opacity: 0.75;
+  word-break: break-all;
 }

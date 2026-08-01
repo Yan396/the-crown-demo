@@ -1,3 +1,4 @@
+import { stampSeal } from "./seal.js";
 import { CONFIG, ROAD_EVENTS } from "./data.js";
 import { buildChronicleEntries } from "./chronicle.js";
 import { actTroopCap, getDailyWage } from "./demo.js";
@@ -469,11 +470,22 @@ export function createUi(callbacks) {
     refs.endingStats.appendChild(wrapper);
   }
 
+  let endingStamped = false;
+
   function renderEnding(state) {
     const visible = Boolean(state.demo.ended);
     refs.ending.hidden = !visible;
     document.body.classList.toggle("demo-ended", visible);
-    if (!visible) return;
+    if (!visible) {
+      endingStamped = false;
+      return;
+    }
+    // The ending is one of the seal's specified moments. Fire it once per
+    // ending, not once per render pass.
+    if (!endingStamped) {
+      endingStamped = true;
+      stampSeal(t("ending.seal"));
+    }
     refs.mirrorTable.replaceChildren();
     state.player.promises.slice(0, 2).forEach((promise) => {
       const row = document.createElement("div");
