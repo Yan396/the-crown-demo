@@ -333,7 +333,11 @@ function rescaleLoot(bandit, oldCount, newCount, multiplier = 1) {
   const oldLoot = Number.isFinite(bandit.lootValue)
     ? bandit.lootValue
     : Math.floor((bandit.gold || 0) * CONFIG.LOOT_SHARE);
-  const scaled = Math.max(1, Math.round(oldLoot * (newCount / Math.max(1, oldCount)) * multiplier));
+  const minimum = bandit.jackpot ? CONFIG.LOOT_JACKPOT_MIN : 1;
+  const scaled = Math.max(
+    minimum,
+    Math.round(oldLoot * (newCount / Math.max(1, oldCount)) * multiplier)
+  );
   bandit.lootValue = scaled;
   bandit.gold = Math.ceil(scaled / CONFIG.LOOT_SHARE);
   return scaled;
@@ -358,7 +362,8 @@ export function prepareStarterBattle(state, bandit) {
     ? bandit.lootValue
     : Math.floor((bandit.gold || 0) * CONFIG.LOOT_SHARE);
   bandit.casualBaseLootPerTroop ??= currentLoot / oldCount;
-  const lootValue = Math.max(1, Math.round(
+  const minimumLoot = bandit.jackpot ? CONFIG.LOOT_JACKPOT_MIN : 1;
+  const lootValue = Math.max(minimumLoot, Math.round(
     bandit.casualBaseLootPerTroop * newCount * CONFIG.STARTER_BATTLE_LOOT_MULTIPLIER
   ));
   bandit.lootValue = lootValue;

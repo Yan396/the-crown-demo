@@ -531,8 +531,19 @@ test("battle onboarding: first two encounters are 0.4–0.6 strength and 2x loot
   state.stats.battles = 0;
   state.stats.wins = 0;
   for (let ordinal = 1; ordinal <= 2; ordinal += 1) {
-    const bandit = makeBandit(state, `casual_starter_${ordinal}`);
+    const bandit = makeBandit(
+      state,
+      `casual_starter_${ordinal}`,
+      ordinal === 1 ? { count: 100, loot: CONFIG.LOOT_JACKPOT_MIN } : undefined
+    );
+    if (ordinal === 1) bandit.jackpot = true;
     battle.startBattle(state, bandit);
+    if (ordinal === 1) {
+      assert.ok(
+        bandit.lootValue >= CONFIG.LOOT_JACKPOT_MIN,
+        "starter-battle scaling must not reduce a jackpot below its 200-gold floor"
+      );
+    }
     const ratio = partyStrength(bandit) / partyStrength(state.player);
     assert.ok(ratio >= 0.4 - 1e-9 && ratio <= 0.6 + 0.061, `starter battle ${ordinal} ratio ${ratio.toFixed(3)} must be 0.4–0.6 (one-bandit quantization allowed)`);
     const profile = state.battle || bandit;
@@ -570,7 +581,18 @@ test("rubber band: two consecutive losses cap the next two encounters at 0.7x", 
   assert.match(`${read("js/living.js")}\n${read("js/sim.js")}`, /spawnScaledBandit[\s\S]{0,500}applyCasualSpawnBalance|applyCasualSpawnBalance[\s\S]{0,500}spawnScaledBandit/, "production bandit spawning must apply the casual balance helper");
   for (let use = 1; use <= 2; use += 1) {
     const bandit = makeBandit(state, `casual_rubber_${use}`, { count: 100, loot: 0 });
+    if (use === 1) {
+      bandit.jackpot = true;
+      bandit.lootValue = CONFIG.LOOT_JACKPOT_MIN;
+      bandit.gold = Math.ceil(bandit.lootValue / CONFIG.LOOT_SHARE);
+    }
     casual.applyCasualSpawnBalance(state, bandit);
+    if (use === 1) {
+      assert.ok(
+        bandit.lootValue >= CONFIG.LOOT_JACKPOT_MIN,
+        "loss-recovery scaling must not reduce a jackpot below its 200-gold floor"
+      );
+    }
     const ratio = partyStrength(bandit) / partyStrength(state.player);
     assert.ok(ratio <= 0.7 + 0.061, `rubber encounter ${use} ratio ${ratio.toFixed(3)} exceeds 0.7x cap`);
     const remaining = semanticNumber(state, [/(?:rubber|assist|loss).*(?:remaining|uses|battles)/i, /recovery.*(?:remaining|spawns?)/i]);
@@ -648,6 +670,14 @@ test("UI structure: default log ticker, Act 1 contract hiding, title triple-tap 
   assert.match(combined, /(?:===|>=|<)\s*3|3\s*(?:===|<=|>)/, "diagnostics listener must trigger on exactly three taps");
   assert.match(css, /#seed-label[\s\S]{0,120}\.version-label\s*\{[^}]*display\s*:\s*none/is, "seed and version must be hidden by default");
   assert.match(css, /diagnostics-visible[^,{]*#seed-label[\s\S]{0,120}diagnostics-visible[^,{]*\.version-label\s*\{[^}]*display\s*:\s*block/is, "the third title tap must reveal seed and version through diagnostics-visible");
+  const mirrorHidingRule = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(([, selector, body]) => (
+    /display\s*:\s*none/.test(body) && selector.split(",").some((part) => {
+      const candidate = part.trim();
+      return /body\.(?:battle-active|victory-fx-active|settings-open|diagnostics-visible)/.test(candidate) &&
+        (/#stats$/.test(candidate) || /\.promise-marker(?:\.exceeded)?$/.test(candidate));
+    })
+  ));
+  assert.equal(mirrorHidingRule, undefined, "no active gameplay state may hide the permanent exceeded mirror line or its parent");
 });
 
 test("juice: 100ms pressed state, meaningful motion, and reduced-motion safety", () => {

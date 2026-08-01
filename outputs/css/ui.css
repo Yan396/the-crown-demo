@@ -459,7 +459,6 @@ body.diagnostics-visible .version-label {
 }
 
 /* Triple-tap diagnostics is a focused readout, not another HUD layer. */
-body.diagnostics-visible #stats,
 body.diagnostics-visible #renown-gate,
 body.diagnostics-visible #town-sheet,
 body.diagnostics-visible #report,
@@ -477,13 +476,11 @@ body.town-open #report {
   display: none;
 }
 
-body.victory-fx-active .wage-marker,
-body.victory-fx-active .promise-marker {
+body.victory-fx-active .wage-marker {
   display: none !important;
 }
 
 body.act-two.town-open #renown-gate,
-body.settings-open #stats,
 body.settings-open #renown-gate,
 body.demo-modal-open #renown-gate {
   display: none !important;
@@ -649,9 +646,21 @@ body.settings-open #report {
 }
 
 body.battle-active #renown-gate,
-body.battle-active .promise-marker,
-body.battle-active .wage-marker,
-body.battle-active #stats {
+body.battle-active .wage-marker {
+  display: none !important;
+}
+
+/* The mirror line is a permanent confession once it turns cinnabar. During a
+   battle, collapse the ordinary counters but keep any exceeded promise fixed
+   above the battlefield instead of visually removing it. */
+body.battle-active #stats,
+body.battle-active #stats .stat {
+  display: contents !important;
+}
+
+body.battle-active #stats .stat-head,
+body.battle-active #stats .stat > strong,
+body.battle-active #stats .promise-marker:not(.exceeded) {
   display: none !important;
 }
 
