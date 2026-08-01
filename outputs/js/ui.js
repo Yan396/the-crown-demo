@@ -63,9 +63,13 @@ export function createUi(callbacks) {
     description: document.querySelector('meta[name="description"]')
   };
 
-  // Presentation-only. The act system this points at does not exist in this
-  // build yet, so nothing reads this value; it drives the bar and label only.
-  const RENOWN_GATE = 50;
+  // Thresholds come from the demo spec's own gate copy (renownGateAct1/2).
+  // The act SYSTEM does not exist in this build yet, so this drives the bar and
+  // label only; when acts land, read the current act from state instead.
+  const RENOWN_GATES = [
+    { at: 50, key: "hud.renownGateAct1" },
+    { at: 100, key: "hud.renownGateAct2" }
+  ];
 
   const counterValues = new WeakMap();
 
@@ -85,14 +89,11 @@ export function createUi(callbacks) {
 
   function syncRenownGate(state, t) {
     const renown = Math.max(0, state.player.renown);
-    const reached = renown >= RENOWN_GATE;
-    refs.renownGate.hidden = reached;
-    if (reached) return;
-    refs.renownGateFill.style.width = `${Math.min(100, (renown / RENOWN_GATE) * 100)}%`;
-    refs.renownGateLabel.textContent = t("hud.renownGate", {
-      renown,
-      gate: RENOWN_GATE
-    });
+    const gate = RENOWN_GATES.find((entry) => renown < entry.at);
+    refs.renownGate.hidden = !gate;
+    if (!gate) return;
+    refs.renownGateFill.style.width = `${Math.min(100, (renown / gate.at) * 100)}%`;
+    refs.renownGateLabel.textContent = t(gate.key, { renown });
   }
 
   let currentState = null;
@@ -251,6 +252,7 @@ export function createUi(callbacks) {
   ].forEach((button) => button.addEventListener("pointerdown", (event) => event.stopPropagation()));
 
   return {
+    text: t,
     sync,
     showToast,
     isSettingsOpen: () => settingsOpen,

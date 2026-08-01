@@ -1,6 +1,7 @@
 import { skipBattle } from "./battle.js";
 import { CONFIG, SUPPORTED_LANGUAGES } from "./data.js";
 import { createMapRenderer } from "./map.js";
+import { stampSeal } from "./seal.js";
 import { recruitMilitia, worldTick } from "./sim.js";
 import { autosaveState, clamp, createInitialState, loadState, saveState } from "./state.js";
 import { createUi } from "./ui.js";
@@ -26,8 +27,10 @@ function persist(showFailure = false) {
 function handleBattleResult(result) {
   if (!result) return;
   if (result.type === "victory") {
+    stampSeal(ui.text("map.victorySeal"));
     ui.showToast("toast.victory", { loot: result.loot });
   } else if (result.type === "defeat") {
+    stampSeal(ui.text("map.defeatSeal"), { tone: "loss" });
     ui.showToast("toast.defeat", { townId: result.townId });
   }
 }

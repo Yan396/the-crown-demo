@@ -12,26 +12,40 @@ export const STRINGS = Object.freeze({
       report: "行军战报",
       town: "城镇招募",
       settings: "游戏设置",
+      onboarding: "试玩引导",
+      promise: "关于够了的承诺",
+      ending: "试玩结果",
+      tooltip: "提示",
       closeSettings: "关闭设置",
       pause: "暂停世界",
       resume: "继续世界",
-      openSettings: "打开设置"
+      openSettings: "打开设置",
+      newSeed: "使用新种子开始",
+      share: "分享试玩结果",
+      replay: "使用新种子再玩一局",
+      tavern: "接受酒馆合同",
+      retreat: "尝试撤退"
     }),
     brand: Object.freeze({
       title: "王冠",
-      subtitle: "沙盒策略原型"
+      subtitle: "朋友试玩版"
     }),
     hud: Object.freeze({
       gold: "金币",
       troops: "兵力",
       renown: "声望",
       day: "天数",
-      renownGate: "声望 {renown}/{gate} · 距自由队长",
+      wages: "-{wage}/日",
+      renownGateAct1: "声望 {renown}/50 → 自由队长",
+      renownGateAct2: "声望 {renown}/100 → 完整版",
+      promiseCompact: "你说 {goal}",
+      troopOvershoot: "兵力 {actual} ▸ 你说 {goal}",
+      goldOvershoot: "金币 {actual} ▸ 你说 {goal}",
       pauseGlyph: "Ⅱ",
       resumeGlyph: "▶"
     }),
     hint: Object.freeze({
-      move: "轻触或拖动地图前进 · 靠近灰色匪队自动交战",
+      move: "荒野与战争正在自行运转",
       battle: "交战中 · 每 {seconds} 秒自动进行一轮",
       paused: "世界已暂停 · 点击继续恢复行军"
     }),
@@ -42,13 +56,18 @@ export const STRINGS = Object.freeze({
     report: Object.freeze({
       march: "行军战报",
       battle: "交战记录",
-      skip: "立即结算"
+      skip: "立即结算",
+      retreat: "撤退 70%"
     }),
     townPanel: Object.freeze({
       entered: "已进入城镇",
       territory: "{faction}领地",
       recruit: "招募民兵 +1",
-      recruitCost: "花费 {cost} 金币"
+      recruitCost: "花费 {cost} 金币",
+      recruitCapped: "兵力已达本幕上限 {cap}",
+      tavern: "酒馆合同",
+      contractOffer: "为{faction}而战 · 每胜 +{reward}",
+      contractActive: "受雇于{faction} · 每胜 +{reward}"
     }),
     settings: Object.freeze({
       title: "设置",
@@ -67,7 +86,14 @@ export const STRINGS = Object.freeze({
       paused: "世界已暂停",
       victory: "胜利 · 金币 +{loot}",
       defeat: "落败 · 退回{town}",
-      saveFailed: "本地存档失败"
+      saveFailed: "本地存档失败",
+      contractAccepted: "已接受{faction}的雇佣合同",
+      contractPaid: "合同酬金 +{reward}",
+      retreatSuccess: "你甩开了匪队",
+      retreatFailed: "撤退失败",
+      copied: "已复制,粘贴给 Ja 就行",
+      copyFailed: "复制失败，请长按下方代码",
+      newSeed: "新世界种子 {seed}"
     }),
     log: Object.freeze({
       initialMove: "白色方块是你。拖动地图选择行军目标。",
@@ -76,12 +102,88 @@ export const STRINGS = Object.freeze({
       battleRound: "第 {round} 轮：我方击倒 {banditLoss}，折损 {playerLoss}。",
       victory: "胜利：获得 {loot} 金币，声望 +{renown}。",
       defeat: "落败：失去 {lostGold} 金币，残部退回{town}。",
-      recruit: "在{town}招募 1 名民兵，花费 {cost} 金币。"
+      recruit: "在{town}招募 1 名民兵，花费 {cost} 金币。",
+      recruitCapped: "本幕兵力上限是 {cap}。",
+      wages: "发放军饷 {wage} 金币。",
+      wagesShort: "军饷不足，只发出了 {paid} 金币。",
+      jackpot: "意外发现一只沉重钱箱：额外 {bonus} 金币。",
+      eliteVictory: "击溃精锐匪队，战利品按三倍结算。",
+      eliteSpawned: "一支精锐匪队在{town}附近现身。",
+      act2: "声望传遍酒馆：你成为了自由队长。",
+      contractAccepted: "在{town}接受{faction}的雇佣合同。",
+      contractPaid: "履行{faction}合同，获得 {reward} 金币。",
+      retreatSuccess: "成功撤离战场。",
+      retreatFailed: "撤退失败，匪队追了上来。",
+      lordRecruited: "{lord}在{town}补充了 {count} 名士兵。",
+      warDeclared: "{first}向{second}宣战。",
+      peaceDeclared: "{first}与{second}停战，边界保持不变。",
+      townCaptured: "{lord}为{faction}夺取了{town}。",
+      factionFallen: "{faction}失去了最后一座城镇，诸领主各奔东西。",
+      lordDefected: "{lord}转投{faction}。",
+      lordBattle: "{winner}击退了{loser}。"
     }),
     map: Object.freeze({
       you: "你",
       bandit: "匪 {count}",
-      playerSeal: "帥"
+      eliteBandit: "精锐 {count}",
+      playerSeal: "帥",
+      victorySeal: "大捷",
+      defeatSeal: "败退"
+    }),
+    onboarding: Object.freeze({
+      seal: "王",
+      title: "王冠",
+      step: "{current} / 3",
+      step1: "①拖动地图,你的队伍会前进",
+      step2: "②灰点是匪队——打赢拿钱和声望",
+      step3: "③金币每天在减少。去打猎吧",
+      tap: "轻触继续",
+      newSeed: "换一个世界种子"
+    }),
+    promise: Object.freeze({
+      act1Kicker: "第一幕 · 流浪佣兵",
+      act2Kicker: "第二幕 · 自由队长",
+      troopsQuestion: "多少兵力会让你觉得安全?",
+      goldQuestion: "上一幕你说 {said} 就够,你招到了 {actual}。这一幕,多少金币才够?",
+      confirm: "我记住了"
+    }),
+    tooltip: Object.freeze({
+      town: "在这里招兵",
+      lowGold: "军饷快发不出了",
+      act2: "酒馆里有雇佣合同"
+    }),
+    ending: Object.freeze({
+      seal: "试玩终",
+      title: "这一程，到这里",
+      mirrorTitle: "你说 / 你做",
+      troops: "兵力",
+      gold: "金币",
+      said: "你说 {value}",
+      did: "你做 {value}",
+      statsTitle: "这一局",
+      days: "生存天数",
+      battles: "战斗",
+      winRate: "胜率",
+      peakTroops: "最高兵力",
+      peakGold: "最高金币",
+      line: "你两次上调了'够了'。完整版会问你第三次。",
+      share: "把结果发给 Ja",
+      replay: "再玩一局(新种子)",
+      shareTitle: "《王冠》试玩结果",
+      shareMessage: "我的《王冠》试玩结果:{code}"
+    }),
+    decode: Object.freeze({
+      title: "《王冠》试玩结果解码器",
+      description: "粘贴完整消息或 crown1. 开头的代码。数据只在当前浏览器中解码。",
+      placeholder: "我的《王冠》试玩结果:crown1.…",
+      button: "解码",
+      invalid: "无法读取这段代码，请检查是否完整。",
+      empty: "请先粘贴试玩代码。",
+      sectionRun: "试玩概况",
+      sectionTelemetry: "遥测明细",
+      sectionStats: "结局统计",
+      field: "字段",
+      value: "值"
     }),
     factions: Object.freeze({
       north: "北境",
@@ -122,26 +224,40 @@ export const STRINGS = Object.freeze({
       report: "Campaign report",
       town: "Town recruitment",
       settings: "Game settings",
+      onboarding: "Demo onboarding",
+      promise: "Enough promise",
+      ending: "Demo result",
+      tooltip: "Tip",
       closeSettings: "Close settings",
       pause: "Pause world",
       resume: "Resume world",
-      openSettings: "Open settings"
+      openSettings: "Open settings",
+      newSeed: "Start with a new seed",
+      share: "Share demo result",
+      replay: "Replay with a new seed",
+      tavern: "Accept tavern contract",
+      retreat: "Attempt to retreat"
     }),
     brand: Object.freeze({
       title: "The Crown",
-      subtitle: "Sandbox strategy prototype"
+      subtitle: "Friend-test demo"
     }),
     hud: Object.freeze({
       gold: "Gold",
       troops: "Troops",
       renown: "Renown",
       day: "Day",
-      renownGate: "Renown {renown}/{gate} · to Free Captain",
+      wages: "-{wage}/day",
+      renownGateAct1: "Renown {renown}/50 → Free Captain",
+      renownGateAct2: "Renown {renown}/100 → Full game",
+      promiseCompact: "You said {goal}",
+      troopOvershoot: "Troops {actual} ▸ you said {goal}",
+      goldOvershoot: "Gold {actual} ▸ you said {goal}",
       pauseGlyph: "Ⅱ",
       resumeGlyph: "▶"
     }),
     hint: Object.freeze({
-      move: "Tap or drag to move · Approach a gray bandit party to fight",
+      move: "The wilds and their wars keep moving",
       battle: "In battle · One round resolves every {seconds} seconds",
       paused: "World paused · Resume to continue the march"
     }),
@@ -152,13 +268,18 @@ export const STRINGS = Object.freeze({
     report: Object.freeze({
       march: "Campaign Report",
       battle: "Battle Record",
-      skip: "Resolve Now"
+      skip: "Resolve Now",
+      retreat: "Retreat 70%"
     }),
     townPanel: Object.freeze({
       entered: "Inside town",
       territory: "{faction} territory",
       recruit: "Recruit Militia +1",
-      recruitCost: "Costs {cost} gold"
+      recruitCost: "Costs {cost} gold",
+      recruitCapped: "Act troop cap reached: {cap}",
+      tavern: "Tavern Contract",
+      contractOffer: "Fight for {faction} · +{reward} per win",
+      contractActive: "Hired by {faction} · +{reward} per win"
     }),
     settings: Object.freeze({
       title: "Settings",
@@ -177,7 +298,14 @@ export const STRINGS = Object.freeze({
       paused: "The world is paused",
       victory: "Victory · Gold +{loot}",
       defeat: "Defeat · Retreated to {town}",
-      saveFailed: "Local save failed"
+      saveFailed: "Local save failed",
+      contractAccepted: "Accepted a mercenary contract from {faction}",
+      contractPaid: "Contract pay +{reward}",
+      retreatSuccess: "You slipped away from the bandits",
+      retreatFailed: "Retreat failed",
+      copied: "Copied — paste it to Ja",
+      copyFailed: "Copy failed; press and hold the code below",
+      newSeed: "New world seed {seed}"
     }),
     log: Object.freeze({
       initialMove: "The white square is you. Drag the map to choose a destination.",
@@ -186,12 +314,88 @@ export const STRINGS = Object.freeze({
       battleRound: "Round {round}: you felled {banditLoss} and lost {playerLoss}.",
       victory: "Victory: gained {loot} gold and {renown} renown.",
       defeat: "Defeat: lost {lostGold} gold and retreated to {town}.",
-      recruit: "Recruited 1 militia in {town} for {cost} gold."
+      recruit: "Recruited 1 militia in {town} for {cost} gold.",
+      recruitCapped: "The troop cap for this act is {cap}.",
+      wages: "Paid {wage} gold in troop wages.",
+      wagesShort: "The purse was short; only {paid} gold could be paid.",
+      jackpot: "A heavy coin chest yielded {bonus} bonus gold.",
+      eliteVictory: "The elite bandit pack fell; loot was tripled.",
+      eliteSpawned: "An elite bandit pack appeared near {town}.",
+      act2: "Your name reached the taverns: you are now a Free Captain.",
+      contractAccepted: "Accepted a {faction} mercenary contract in {town}.",
+      contractPaid: "The {faction} contract paid {reward} gold.",
+      retreatSuccess: "You withdrew from the field.",
+      retreatFailed: "The retreat failed; the bandits caught up.",
+      lordRecruited: "{lord} recruited {count} troops in {town}.",
+      warDeclared: "{first} declared war on {second}.",
+      peaceDeclared: "{first} and {second} made peace; the borders remain.",
+      townCaptured: "{lord} captured {town} for {faction}.",
+      factionFallen: "{faction} lost its final town; its lords scattered.",
+      lordDefected: "{lord} defected to {faction}.",
+      lordBattle: "{winner} drove back {loser}."
     }),
     map: Object.freeze({
       you: "You",
       bandit: "B {count}",
-      playerSeal: "P"
+      eliteBandit: "Elite {count}",
+      playerSeal: "P",
+      victorySeal: "大捷",
+      defeatSeal: "败退"
+    }),
+    onboarding: Object.freeze({
+      seal: "C",
+      title: "The Crown",
+      step: "{current} / 3",
+      step1: "①Drag the map and your party will move",
+      step2: "②Gray dots are bandits—win gold and renown",
+      step3: "③Your gold shrinks every day. Go hunting.",
+      tap: "Tap to continue",
+      newSeed: "Choose another world seed"
+    }),
+    promise: Object.freeze({
+      act1Kicker: "Act I · Wandering Mercenary",
+      act2Kicker: "Act II · Free Captain",
+      troopsQuestion: "How many troops would make you feel safe?",
+      goldQuestion: "Last act you said {said} was enough, then recruited {actual}. How much gold is enough this time?",
+      confirm: "Remember this"
+    }),
+    tooltip: Object.freeze({
+      town: "Recruit troops here",
+      lowGold: "Your troop wages are running out",
+      act2: "Mercenary contracts wait in taverns"
+    }),
+    ending: Object.freeze({
+      seal: "DEMO END",
+      title: "This road ends here",
+      mirrorTitle: "You said / You did",
+      troops: "Troops",
+      gold: "Gold",
+      said: "You said {value}",
+      did: "You did {value}",
+      statsTitle: "This run",
+      days: "Days survived",
+      battles: "Battles",
+      winRate: "Win rate",
+      peakTroops: "Peak troops",
+      peakGold: "Peak gold",
+      line: "Twice, you moved the line called 'enough.' The full game will ask a third time.",
+      share: "Send my result to Ja",
+      replay: "Play again (new seed)",
+      shareTitle: "The Crown demo result",
+      shareMessage: "我的《王冠》试玩结果:{code}"
+    }),
+    decode: Object.freeze({
+      title: "The Crown Playtest Decoder",
+      description: "Paste the full message or a crown1. code. It is decoded only in this browser.",
+      placeholder: "My Crown result: crown1.…",
+      button: "Decode",
+      invalid: "That code could not be read. Check that it is complete.",
+      empty: "Paste a playtest code first.",
+      sectionRun: "Run overview",
+      sectionTelemetry: "Telemetry details",
+      sectionStats: "Ending stats",
+      field: "Field",
+      value: "Value"
     }),
     factions: Object.freeze({
       north: "Northern Realm",

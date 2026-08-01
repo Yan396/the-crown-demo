@@ -1176,3 +1176,84 @@ body.demo-ended #version-label {
     transition: none;
   }
 }
+
+/* ---- 朱印 seal stamp ----------------------------------------------------- */
+#seal-layer {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.seal {
+  position: relative;
+  display: grid;
+  width: 116px;
+  height: 116px;
+  place-items: center;
+  background: var(--cinnabar-deep);
+  color: var(--paper);
+  /* Seals sit slightly off-square; a perfectly upright one reads as a sticker. */
+  transform: rotate(-4deg);
+}
+
+.seal-rim {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: var(--paper);
+  stroke-width: 2.4;
+  opacity: 0.9;
+}
+
+.seal-rim rect:last-child {
+  stroke-width: 1.1;
+  opacity: 0.66;
+}
+
+.seal-glyphs {
+  display: grid;
+  grid-auto-flow: column;
+  gap: 2px;
+  font-family: var(--font-display);
+  font-size: 38px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.seal-quad .seal-glyphs {
+  grid-auto-flow: row;
+  grid-template-columns: repeat(2, auto);
+  font-size: 30px;
+}
+
+/* The impact: overshoot inward, settle. Nothing else in the game bounces. */
+.seal.is-stamping {
+  animation: seal-stamp 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes seal-stamp {
+  0% { opacity: 0; transform: rotate(-13deg) scale(1.75); }
+  55% { opacity: 1; transform: rotate(-2.5deg) scale(0.94); }
+  78% { transform: rotate(-4.6deg) scale(1.03); }
+  100% { opacity: 1; transform: rotate(-4deg) scale(1); }
+}
+
+.seal.is-leaving {
+  animation: seal-leave 300ms ease both;
+}
+
+@keyframes seal-leave {
+  to { opacity: 0; transform: rotate(-4deg) scale(1.05); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seal.is-stamping,
+  .seal.is-leaving {
+    animation: none;
+  }
+}
