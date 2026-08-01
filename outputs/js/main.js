@@ -37,7 +37,8 @@ import { createUi } from "./ui.js";
 const canvas = document.getElementById("map");
 const query = new URLSearchParams(window.location.search);
 const autoplayEnabled = query.get("autoplay") === "1";
-const requestedSeed = Number(query.get("seed"));
+const seedParameter = query.get("seed");
+const requestedSeed = seedParameter === null ? Number.NaN : Number(seedParameter);
 const autoplaySeed = Number.isFinite(requestedSeed) ? requestedSeed >>> 0 : CONFIG.SEED;
 
 let state = autoplayEnabled
