@@ -1,0 +1,1451 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#11150f">
+  <title>王冠 · 沙盒策略原型</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #f4ecd8;
+      --muted: #b9b09c;
+      --gold: #e7bd67;
+      --panel: rgba(22, 25, 20, 0.94);
+      --panel-soft: rgba(18, 22, 17, 0.82);
+      --line: rgba(231, 189, 103, 0.27);
+      --danger: #e77367;
+      --success: #94c47d;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #11150f;
+      color: var(--ink);
+      font-family: ui-serif, "Songti SC", "STSong", "Noto Serif CJK SC", Georgia, serif;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    body {
+      position: fixed;
+      inset: 0;
+      overscroll-behavior: none;
+    }
+
+    canvas {
+      position: fixed;
+      inset: 0;
+      display: block;
+      width: 100%;
+      height: 100%;
+      cursor: crosshair;
+      touch-action: none;
+    }
+
+    .overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    #hud {
+      position: absolute;
+      top: max(10px, env(safe-area-inset-top));
+      left: max(10px, env(safe-area-inset-left));
+      right: max(10px, env(safe-area-inset-right));
+      display: flex;
+      align-items: stretch;
+      gap: 8px;
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    .brand,
+    .stats,
+    #hint,
+    #report,
+    #town-sheet,
+    #toast {
+      border: 1px solid var(--line);
+      background: var(--panel-soft);
+      box-shadow: 0 14px 40px rgba(0, 0, 0, 0.28);
+    }
+
+    .brand {
+      display: grid;
+      min-width: 112px;
+      place-content: center start;
+      padding: 8px 12px;
+      border-radius: 12px 5px 5px 12px;
+    }
+
+    .brand strong {
+      color: var(--gold);
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: 0.18em;
+      line-height: 1;
+    }
+
+    .brand small {
+      margin-top: 5px;
+      color: var(--muted);
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      font-size: 9px;
+      letter-spacing: 0.12em;
+    }
+
+    .stats {
+      display: grid;
+      flex: 1;
+      grid-template-columns: repeat(4, minmax(48px, 1fr));
+      overflow: hidden;
+      border-radius: 5px 12px 12px 5px;
+    }
+
+    .stat {
+      display: grid;
+      min-width: 0;
+      place-content: center;
+      padding: 7px 8px;
+      text-align: center;
+    }
+
+    .stat + .stat {
+      border-left: 1px solid rgba(244, 236, 216, 0.08);
+    }
+
+    .stat span {
+      color: var(--muted);
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      font-size: 9px;
+      letter-spacing: 0.08em;
+    }
+
+    .stat strong {
+      margin-top: 2px;
+      color: var(--ink);
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      font-size: 16px;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.1;
+    }
+
+    #hint {
+      position: absolute;
+      top: calc(max(10px, env(safe-area-inset-top)) + 68px);
+      left: 50%;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      max-width: calc(100vw - 24px);
+      padding: 7px 11px;
+      transform: translateX(-50%);
+      border-color: rgba(244, 236, 216, 0.12);
+      border-radius: 999px;
+      color: #d8cfba;
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      font-size: 11px;
+      line-height: 1.25;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    #hint-dot {
+      width: 6px;
+      height: 6px;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 0 3px rgba(148, 196, 125, 0.15);
+    }
+
+    #hint.battle #hint-dot {
+      background: var(--danger);
+      box-shadow: 0 0 0 3px rgba(231, 115, 103, 0.15);
+    }
+
+    #legend {
+      position: absolute;
+      top: calc(max(10px, env(safe-area-inset-top)) + 110px);
+      right: max(12px, env(safe-area-inset-right));
+      display: grid;
+      gap: 4px;
+      color: rgba(244, 236, 216, 0.7);
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      font-size: 10px;
+      text-align: right;
+      text-shadow: 0 1px 4px #000;
+    }
+
+    #legend small {
+      color: rgba(244, 236, 216, 0.43);
+      font-variant-numeric: tabular-nums;
+    }
+
+    #report {
+      position: absolute;
+      right: max(12px, env(safe-area-inset-right));
+      bottom: max(12px, env(safe-area-inset-bottom));
+      width: min(410px, calc(100vw - 24px));
+      overflow: hidden;
+      border-radius: 16px;
+      transition: bottom 180ms ease;
+      pointer-events: none;
+    }
+
+    body.town-open #report {
+      bottom: calc(max(12px, env(safe-area-inset-bottom)) + 132px);
+    }
+
+    .report-head {
+      display: flex;
+      min-height: 38px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 7px 8px 7px 13px;
+      border-bottom: 1px solid rgba(244, 236, 216, 0.08);
+    }
+
+    .report-head strong {
+      color: var(--gold);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+    }
+
+    #skip-battle {
+      min-height: 30px;
+      padding: 5px 10px;
+      border: 1px solid rgba(231, 189, 103, 0.36);
+      border-radius: 9px;
+      background: rgba(231, 189, 103, 0.1);
+      color: var(--gold);
+      font: 700 11px ui-sans-serif, system-ui, sans-serif;
+      cursor: pointer;
+      pointer-events: auto;
+    }
+
+    #skip-battle:active {
+      transform: translateY(1px);
+      background: rgba(231, 189, 103, 0.18);
+    }
+
+    #battle-log {
+      display: grid;
+      max-height: 118px;
+      gap: 4px;
+      margin: 0;
+      padding: 9px 13px 11px;
+      overflow: hidden;
+      list-style: none;
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      font-size: 11px;
+      line-height: 1.3;
+    }
+
+    #battle-log li {
+      overflow: hidden;
+      color: #c9c1ae;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #battle-log li.win {
+      color: #b9dfa6;
+    }
+
+    #battle-log li.loss {
+      color: #f0a69e;
+    }
+
+    #battle-log li.round {
+      color: #eee4cc;
+    }
+
+    #town-sheet {
+      position: absolute;
+      right: max(12px, env(safe-area-inset-right));
+      bottom: max(12px, env(safe-area-inset-bottom));
+      left: max(12px, env(safe-area-inset-left));
+      display: flex;
+      width: min(640px, calc(100vw - 24px));
+      min-height: 116px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin: 0 auto;
+      padding: 16px;
+      border-color: rgba(231, 189, 103, 0.42);
+      border-radius: 20px;
+      background: var(--panel);
+      pointer-events: auto;
+    }
+
+    #town-sheet[hidden],
+    #skip-battle[hidden] {
+      display: none !important;
+    }
+
+    .town-copy {
+      min-width: 0;
+    }
+
+    .town-kicker {
+      color: var(--gold);
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      font-size: 10px;
+      letter-spacing: 0.12em;
+    }
+
+    #town-name {
+      margin: 3px 0 4px;
+      overflow: hidden;
+      font-size: 22px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #town-faction {
+      margin: 0;
+      color: var(--muted);
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      font-size: 11px;
+    }
+
+    #recruit-button {
+      min-width: 146px;
+      min-height: 54px;
+      padding: 8px 14px;
+      border: 1px solid rgba(231, 189, 103, 0.6);
+      border-radius: 13px;
+      background: linear-gradient(180deg, #d4ad61, #a87d38);
+      box-shadow: inset 0 1px rgba(255, 255, 255, 0.22), 0 7px 18px rgba(0, 0, 0, 0.22);
+      color: #17140e;
+      font: 800 14px ui-sans-serif, system-ui, sans-serif;
+      cursor: pointer;
+    }
+
+    #recruit-button span {
+      display: block;
+      margin-top: 3px;
+      font-size: 10px;
+      font-weight: 650;
+      opacity: 0.72;
+    }
+
+    #recruit-button:active:not(:disabled) {
+      transform: translateY(1px);
+    }
+
+    #recruit-button:disabled {
+      border-color: rgba(244, 236, 216, 0.12);
+      background: #4a4b43;
+      box-shadow: none;
+      color: #a5a59b;
+      cursor: default;
+    }
+
+    #toast {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      max-width: calc(100vw - 36px);
+      padding: 10px 15px;
+      transform: translate(-50%, -50%) translateY(8px);
+      border-radius: 12px;
+      color: var(--ink);
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      font-size: 13px;
+      opacity: 0;
+      transition: opacity 150ms ease, transform 150ms ease;
+    }
+
+    #toast.show {
+      transform: translate(-50%, -50%) translateY(0);
+      opacity: 1;
+    }
+
+    @media (max-width: 600px) {
+      #hud {
+        gap: 5px;
+      }
+
+      .brand {
+        min-width: 83px;
+        padding: 7px 9px;
+      }
+
+      .brand strong {
+        font-size: 15px;
+      }
+
+      .brand small {
+        font-size: 7px;
+        letter-spacing: 0.04em;
+      }
+
+      .stat {
+        padding: 7px 3px;
+      }
+
+      .stat strong {
+        font-size: 14px;
+      }
+
+      .stat span {
+        font-size: 8px;
+      }
+
+      #hint {
+        top: calc(max(10px, env(safe-area-inset-top)) + 61px);
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      #legend {
+        top: calc(max(10px, env(safe-area-inset-top)) + 98px);
+      }
+
+      #town-sheet {
+        min-height: 110px;
+        gap: 10px;
+        padding: 13px;
+      }
+
+      #town-name {
+        font-size: 19px;
+      }
+
+      #recruit-button {
+        min-width: 132px;
+      }
+
+      body.town-open #report {
+        bottom: calc(max(12px, env(safe-area-inset-bottom)) + 124px);
+      }
+
+      #battle-log {
+        max-height: 95px;
+      }
+    }
+
+    @media (max-width: 360px) {
+      .brand small,
+      #legend span:first-child {
+        display: none;
+      }
+
+      .brand {
+        min-width: 58px;
+      }
+
+      #recruit-button {
+        min-width: 116px;
+        padding-inline: 10px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #report,
+      #toast {
+        transition: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="map" aria-label="王冠世界地图"></canvas>
+
+  <main class="overlay" aria-label="游戏界面">
+    <header id="hud">
+      <div class="brand">
+        <strong>王冠</strong>
+        <small>沙盒策略原型</small>
+      </div>
+      <div class="stats" aria-label="角色状态">
+        <div class="stat"><span>金币</span><strong id="gold-value">100</strong></div>
+        <div class="stat"><span>兵力</span><strong id="troop-value">5</strong></div>
+        <div class="stat"><span>声望</span><strong id="renown-value">0</strong></div>
+        <div class="stat"><span>天数</span><strong id="day-value">1</strong></div>
+      </div>
+    </header>
+
+    <div id="hint">
+      <span id="hint-dot"></span>
+      <span id="hint-text">轻触或拖动地图前进 · 靠近灰色匪队自动交战</span>
+    </div>
+
+    <aside id="legend" aria-label="地图图例">
+      <span>□ 你　△ 领主　● 匪队　🏰 城镇</span>
+      <small id="seed-label">世界种子 12648430</small>
+    </aside>
+
+    <section id="report" aria-label="行军战报">
+      <div class="report-head">
+        <strong id="report-title">行军战报</strong>
+        <button id="skip-battle" type="button" hidden>立即结算</button>
+      </div>
+      <ol id="battle-log" aria-live="polite"></ol>
+    </section>
+
+    <section id="town-sheet" aria-label="城镇招募" hidden>
+      <div class="town-copy">
+        <div class="town-kicker">已进入城镇</div>
+        <h2 id="town-name">河湾城</h2>
+        <p id="town-faction">南盟领地</p>
+      </div>
+      <button id="recruit-button" type="button">
+        招募民兵 +1
+        <span>花费 10 金币</span>
+      </button>
+    </section>
+
+    <div id="toast" role="status" aria-live="polite"></div>
+  </main>
+
+  <script>
+    "use strict";
+
+    // Phase 0 keeps all balance values together so later refactors can move them to data.js.
+    const CONFIG = Object.freeze({
+      WORLD_SIZE: 2000,
+      SEED: 0x00c0ffee,
+      LOGIC_MS: 500,
+      TICKS_PER_DAY: 60,
+      PLAYER_SPEED: 46,
+      LORD_SPEED: 24,
+      BANDIT_SPEED: 14,
+      ARRIVAL_RADIUS: 7,
+      ENCOUNTER_RADIUS: 42,
+      TOWN_RADIUS: 52,
+      TOWN_INTERACTION_RADIUS: 64,
+      BANDIT_SPAWN_MIN: 125,
+      BANDIT_SPAWN_MAX: 220,
+      BANDIT_ROAM_MIN: 180,
+      BANDIT_ROAM_MAX: 420,
+      INITIAL_BANDITS: 3,
+      MAX_BANDITS: 8,
+      BANDIT_GOLD_PER_TROOP: 30,
+      BATTLE_ROUND_TICKS: 6,
+      ROUT_THRESHOLD: 0.3,
+      RECRUIT_COST: 10,
+      LOG_LIMIT: 24,
+      RESPAWN_GRACE_TICKS: 2,
+      MAX_BATTLE_ROUNDS: 100,
+      ZOOM_MOBILE: 0.72,
+      ZOOM_DESKTOP: 0.88,
+      DPR_CAP: 2
+    });
+
+    const TROOP_TYPES = Object.freeze({
+      militia: Object.freeze({ atk: 2, def: 3 }),
+      bandit: Object.freeze({ atk: 3, def: 2 })
+    });
+
+    const FACTION_DATA = Object.freeze([
+      Object.freeze({ id: "north", name: "北境", color: "#c6534d" }),
+      Object.freeze({ id: "south", name: "南盟", color: "#4c78c7" }),
+      Object.freeze({ id: "east", name: "东部自由城邦", color: "#d1a93f" })
+    ]);
+
+    const TOWN_DATA = Object.freeze([
+      Object.freeze({ id: "frost_gate", name: "霜门", factionId: "north", x: 390, y: 350 }),
+      Object.freeze({ id: "black_pine", name: "黑松堡", factionId: "north", x: 1080, y: 275 }),
+      Object.freeze({ id: "river_bend", name: "河湾城", factionId: "south", x: 430, y: 1490 }),
+      Object.freeze({ id: "red_harbor", name: "赤霞港", factionId: "south", x: 1200, y: 1650 }),
+      Object.freeze({ id: "golden_field", name: "金穗城", factionId: "east", x: 1615, y: 620 }),
+      Object.freeze({ id: "morning_star", name: "晨星港", factionId: "east", x: 1575, y: 1265 })
+    ]);
+
+    const LORD_NAMES = Object.freeze({
+      north: Object.freeze(["赫连朔", "白砚", "拓跋岑", "闻人策"]),
+      south: Object.freeze(["陆昭", "谢临川", "顾长风", "沈青崖"]),
+      east: Object.freeze(["商羽", "裴星野", "宁秋灯", "容海歌"])
+    });
+
+    const canvas = document.querySelector("#map");
+    const context = canvas.getContext("2d", { alpha: false });
+    const ui = {
+      gold: document.querySelector("#gold-value"),
+      troops: document.querySelector("#troop-value"),
+      renown: document.querySelector("#renown-value"),
+      day: document.querySelector("#day-value"),
+      hint: document.querySelector("#hint"),
+      hintText: document.querySelector("#hint-text"),
+      seed: document.querySelector("#seed-label"),
+      reportTitle: document.querySelector("#report-title"),
+      battleLog: document.querySelector("#battle-log"),
+      skipBattle: document.querySelector("#skip-battle"),
+      townSheet: document.querySelector("#town-sheet"),
+      townName: document.querySelector("#town-name"),
+      townFaction: document.querySelector("#town-faction"),
+      recruit: document.querySelector("#recruit-button"),
+      toast: document.querySelector("#toast")
+    };
+
+    const QA_MODE = new URLSearchParams(window.location.search).get("qa") === "1";
+    let state;
+    let random;
+    let viewportWidth = 1;
+    let viewportHeight = 1;
+    let pixelRatio = 1;
+    let lastLogicAt = performance.now();
+    let camera = { x: 0, y: 0, zoom: CONFIG.ZOOM_MOBILE };
+    let activePointerId = null;
+    let toastTimer = null;
+
+    // Mulberry32 is the only random stream used by world creation and simulation.
+    function mulberry32(seed) {
+      let value = seed >>> 0;
+      return function nextRandom() {
+        value = (value + 0x6d2b79f5) >>> 0;
+        let mixed = value;
+        mixed = Math.imul(mixed ^ (mixed >>> 15), mixed | 1);
+        mixed ^= mixed + Math.imul(mixed ^ (mixed >>> 7), mixed | 61);
+        return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+    function clamp(value, minimum, maximum) {
+      return Math.max(minimum, Math.min(maximum, value));
+    }
+
+    function distance(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    function copyPosition(position) {
+      return { x: position.x, y: position.y };
+    }
+
+    function factionById(id) {
+      return state.factions.find((faction) => faction.id === id);
+    }
+
+    function townById(id) {
+      return state.towns.find((town) => town.id === id);
+    }
+
+    function troopCount(party) {
+      return party.troops.reduce((sum, stack) => sum + stack.count, 0);
+    }
+
+    function partyStrength(party) {
+      return party.troops.reduce((sum, stack) => {
+        const type = TROOP_TYPES[stack.type];
+        return sum + (type ? type.atk * stack.count : 0);
+      }, 0);
+    }
+
+    function averageDefense(party) {
+      const total = troopCount(party);
+      if (total <= 0) return 1;
+      const defense = party.troops.reduce((sum, stack) => {
+        const type = TROOP_TYPES[stack.type];
+        return sum + (type ? type.def * stack.count : 0);
+      }, 0);
+      return defense / total;
+    }
+
+    function setTroopCount(party, type, nextCount) {
+      let stack = party.troops.find((entry) => entry.type === type);
+      if (!stack) {
+        stack = { type, count: 0, xp: 0 };
+        party.troops.push(stack);
+      }
+      stack.count = Math.max(0, Math.floor(nextCount));
+    }
+
+    function awardSurvivorXp(party) {
+      party.troops.forEach((stack) => {
+        if (stack.count > 0) stack.xp += 1;
+      });
+    }
+
+    function createLords() {
+      const lords = [];
+      const fractions = [0.15, 0.36, 0.64, 0.85];
+
+      state.factions.forEach((faction) => {
+        const ownTowns = state.towns.filter((town) => town.factionId === faction.id);
+        const [firstTown, secondTown] = ownTowns;
+        LORD_NAMES[faction.id].forEach((name, index) => {
+          const fraction = fractions[index];
+          const position = {
+            x: firstTown.pos.x + (secondTown.pos.x - firstTown.pos.x) * fraction,
+            y: firstTown.pos.y + (secondTown.pos.y - firstTown.pos.y) * fraction
+          };
+          const patrolIndex = index % 2 === 0 ? 1 : 0;
+          const targetTown = patrolIndex === 0 ? firstTown : secondTown;
+          lords.push({
+            id: `${faction.id}_lord_${index + 1}`,
+            name,
+            factionId: faction.id,
+            pos: position,
+            prevPos: copyPosition(position),
+            moveTarget: copyPosition(targetTown.pos),
+            patrolTownIds: [firstTown.id, secondTown.id],
+            patrolIndex
+          });
+        });
+      });
+
+      return lords;
+    }
+
+    function randomBetween(minimum, maximum) {
+      return minimum + (maximum - minimum) * random();
+    }
+
+    function assignBanditTarget(bandit) {
+      const angle = randomBetween(0, Math.PI * 2);
+      const range = randomBetween(CONFIG.BANDIT_ROAM_MIN, CONFIG.BANDIT_ROAM_MAX);
+      bandit.moveTarget = {
+        x: clamp(bandit.pos.x + Math.cos(angle) * range, 18, CONFIG.WORLD_SIZE - 18),
+        y: clamp(bandit.pos.y + Math.sin(angle) * range, 18, CONFIG.WORLD_SIZE - 18)
+      };
+    }
+
+    function spawnBandit(options = {}) {
+      if (state.bandits.length >= CONFIG.MAX_BANDITS) return null;
+
+      const preferredTown = options.townId ? townById(options.townId) : null;
+      const town = preferredTown || state.towns[Math.floor(random() * state.towns.length)];
+      let position = null;
+
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        const angle = randomBetween(0, Math.PI * 2);
+        const radius = randomBetween(CONFIG.BANDIT_SPAWN_MIN, CONFIG.BANDIT_SPAWN_MAX);
+        const candidate = {
+          x: clamp(town.pos.x + Math.cos(angle) * radius, 18, CONFIG.WORLD_SIZE - 18),
+          y: clamp(town.pos.y + Math.sin(angle) * radius, 18, CONFIG.WORLD_SIZE - 18)
+        };
+        position = candidate;
+        if (distance(candidate, state.player.pos) > CONFIG.ENCOUNTER_RADIUS * 2.4) break;
+      }
+
+      const desiredStrength = Math.max(1, partyStrength(state.player)) * randomBetween(0.5, 1.3);
+      const count = Math.max(1, Math.round(desiredStrength / TROOP_TYPES.bandit.atk));
+      const bandit = {
+        id: `bandit_${state.nextBanditId}`,
+        pos: position,
+        prevPos: copyPosition(position),
+        moveTarget: null,
+        troops: [{ type: "bandit", count, xp: 0 }],
+        gold: count * CONFIG.BANDIT_GOLD_PER_TROOP
+      };
+      state.nextBanditId += 1;
+      assignBanditTarget(bandit);
+      state.bandits.push(bandit);
+      return bandit;
+    }
+
+    function addLog(text, tone = "") {
+      state.battleLog.push({ tick: state.tick, text, tone });
+      if (state.battleLog.length > CONFIG.LOG_LIMIT) {
+        state.battleLog.splice(0, state.battleLog.length - CONFIG.LOG_LIMIT);
+      }
+    }
+
+    function resetWorld(seed = CONFIG.SEED) {
+      random = mulberry32(seed);
+      const startPosition = { x: 430, y: 1490 };
+      state = {
+        seed: seed >>> 0,
+        tick: 0,
+        player: {
+          pos: startPosition,
+          prevPos: copyPosition(startPosition),
+          moveTarget: null,
+          gold: 100,
+          renown: 0,
+          troops: [{ type: "militia", count: 5, xp: 0 }],
+          encounterCooldownUntil: 0
+        },
+        factions: FACTION_DATA.map((entry) => ({ ...entry })),
+        towns: TOWN_DATA.map((entry) => ({
+          id: entry.id,
+          name: entry.name,
+          factionId: entry.factionId,
+          pos: { x: entry.x, y: entry.y }
+        })),
+        lords: [],
+        bandits: [],
+        nextBanditId: 1,
+        battle: null,
+        battleLog: []
+      };
+
+      state.lords = createLords();
+      spawnBandit({ townId: "river_bend" });
+      while (state.bandits.length < CONFIG.INITIAL_BANDITS) spawnBandit();
+      addLog("白色方块是你。拖动地图选择行军目标。");
+      addLog("靠近灰色匪队会自动交战，胜利可赢得金币与声望。");
+      lastLogicAt = performance.now();
+      updateCamera(state.player.pos);
+      syncUi();
+      return state;
+    }
+
+    // Movement is authoritative on fixed ticks and snaps without overshooting.
+    function moveToward(party, speed) {
+      if (!party.moveTarget) return false;
+      const dx = party.moveTarget.x - party.pos.x;
+      const dy = party.moveTarget.y - party.pos.y;
+      const remaining = Math.hypot(dx, dy);
+
+      if (remaining <= speed || remaining <= CONFIG.ARRIVAL_RADIUS) {
+        party.pos.x = party.moveTarget.x;
+        party.pos.y = party.moveTarget.y;
+        party.moveTarget = null;
+        return true;
+      }
+
+      party.pos.x += (dx / remaining) * speed;
+      party.pos.y += (dy / remaining) * speed;
+      party.pos.x = clamp(party.pos.x, 0, CONFIG.WORLD_SIZE);
+      party.pos.y = clamp(party.pos.y, 0, CONFIG.WORLD_SIZE);
+      return false;
+    }
+
+    function moveLord(lord) {
+      const arrived = moveToward(lord, CONFIG.LORD_SPEED);
+      if (!arrived) return;
+      lord.patrolIndex = lord.patrolIndex === 0 ? 1 : 0;
+      const nextTown = townById(lord.patrolTownIds[lord.patrolIndex]);
+      lord.moveTarget = copyPosition(nextTown.pos);
+    }
+
+    function moveBandit(bandit) {
+      if (moveToward(bandit, CONFIG.BANDIT_SPEED)) assignBanditTarget(bandit);
+    }
+
+    function nearestTown(position) {
+      return state.towns.reduce((nearest, town) => {
+        if (!nearest) return town;
+        return distance(position, town.pos) < distance(position, nearest.pos) ? town : nearest;
+      }, null);
+    }
+
+    function activeTown() {
+      const town = nearestTown(state.player.pos);
+      return town && distance(state.player.pos, town.pos) <= CONFIG.TOWN_INTERACTION_RADIUS ? town : null;
+    }
+
+    // Both sides attack from the same pre-round snapshot to avoid first-strike bias.
+    function calculateCasualties(attackStrength, defender, multiplier) {
+      const defenders = troopCount(defender);
+      if (attackStrength <= 0 || defenders <= 0) return 0;
+      const damage = attackStrength * multiplier;
+      return Math.min(defenders, Math.max(1, Math.floor(damage / averageDefense(defender))));
+    }
+
+    function determineBattleWinner(battle, bandit) {
+      const playerRemaining = troopCount(state.player);
+      const banditRemaining = troopCount(bandit);
+      if (playerRemaining <= 0 && banditRemaining <= 0) return "bandit";
+      if (playerRemaining <= 0) return "bandit";
+      if (banditRemaining <= 0) return "player";
+
+      const playerRouted = playerRemaining < battle.playerStart * CONFIG.ROUT_THRESHOLD;
+      const banditRouted = banditRemaining < battle.banditStart * CONFIG.ROUT_THRESHOLD;
+      if (playerRouted && !banditRouted) return "bandit";
+      if (banditRouted && !playerRouted) return "player";
+
+      if (playerRouted && banditRouted) {
+        const playerRatio = playerRemaining / battle.playerStart;
+        const banditRatio = banditRemaining / battle.banditStart;
+        if (playerRatio !== banditRatio) return playerRatio > banditRatio ? "player" : "bandit";
+        return partyStrength(state.player) > partyStrength(bandit) ? "player" : "bandit";
+      }
+
+      return null;
+    }
+
+    function finishBattle(winner, bandit) {
+      const battle = state.battle;
+      if (!battle) return;
+
+      if (winner === "player") {
+        const loot = Math.floor(bandit.gold * 0.5);
+        state.player.gold += loot;
+        state.player.renown += battle.banditCasualties;
+        awardSurvivorXp(state.player);
+        state.bandits = state.bandits.filter((entry) => entry.id !== bandit.id);
+        addLog(`胜利：获得 ${loot} 金币，声望 +${battle.banditCasualties}。`, "win");
+        showToast(`胜利 · 金币 +${loot}`);
+      } else {
+        const goldAfterLoss = Math.floor(state.player.gold * 0.5);
+        const lostGold = state.player.gold - goldAfterLoss;
+        state.player.gold = goldAfterLoss;
+        bandit.gold += lostGold;
+        awardSurvivorXp(bandit);
+
+        const refuge = nearestTown(state.player.pos);
+        state.player.pos = copyPosition(refuge.pos);
+        state.player.prevPos = copyPosition(refuge.pos);
+        state.player.moveTarget = null;
+        state.player.encounterCooldownUntil = state.tick + CONFIG.RESPAWN_GRACE_TICKS;
+        assignBanditTarget(bandit);
+        addLog(`落败：失去 ${lostGold} 金币，残部退回${refuge.name}。`, "loss");
+        showToast(`落败 · 退回${refuge.name}`);
+      }
+
+      state.battle = null;
+      syncUi();
+    }
+
+    function resolveBattleRound() {
+      const battle = state.battle;
+      if (!battle) return;
+      const bandit = state.bandits.find((entry) => entry.id === battle.banditId);
+      if (!bandit) {
+        state.battle = null;
+        return;
+      }
+
+      if (battle.round >= CONFIG.MAX_BATTLE_ROUNDS) {
+        const winner = partyStrength(state.player) > partyStrength(bandit) ? "player" : "bandit";
+        finishBattle(winner, bandit);
+        return;
+      }
+
+      const playerBefore = troopCount(state.player);
+      const banditBefore = troopCount(bandit);
+      const playerAttack = partyStrength(state.player);
+      const banditAttack = partyStrength(bandit);
+      const playerMultiplier = 0.8 + random() * 0.4;
+      const banditMultiplier = 0.8 + random() * 0.4;
+      const banditLoss = calculateCasualties(playerAttack, bandit, playerMultiplier);
+      const playerLoss = calculateCasualties(banditAttack, state.player, banditMultiplier);
+
+      setTroopCount(bandit, "bandit", banditBefore - banditLoss);
+      setTroopCount(state.player, "militia", playerBefore - playerLoss);
+      battle.round += 1;
+      battle.playerCasualties += playerLoss;
+      battle.banditCasualties += banditLoss;
+      addLog(`第 ${battle.round} 轮：我方击倒 ${banditLoss}，折损 ${playerLoss}。`, "round");
+
+      const winner = determineBattleWinner(battle, bandit);
+      if (winner) {
+        finishBattle(winner, bandit);
+      } else {
+        battle.nextRoundTick = state.tick + CONFIG.BATTLE_ROUND_TICKS;
+      }
+    }
+
+    function startBattle(bandit) {
+      if (state.battle) return;
+      state.player.moveTarget = null;
+      state.battle = {
+        banditId: bandit.id,
+        playerStart: troopCount(state.player),
+        banditStart: troopCount(bandit),
+        playerCasualties: 0,
+        banditCasualties: 0,
+        round: 0,
+        nextRoundTick: state.tick + CONFIG.BATTLE_ROUND_TICKS
+      };
+      addLog(`遭遇匪队：我方 ${troopCount(state.player)} 人，敌方 ${troopCount(bandit)} 人。`, "round");
+
+      if (troopCount(state.player) <= 0) {
+        finishBattle("bandit", bandit);
+      }
+      syncUi();
+    }
+
+    function checkForEncounter() {
+      if (state.battle || state.tick < state.player.encounterCooldownUntil) return;
+      let closest = null;
+      let closestDistance = Infinity;
+
+      state.bandits.forEach((bandit) => {
+        const separation = distance(state.player.pos, bandit.pos);
+        if (separation <= CONFIG.ENCOUNTER_RADIUS && separation < closestDistance) {
+          closest = bandit;
+          closestDistance = separation;
+        }
+      });
+
+      if (closest) startBattle(closest);
+    }
+
+    function snapshotPreviousPositions() {
+      state.player.prevPos = copyPosition(state.player.pos);
+      state.lords.forEach((lord) => {
+        lord.prevPos = copyPosition(lord.pos);
+      });
+      state.bandits.forEach((bandit) => {
+        bandit.prevPos = copyPosition(bandit.pos);
+      });
+    }
+
+    function worldTick() {
+      state.tick += 1;
+      snapshotPreviousPositions();
+      const battleAtTickStart = Boolean(state.battle);
+
+      if (!state.battle) moveToward(state.player, CONFIG.PLAYER_SPEED);
+      state.lords.forEach(moveLord);
+
+      const engagedBanditId = state.battle ? state.battle.banditId : null;
+      state.bandits.forEach((bandit) => {
+        if (bandit.id !== engagedBanditId) moveBandit(bandit);
+      });
+
+      if (state.battle && state.tick >= state.battle.nextRoundTick) resolveBattleRound();
+      if (!battleAtTickStart && !state.battle) checkForEncounter();
+
+      if (state.tick % CONFIG.TICKS_PER_DAY === 0 && state.bandits.length < CONFIG.MAX_BANDITS) {
+        spawnBandit();
+      }
+
+      lastLogicAt = performance.now();
+      syncUi();
+    }
+
+    function skipCurrentBattle() {
+      let safety = CONFIG.MAX_BATTLE_ROUNDS;
+      while (state.battle && safety > 0) {
+        resolveBattleRound();
+        safety -= 1;
+      }
+      syncUi();
+    }
+
+    function recruitMilitia() {
+      const town = activeTown();
+      if (!town || state.battle) return;
+      if (state.player.gold < CONFIG.RECRUIT_COST) {
+        showToast("金币不足");
+        return;
+      }
+
+      state.player.gold -= CONFIG.RECRUIT_COST;
+      setTroopCount(state.player, "militia", troopCount(state.player) + 1);
+      addLog(`在${town.name}招募 1 名民兵，花费 ${CONFIG.RECRUIT_COST} 金币。`);
+      showToast("民兵加入队伍");
+      syncUi();
+    }
+
+    function showToast(text) {
+      ui.toast.textContent = text;
+      ui.toast.classList.add("show");
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => ui.toast.classList.remove("show"), 1300);
+    }
+
+    function syncBattleLog() {
+      const visibleEntries = state.battleLog.slice(-6);
+      ui.battleLog.replaceChildren();
+      visibleEntries.forEach((entry) => {
+        const item = document.createElement("li");
+        item.textContent = entry.text;
+        if (entry.tone) item.className = entry.tone;
+        ui.battleLog.appendChild(item);
+      });
+    }
+
+    function syncUi() {
+      if (!state) return;
+      ui.gold.textContent = String(state.player.gold);
+      ui.troops.textContent = String(troopCount(state.player));
+      ui.renown.textContent = String(state.player.renown);
+      ui.day.textContent = String(Math.floor(state.tick / CONFIG.TICKS_PER_DAY) + 1);
+      ui.seed.textContent = `世界种子 ${state.seed}`;
+
+      const battleActive = Boolean(state.battle);
+      ui.hint.classList.toggle("battle", battleActive);
+      ui.hintText.textContent = battleActive
+        ? `交战中 · 每 ${CONFIG.BATTLE_ROUND_TICKS * CONFIG.LOGIC_MS / 1000} 秒自动进行一轮`
+        : "轻触或拖动地图前进 · 靠近灰色匪队自动交战";
+      ui.reportTitle.textContent = battleActive ? "交战记录" : "行军战报";
+      ui.skipBattle.hidden = !battleActive;
+
+      const town = battleActive ? null : activeTown();
+      ui.townSheet.hidden = !town;
+      document.body.classList.toggle("town-open", Boolean(town));
+      if (town) {
+        const faction = factionById(town.factionId);
+        ui.townName.textContent = town.name;
+        ui.townFaction.textContent = `${faction.name}领地`;
+        ui.recruit.disabled = state.player.gold < CONFIG.RECRUIT_COST;
+      }
+      syncBattleLog();
+    }
+
+    function interpolatedPosition(party, alpha) {
+      return {
+        x: party.prevPos.x + (party.pos.x - party.prevPos.x) * alpha,
+        y: party.prevPos.y + (party.pos.y - party.prevPos.y) * alpha
+      };
+    }
+
+    function currentZoom() {
+      return viewportWidth <= 650 ? CONFIG.ZOOM_MOBILE : CONFIG.ZOOM_DESKTOP;
+    }
+
+    function updateCamera(focus) {
+      const zoom = currentZoom();
+      const worldViewWidth = viewportWidth / zoom;
+      const worldViewHeight = viewportHeight / zoom;
+      camera = {
+        x: clamp(focus.x - worldViewWidth / 2, 0, Math.max(0, CONFIG.WORLD_SIZE - worldViewWidth)),
+        y: clamp(focus.y - worldViewHeight / 2, 0, Math.max(0, CONFIG.WORLD_SIZE - worldViewHeight)),
+        zoom
+      };
+    }
+
+    function worldToScreen(position) {
+      return {
+        x: (position.x - camera.x) * camera.zoom,
+        y: (position.y - camera.y) * camera.zoom
+      };
+    }
+
+    function screenToWorld(x, y) {
+      return {
+        x: clamp(camera.x + x / camera.zoom, 0, CONFIG.WORLD_SIZE),
+        y: clamp(camera.y + y / camera.zoom, 0, CONFIG.WORLD_SIZE)
+      };
+    }
+
+    function drawWorldGround() {
+      context.fillStyle = "#0e120d";
+      context.fillRect(0, 0, viewportWidth, viewportHeight);
+
+      const topLeft = worldToScreen({ x: 0, y: 0 });
+      const bottomRight = worldToScreen({ x: CONFIG.WORLD_SIZE, y: CONFIG.WORLD_SIZE });
+      context.fillStyle = "#293128";
+      context.fillRect(topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y);
+
+      const gradient = context.createRadialGradient(
+        viewportWidth * 0.42,
+        viewportHeight * 0.38,
+        20,
+        viewportWidth * 0.5,
+        viewportHeight * 0.5,
+        Math.max(viewportWidth, viewportHeight) * 0.8
+      );
+      gradient.addColorStop(0, "rgba(117, 125, 85, 0.16)");
+      gradient.addColorStop(1, "rgba(8, 12, 8, 0.22)");
+      context.fillStyle = gradient;
+      context.fillRect(0, 0, viewportWidth, viewportHeight);
+
+      context.lineWidth = 1;
+      context.strokeStyle = "rgba(231, 220, 187, 0.045)";
+      context.beginPath();
+      const gridSize = 100;
+      const startX = Math.ceil(camera.x / gridSize) * gridSize;
+      const endX = Math.min(CONFIG.WORLD_SIZE, camera.x + viewportWidth / camera.zoom);
+      const startY = Math.ceil(camera.y / gridSize) * gridSize;
+      const endY = Math.min(CONFIG.WORLD_SIZE, camera.y + viewportHeight / camera.zoom);
+      for (let x = startX; x <= endX; x += gridSize) {
+        const screenX = worldToScreen({ x, y: 0 }).x;
+        context.moveTo(screenX, 0);
+        context.lineTo(screenX, viewportHeight);
+      }
+      for (let y = startY; y <= endY; y += gridSize) {
+        const screenY = worldToScreen({ x: 0, y }).y;
+        context.moveTo(0, screenY);
+        context.lineTo(viewportWidth, screenY);
+      }
+      context.stroke();
+
+      context.strokeStyle = "rgba(231, 189, 103, 0.2)";
+      context.lineWidth = 2;
+      context.strokeRect(topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y);
+    }
+
+    function drawPatrolRoutes() {
+      context.save();
+      context.setLineDash([5, 8]);
+      context.lineWidth = 1;
+      state.factions.forEach((faction) => {
+        const towns = state.towns.filter((town) => town.factionId === faction.id);
+        const first = worldToScreen(towns[0].pos);
+        const second = worldToScreen(towns[1].pos);
+        context.strokeStyle = `${faction.color}55`;
+        context.beginPath();
+        context.moveTo(first.x, first.y);
+        context.lineTo(second.x, second.y);
+        context.stroke();
+      });
+      context.restore();
+    }
+
+    function drawTown(town, active) {
+      const position = worldToScreen(town.pos);
+      const faction = factionById(town.factionId);
+      const radius = CONFIG.TOWN_RADIUS * camera.zoom;
+      if (
+        position.x < -radius - 80 || position.x > viewportWidth + radius + 80 ||
+        position.y < -radius - 80 || position.y > viewportHeight + radius + 80
+      ) return;
+
+      context.save();
+      if (active) {
+        context.strokeStyle = "rgba(244, 236, 216, 0.42)";
+        context.lineWidth = 2;
+        context.beginPath();
+        context.arc(position.x, position.y, radius + 11, 0, Math.PI * 2);
+        context.stroke();
+      }
+
+      context.fillStyle = "rgba(18, 22, 17, 0.94)";
+      context.strokeStyle = faction.color;
+      context.lineWidth = 5;
+      context.beginPath();
+      context.arc(position.x, position.y, radius, 0, Math.PI * 2);
+      context.fill();
+      context.stroke();
+
+      context.fillStyle = "#f4ecd8";
+      context.font = `${Math.max(19, radius * 0.72)}px ui-serif, serif`;
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.fillText("🏰", position.x, position.y + 1);
+
+      context.font = "700 12px ui-sans-serif, system-ui, sans-serif";
+      context.textBaseline = "top";
+      context.lineWidth = 4;
+      context.strokeStyle = "rgba(9, 12, 8, 0.9)";
+      context.strokeText(town.name, position.x, position.y + radius + 8);
+      context.fillStyle = "#eee4cc";
+      context.fillText(town.name, position.x, position.y + radius + 8);
+      context.restore();
+    }
+
+    function drawLord(lord, alpha) {
+      const position = worldToScreen(interpolatedPosition(lord, alpha));
+      if (position.x < -24 || position.x > viewportWidth + 24 || position.y < -24 || position.y > viewportHeight + 24) return;
+      const faction = factionById(lord.factionId);
+      const size = 10;
+
+      context.save();
+      context.beginPath();
+      context.moveTo(position.x, position.y - size);
+      context.lineTo(position.x - size * 0.82, position.y + size * 0.72);
+      context.lineTo(position.x + size * 0.82, position.y + size * 0.72);
+      context.closePath();
+      context.fillStyle = faction.color;
+      context.fill();
+      context.lineWidth = 1.5;
+      context.strokeStyle = "rgba(250, 245, 226, 0.88)";
+      context.stroke();
+
+      context.font = "9px ui-sans-serif, system-ui, sans-serif";
+      context.textAlign = "center";
+      context.textBaseline = "top";
+      context.lineWidth = 3;
+      context.strokeStyle = "rgba(9, 12, 8, 0.88)";
+      context.strokeText(lord.name, position.x, position.y + 10);
+      context.fillStyle = "rgba(244, 236, 216, 0.78)";
+      context.fillText(lord.name, position.x, position.y + 10);
+      context.restore();
+    }
+
+    function drawBandit(bandit, alpha) {
+      const position = worldToScreen(interpolatedPosition(bandit, alpha));
+      if (position.x < -30 || position.x > viewportWidth + 30 || position.y < -30 || position.y > viewportHeight + 30) return;
+      const count = troopCount(bandit);
+
+      context.save();
+      context.beginPath();
+      context.arc(position.x, position.y, 8, 0, Math.PI * 2);
+      context.fillStyle = "#777b74";
+      context.fill();
+      context.lineWidth = 2;
+      context.strokeStyle = state.battle && state.battle.banditId === bandit.id ? "#e77367" : "#b8bbb4";
+      context.stroke();
+
+      context.font = "700 9px ui-sans-serif, system-ui, sans-serif";
+      context.textAlign = "center";
+      context.textBaseline = "top";
+      context.lineWidth = 3;
+      context.strokeStyle = "rgba(9, 12, 8, 0.9)";
+      context.strokeText(`匪 ${count}`, position.x, position.y + 11);
+      context.fillStyle = "#d6d7d1";
+      context.fillText(`匪 ${count}`, position.x, position.y + 11);
+      context.restore();
+    }
+
+    function drawMoveTarget(now) {
+      if (!state.player.moveTarget || state.battle) return;
+      const position = worldToScreen(state.player.moveTarget);
+      const pulse = 10 + Math.sin(now / 180) * 2;
+      context.save();
+      context.strokeStyle = "rgba(244, 236, 216, 0.7)";
+      context.lineWidth = 1.5;
+      context.beginPath();
+      context.arc(position.x, position.y, pulse, 0, Math.PI * 2);
+      context.stroke();
+      context.beginPath();
+      context.moveTo(position.x - 4, position.y);
+      context.lineTo(position.x + 4, position.y);
+      context.moveTo(position.x, position.y - 4);
+      context.lineTo(position.x, position.y + 4);
+      context.stroke();
+      context.restore();
+    }
+
+    function drawPlayer(alpha) {
+      const position = worldToScreen(interpolatedPosition(state.player, alpha));
+      context.save();
+      context.shadowColor = "rgba(255, 255, 255, 0.4)";
+      context.shadowBlur = 12;
+      context.fillStyle = "#fffdf4";
+      context.fillRect(position.x - 8, position.y - 8, 16, 16);
+      context.shadowBlur = 0;
+      context.strokeStyle = "#e7bd67";
+      context.lineWidth = 2;
+      context.strokeRect(position.x - 9, position.y - 9, 18, 18);
+
+      context.font = "800 10px ui-sans-serif, system-ui, sans-serif";
+      context.textAlign = "center";
+      context.textBaseline = "top";
+      context.lineWidth = 3;
+      context.strokeStyle = "rgba(9, 12, 8, 0.92)";
+      context.strokeText("你", position.x, position.y + 13);
+      context.fillStyle = "#fffdf4";
+      context.fillText("你", position.x, position.y + 13);
+      context.restore();
+    }
+
+    function render(now) {
+      const alpha = clamp((now - lastLogicAt) / CONFIG.LOGIC_MS, 0, 1);
+      const playerPosition = interpolatedPosition(state.player, alpha);
+      updateCamera(playerPosition);
+
+      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      context.clearRect(0, 0, viewportWidth, viewportHeight);
+      drawWorldGround();
+      drawPatrolRoutes();
+      const town = activeTown();
+      state.towns.forEach((entry) => drawTown(entry, town && town.id === entry.id));
+      drawMoveTarget(now);
+      state.lords.forEach((lord) => drawLord(lord, alpha));
+      state.bandits.forEach((bandit) => drawBandit(bandit, alpha));
+      drawPlayer(alpha);
+      requestAnimationFrame(render);
+    }
+
+    function resizeCanvas() {
+      viewportWidth = window.innerWidth;
+      viewportHeight = window.innerHeight;
+      pixelRatio = Math.min(window.devicePixelRatio || 1, CONFIG.DPR_CAP);
+      canvas.width = Math.max(1, Math.floor(viewportWidth * pixelRatio));
+      canvas.height = Math.max(1, Math.floor(viewportHeight * pixelRatio));
+      canvas.style.width = `${viewportWidth}px`;
+      canvas.style.height = `${viewportHeight}px`;
+      if (state) updateCamera(state.player.pos);
+    }
+
+    function setMoveTargetFromPointer(event) {
+      if (state.battle) return;
+      const bounds = canvas.getBoundingClientRect();
+      const point = screenToWorld(event.clientX - bounds.left, event.clientY - bounds.top);
+      state.player.moveTarget = point;
+    }
+
+    canvas.addEventListener("pointerdown", (event) => {
+      if (!event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) return;
+      if (state.battle) {
+        showToast("战斗中，暂时无法行军");
+        return;
+      }
+      activePointerId = event.pointerId;
+      canvas.setPointerCapture(event.pointerId);
+      setMoveTargetFromPointer(event);
+      event.preventDefault();
+    });
+
+    canvas.addEventListener("pointermove", (event) => {
+      if (event.pointerId !== activePointerId) return;
+      setMoveTargetFromPointer(event);
+      event.preventDefault();
+    });
+
+    function finishPointer(event) {
+      if (event.pointerId !== activePointerId) return;
+      if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+      activePointerId = null;
+      event.preventDefault();
+    }
+
+    canvas.addEventListener("pointerup", finishPointer);
+    canvas.addEventListener("pointercancel", finishPointer);
+    ui.recruit.addEventListener("pointerdown", (event) => event.stopPropagation());
+    ui.recruit.addEventListener("click", recruitMilitia);
+    ui.skipBattle.addEventListener("pointerdown", (event) => event.stopPropagation());
+    ui.skipBattle.addEventListener("click", skipCurrentBattle);
+    window.addEventListener("resize", resizeCanvas);
+
+    resizeCanvas();
+    resetWorld(CONFIG.SEED);
+
+    if (!QA_MODE) setInterval(worldTick, CONFIG.LOGIC_MS);
+    requestAnimationFrame(render);
+
+    // Query mode exposes deterministic production functions without adding visible controls.
+    if (QA_MODE) {
+      window.__CROWN_QA__ = Object.freeze({
+        reset(seed = CONFIG.SEED) {
+          return resetWorld(seed >>> 0);
+        },
+        stepTicks(count = 1) {
+          const steps = clamp(Math.floor(count), 0, 20000);
+          for (let index = 0; index < steps; index += 1) worldTick();
+          return this.snapshot();
+        },
+        snapshot() {
+          return JSON.parse(JSON.stringify(state));
+        },
+        setPlayerTarget(x, y) {
+          state.player.moveTarget = {
+            x: clamp(Number(x), 0, CONFIG.WORLD_SIZE),
+            y: clamp(Number(y), 0, CONFIG.WORLD_SIZE)
+          };
+        },
+        recruit: recruitMilitia,
+        forceEncounter(count = 2, gold = 60) {
+          const position = {
+            x: clamp(state.player.pos.x + 1, 0, CONFIG.WORLD_SIZE),
+            y: state.player.pos.y
+          };
+          const bandit = {
+            id: `bandit_${state.nextBanditId}`,
+            pos: position,
+            prevPos: copyPosition(position),
+            moveTarget: copyPosition(position),
+            troops: [{ type: "bandit", count: Math.max(1, Math.floor(count)), xp: 0 }],
+            gold: Math.max(0, Math.floor(gold))
+          };
+          state.nextBanditId += 1;
+          state.bandits.push(bandit);
+          checkForEncounter();
+          return bandit.id;
+        },
+        skipBattle: skipCurrentBattle,
+        renderFrame(now = performance.now()) {
+          const alpha = clamp((now - lastLogicAt) / CONFIG.LOGIC_MS, 0, 1);
+          updateCamera(interpolatedPosition(state.player, alpha));
+          drawWorldGround();
+        }
+      });
+    }
+  </script>
+</body>
+</html>
