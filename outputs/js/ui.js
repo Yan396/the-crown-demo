@@ -86,6 +86,9 @@ export function createUi(callbacks) {
     skipBattle: element("skip-battle"),
     retreatBattle: element("retreat-battle"),
     battleLog: element("battle-log"),
+    ticker: element("ticker"),
+    tickerSeal: element("ticker-seal"),
+    tickerText: element("ticker-text"),
     townSheet: element("town-sheet"),
     townKicker: element("town-kicker"),
     townName: element("town-name"),
@@ -237,6 +240,37 @@ export function createUi(callbacks) {
     return language() === "zh" ? compact.replace(/\s*若干\s*/g, "若干") : compact;
   }
 
+  // Only these carry a seal dot on the ticker. A dot on every line would make
+  // the dot mean "line", not "this one matters".
+  const SEALED_EVENTS = new Set([
+    "log.warDeclared",
+    "log.peaceDeclared",
+    "log.townCaptured",
+    "log.siegeStarted",
+    "log.factionFallen"
+  ]);
+
+  let tickerKey = null;
+
+  function renderTicker(entries) {
+    const newest = entries[0] || null;
+    refs.ticker.hidden = !newest;
+    if (!newest) {
+      tickerKey = null;
+      return;
+    }
+    const text = compactEventText(t(newest.key, resolveParameters(newest.parameters)));
+    const identity = `${newest.key}:${text}`;
+    refs.tickerSeal.hidden = !SEALED_EVENTS.has(newest.key);
+    if (identity === tickerKey) return;
+    tickerKey = identity;
+    refs.tickerText.textContent = text;
+    // Newest slides in from the right, once. Not a looping marquee.
+    refs.ticker.classList.remove("arriving");
+    void refs.ticker.offsetWidth;
+    if (!motionOff()) refs.ticker.classList.add("arriving");
+  }
+
   function renderEventLog() {
     refs.battleLog.replaceChildren();
     const entries = currentState.eventLog.slice(0, CONFIG.VISIBLE_LOG_ENTRIES);
@@ -252,6 +286,7 @@ export function createUi(callbacks) {
       if (entry.tone) item.className = entry.tone;
       refs.battleLog.appendChild(item);
     });
+    renderTicker(entries);
     refs.report.dataset.expanded = String(reportExpanded);
     refs.reportToggle.setAttribute("aria-expanded", String(reportExpanded));
   }
@@ -740,6 +775,11 @@ export function createUi(callbacks) {
   refs.settingsScrim.addEventListener("click", () => setSettingsOpen(false));
   refs.reportToggle.addEventListener("click", () => {
     reportExpanded = !reportExpanded;
+    if (currentState) renderEventLog();
+  });
+  // Tapping the ticker opens the dispatch drawer it summarises.
+  refs.ticker.addEventListener("click", () => {
+    reportExpanded = true;
     if (currentState) renderEventLog();
   });
   refs.languageZh.addEventListener("click", () => callbacks.onLanguageChange("zh"));

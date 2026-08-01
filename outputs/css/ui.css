@@ -2140,3 +2140,64 @@ body.demo-ended #town-sheet {
     animation: none;
   }
 }
+
+/* ---- 5: the ticker ------------------------------------------------------ */
+/* A single paper band under the HUD carrying the newest dispatch. Tapping it
+   opens the drawer it summarises. It never loops — a marquee would pull the eye
+   forever, and this sits above a map the player is trying to read. */
+#ticker {
+  position: absolute;
+  z-index: 6;
+  top: calc(max(10px, env(safe-area-inset-top)) + 96px);
+  left: 50%;
+  display: flex;
+  min-height: 26px;
+  max-width: min(340px, calc(100vw - 28px));
+  align-items: center;
+  gap: 7px;
+  padding: 4px 12px;
+  border: 0;
+  background: rgba(232, 220, 195, 0.92);
+  color: var(--ink);
+  font: 11px/1.35 var(--font-body);
+  text-align: left;
+  transform: translateX(-50%);
+  box-shadow: 0 2px 8px rgba(28, 25, 22, 0.18);
+}
+
+#ticker[hidden] {
+  display: none !important;
+}
+
+#ticker-text {
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* War, conquest, a faction falling. A dot on every line would make the dot
+   mean "line" rather than "this one matters". */
+.ticker-seal {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  background: var(--cinnabar);
+}
+
+.ticker-seal[hidden] {
+  display: none;
+}
+
+#ticker.arriving {
+  animation: ticker-arrive 450ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes ticker-arrive {
+  0% { opacity: 0; transform: translateX(calc(-50% + 22px)); }
+  100% { opacity: 1; transform: translateX(-50%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #ticker.arriving { animation: none; }
+}
