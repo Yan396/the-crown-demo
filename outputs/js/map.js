@@ -1,4 +1,5 @@
 import { CONFIG, TOKENS, TOWN_DATA } from "./data.js";
+import { buildRoads, distanceToRoad } from "./roads.js";
 import { activeTown, clamp } from "./state.js";
 import { lordName, translate } from "./strings.js";
 
@@ -24,14 +25,7 @@ const ART = Object.freeze({
   GRAIN_TILE: 128,
   TRAIL_STEPS: 3,
 
-  ROAD_MAX_SPAN: 1200,
-  ROAD_CORRIDOR: 92,
-  // Roads joining two towns of the SAME faction are the ones lords patrol, and
-  // lords walk a straight line (movement is simulation, out of scope for an art
-  // pass). Those roads get near-zero wobble so a marching lord never visibly
-  // leaves the road; unpatrolled roads carry the full hand-drawn character.
-  ROAD_WOBBLE_PATROLLED: 18,
-  ROAD_WOBBLE_FREE: 70
+  ROAD_CORRIDOR: 130
 });
 
 const PERF_MODE = new URLSearchParams(window.location.search).get("perf") === "1";
@@ -103,27 +97,7 @@ function clearOfTowns(x, y, padding) {
   return TOWN_DATA.every((town) => Math.hypot(town.x - x, town.y - y) > padding);
 }
 
-function pointToSegment(px, py, ax, ay, bx, by) {
-  const dx = bx - ax;
-  const dy = by - ay;
-  const lengthSquared = dx * dx + dy * dy;
-  if (lengthSquared === 0) return Math.hypot(px - ax, py - ay);
-  const t = clamp(((px - ax) * dx + (py - ay) * dy) / lengthSquared, 0, 1);
-  return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
-}
 
-function distanceToPolyline(x, y, points) {
-  let best = Infinity;
-  for (let index = 0; index < points.length - 1; index += 1) {
-    const gap = pointToSegment(
-      x, y,
-      points[index].x, points[index].y,
-      points[index + 1].x, points[index + 1].y
-    );
-    if (gap < best) best = gap;
-  }
-  return best;
-}
 
 function segmentsCross(a, b, c, d) {
   const side = (p, q, r) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
@@ -138,22 +112,6 @@ function segmentsCross(a, b, c, d) {
   return null;
 }
 
-// Chaikin smoothing turns control points into a road rather than a zig-zag.
-function smoothPolyline(points, passes) {
-  let current = points;
-  for (let pass = 0; pass < passes; pass += 1) {
-    const smoothed = [current[0]];
-    for (let index = 0; index < current.length - 1; index += 1) {
-      const a = current[index];
-      const b = current[index + 1];
-      smoothed.push({ x: a.x * 0.75 + b.x * 0.25, y: a.y * 0.75 + b.y * 0.25 });
-      smoothed.push({ x: a.x * 0.25 + b.x * 0.75, y: a.y * 0.25 + b.y * 0.75 });
-    }
-    smoothed.push(current[current.length - 1]);
-    current = smoothed;
-  }
-  return current;
-}
 
 // Offscreen layers are optional so a context-less environment still runs.
 function createLayerCanvas(width, height) {
@@ -200,36 +158,6 @@ function computeRivers(size, next) {
   return rivers;
 }
 
-function computeRoads(next) {
-  const roads = [];
-  for (let i = 0; i < TOWN_DATA.length; i += 1) {
-    for (let j = i + 1; j < TOWN_DATA.length; j += 1) {
-      const from = TOWN_DATA[i];
-      const to = TOWN_DATA[j];
-      const span = Math.hypot(to.x - from.x, to.y - from.y);
-      if (span > ART.ROAD_MAX_SPAN) continue;
-
-      const patrolled = from.factionId === to.factionId;
-      const wobble = patrolled ? ART.ROAD_WOBBLE_PATROLLED : ART.ROAD_WOBBLE_FREE;
-      const nx = -(to.y - from.y) / span;
-      const ny = (to.x - from.x) / span;
-      const midpoints = 2 + Math.floor(next(0, 2));
-
-      const control = [{ x: from.x, y: from.y }];
-      for (let step = 1; step <= midpoints; step += 1) {
-        const t = step / (midpoints + 1);
-        const offset = next(-wobble, wobble);
-        control.push({
-          x: from.x + (to.x - from.x) * t + nx * offset,
-          y: from.y + (to.y - from.y) * t + ny * offset
-        });
-      }
-      control.push({ x: to.x, y: to.y });
-      roads.push({ points: smoothPolyline(control, 2), patrolled });
-    }
-  }
-  return roads;
-}
 
 function paintStains(g, size, next) {
   for (let index = 0; index < ART.STAIN_COUNT; index += 1) {
@@ -384,7 +312,7 @@ function paintMountain(g, x, y, width, height, next, alpha) {
 // so nearer peaks overlap. Road corridors are kept clear, which pushes the
 // ranges into the gaps between roads and makes them read as passes and valleys.
 function paintTerrain(g, size, next, roads) {
-  const offRoad = (x, y) => roads.every((road) => distanceToPolyline(x, y, road.points) > ART.ROAD_CORRIDOR);
+  const offRoad = (x, y) => roads.every((road) => distanceToRoad(road.points, x, y) > ART.ROAD_CORRIDOR);
 
   for (let cluster = 0; cluster < ART.MOUNTAIN_CLUSTERS; cluster += 1) {
     let cx = 0;
@@ -534,7 +462,9 @@ export function createMapRenderer(canvas) {
     // out of their corridors, and rivers are laid down before the bridges that
     // must sit on top of them.
     const rivers = computeRivers(size, next);
-    const roads = computeRoads(next);
+    // The SAME network the lords march along, so a drawn road and a walked
+    // road are never two different lines.
+    const roads = buildRoads(seed);
 
     g.fillStyle = TOKENS.paper;
     g.fillRect(0, 0, size, size);

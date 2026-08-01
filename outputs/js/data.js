@@ -57,6 +57,13 @@ export const CONFIG = Object.freeze({
   LORD_STARTING_MILITIA: 12,
   TOWN_START_PROSPERITY: 50,
   TOWN_START_RECRUIT_POOL: 10,
+  // Road movement. ROAD_MOVEMENT gates the whole feature so it can be turned
+  // off in one place if pacing regresses; the multipliers are never surfaced in
+  // the UI, so players feel the difference without being told about it.
+  ROAD_MOVEMENT: true,
+  ROAD_SPEED_MULTIPLIER: 1.2,
+  OFF_ROAD_SPEED_MULTIPLIER: 0.85,
+
   ZOOM_MOBILE: 0.72,
   ZOOM_DESKTOP: 0.88,
   DPR_CAP: 2,

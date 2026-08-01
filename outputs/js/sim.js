@@ -1,4 +1,4 @@
-import { updateBanditRoam, updateLordPatrol, movePartyToward } from "./ai.js";
+import { updateBanditRoam, updateLordPatrol, movePartyToward, terrainSpeed } from "./ai.js";
 import { checkForEncounter, resolveBattleRound } from "./battle.js";
 import { CONFIG } from "./data.js";
 import { activeTown, addEvent, copyPosition, incrementTroop, spawnBandit } from "./state.js";
@@ -20,7 +20,7 @@ export function worldTick(state) {
   snapshotPreviousPositions(state);
   const battleAtTickStart = Boolean(state.battle);
 
-  if (!state.battle) movePartyToward(state.player, CONFIG.PLAYER_SPEED);
+  if (!state.battle) movePartyToward(state.player, terrainSpeed(state, state.player, CONFIG.PLAYER_SPEED));
   state.lords.forEach((lord) => updateLordPatrol(state, lord));
 
   const engagedBanditId = state.battle?.banditId || null;

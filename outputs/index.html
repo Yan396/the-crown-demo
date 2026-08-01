@@ -2,11 +2,16 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no">
   <meta name="theme-color" content="#1C1916">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="王冠">
   <meta name="description" content="">
   <title></title>
-  <link rel="icon" href="data:,">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='34' fill='%231C1916'/%3E%3Crect x='42' y='42' width='96' height='96' fill='%23B03A2E'/%3E%3Cpath d='M60 111V68l16 16 14-25 14 25 16-16v43z' fill='%23E8DCC3'/%3E%3C/svg%3E">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='34' fill='%231C1916'/%3E%3Crect x='42' y='42' width='96' height='96' fill='%23B03A2E'/%3E%3Cpath d='M60 111V68l16 16 14-25 14 25 16-16v43z' fill='%23E8DCC3'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="./css/ui.css">
 </head>
 <body>
@@ -29,6 +34,8 @@
             <span id="gold-label"></span>
           </span>
           <strong id="gold-value"></strong>
+          <small id="gold-promise" class="promise-marker" hidden></small>
+          <small id="wage-label" class="wage-marker"></small>
         </div>
         <div class="stat">
           <span class="stat-head">
@@ -39,6 +46,7 @@
             <span id="troop-label"></span>
           </span>
           <strong id="troop-value"></strong>
+          <small id="troop-promise" class="promise-marker" hidden></small>
         </div>
         <div class="stat">
           <span class="stat-head">
@@ -102,7 +110,10 @@
     <section id="report">
       <div class="report-head">
         <strong id="report-title"></strong>
-        <button id="skip-battle" type="button" hidden></button>
+        <div class="battle-actions">
+          <button id="retreat-battle" type="button" hidden></button>
+          <button id="skip-battle" type="button" hidden></button>
+        </div>
       </div>
       <ol id="battle-log" aria-live="polite"></ol>
     </section>
@@ -113,10 +124,16 @@
         <h2 id="town-name"></h2>
         <p id="town-faction"></p>
       </div>
-      <button id="recruit-button" type="button">
-        <span id="recruit-label"></span>
-        <span id="recruit-cost"></span>
-      </button>
+      <div class="town-actions">
+        <button id="tavern-button" type="button" hidden>
+          <span id="tavern-label"></span>
+          <span id="tavern-detail"></span>
+        </button>
+        <button id="recruit-button" type="button">
+          <span id="recruit-label"></span>
+          <span id="recruit-cost"></span>
+        </button>
+      </div>
     </section>
 
     <button id="settings-scrim" type="button" hidden></button>
@@ -144,6 +161,55 @@
       </div>
     </section>
 
+    <section id="onboarding" class="full-screen-layer onboarding-layer" hidden>
+      <div class="onboarding-brand">
+        <span id="onboarding-seal" class="mini-seal"></span>
+        <strong id="onboarding-title"></strong>
+      </div>
+      <div class="onboarding-copy">
+        <small id="onboarding-step"></small>
+        <p id="onboarding-line"></p>
+        <span id="onboarding-tap"></span>
+      </div>
+      <button id="title-new-seed" class="ghost-button" type="button"></button>
+    </section>
+
+    <section id="promise-modal" class="modal-layer" hidden>
+      <div class="promise-card" role="dialog" aria-modal="true">
+        <small id="promise-kicker"></small>
+        <p id="promise-context" hidden></p>
+        <h2 id="promise-question"></h2>
+        <output id="promise-value" for="promise-slider"></output>
+        <input id="promise-slider" type="range">
+        <div class="promise-range"><span id="promise-min"></span><span id="promise-max"></span></div>
+        <button id="promise-confirm" class="primary-button" type="button"></button>
+      </div>
+    </section>
+
+    <button id="context-tooltip" type="button" hidden></button>
+
+    <section id="demo-ending" class="full-screen-layer ending-layer" hidden>
+      <div class="ending-scroll">
+        <div id="ending-seal" class="ending-seal"></div>
+        <h1 id="ending-title"></h1>
+        <section class="ending-section">
+          <h2 id="mirror-title"></h2>
+          <div id="mirror-table" class="mirror-table"></div>
+        </section>
+        <section class="ending-section">
+          <h2 id="ending-stats-title"></h2>
+          <dl id="ending-stats" class="ending-stats"></dl>
+        </section>
+        <p id="ending-line" class="ending-line"></p>
+        <div class="ending-actions">
+          <button id="share-result" class="primary-button" type="button"></button>
+          <button id="replay-button" class="ghost-button" type="button"></button>
+        </div>
+        <code id="result-code" class="result-code"></code>
+      </div>
+    </section>
+
+    <small id="version-label" class="version-label"></small>
     <div id="toast" role="status" aria-live="polite"></div>
   </main>
 
