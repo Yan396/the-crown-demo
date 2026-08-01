@@ -73,6 +73,12 @@ export function submitPromise(state, value, occurredAt) {
   return { accepted: true, act, kind, statedGoal, occurredAt: timestamp(occurredAt) };
 }
 
+export function setPromise(state, value, kind) {
+  if (kind === "troops") state.demo.modal = "troopPromise";
+  if (kind === "gold") state.demo.modal = "goldPromise";
+  return submitPromise(state, value);
+}
+
 export function updatePromiseOvershoots(state) {
   for (const promise of state.player.promises) {
     const actual = promise.kind === "gold" ? state.player.gold : getTroopCount(state.player);
@@ -162,12 +168,31 @@ export function completeDemo(state, occurredAt) {
   state.demo.modal = "ending";
   state.demo.pauseReason = "ending";
   state.paused = true;
+  state.ending = { complete: true, visible: true, tick: state.tick };
   finalizeTelemetry(state, timestamp(occurredAt));
   return { type: "ending", tick: state.tick };
 }
+
+export function buildEndingSummary(state, occurredAt) {
+  completeDemo(state, occurredAt);
+  const battles = state.stats.battles || 0;
+  const wins = state.stats.wins || 0;
+  return {
+    promises: state.player.promises.map((entry) => ({ ...entry })),
+    stats: {
+      days: state.stats.days || 0,
+      battles,
+      winRate: battles ? wins / battles : 0,
+      peakTroops: state.stats.peakTroops || 0,
+      peakGold: state.stats.peakGold || 0
+    }
+  };
+}
+
+export const checkActProgression = advanceActIfNeeded;
+export const finishDemo = buildEndingSummary;
 
 export function nextReplaySeed(state) {
   const replay = (state.telemetry?.replayCount || 0) + 1;
   return (state.seed + Math.imul(replay, 0x9e3779b9) + 0x6d2b79f5) >>> 0;
 }
-

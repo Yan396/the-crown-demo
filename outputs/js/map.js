@@ -884,29 +884,44 @@ export function createMapRenderer(canvas) {
     const count = bandit.troops.reduce((sum, stack) => sum + stack.count, 0);
     const engaged = state.battle?.banditId === bandit.id;
     const seed = hashString(bandit.id);
+    const elite = Boolean(bandit.elite || bandit.kind === "elite");
+    const markerScale = elite ? CONFIG.ELITE_MARKER_SIZE_MULTIPLIER : 1;
 
     drawTrail(bandit.id, TOKENS.ink);
 
     context.save();
     // A rough blot: overlapping offset discs rather than a clean circle.
     const roll = artRandom(seed);
-    context.fillStyle = colorWithAlpha(TOKENS.ink, 0.82);
-    for (let index = 0; index < 4; index += 1) {
-      const offsetX = (roll() - 0.5) * 5.5;
-      const offsetY = (roll() - 0.5) * 5.5;
+    context.fillStyle = colorWithAlpha(TOKENS.ink, elite ? 0.98 : 0.82);
+    for (let index = 0; index < (elite ? 6 : 4); index += 1) {
+      const offsetX = (roll() - 0.5) * 5.5 * markerScale;
+      const offsetY = (roll() - 0.5) * 5.5 * markerScale;
       context.beginPath();
-      context.arc(position.x + offsetX, position.y + offsetY, 3.4 + roll() * 2.4, 0, Math.PI * 2);
+      context.arc(position.x + offsetX, position.y + offsetY, (3.4 + roll() * 2.4) * markerScale, 0, Math.PI * 2);
       context.fill();
     }
     for (let index = 0; index < 3; index += 1) {
       context.fillStyle = colorWithAlpha(TOKENS.ink, 0.3 + roll() * 0.3);
       context.beginPath();
-      context.arc(position.x + (roll() - 0.5) * 15, position.y + (roll() - 0.5) * 15, 0.7 + roll(), 0, Math.PI * 2);
+      context.arc(
+        position.x + (roll() - 0.5) * 15 * markerScale,
+        position.y + (roll() - 0.5) * 15 * markerScale,
+        (0.7 + roll()) * markerScale,
+        0,
+        Math.PI * 2
+      );
       context.fill();
     }
 
+    if (elite) {
+      inkCirclePath(position.x, position.y, 14 * markerScale, seed ^ 0xe11e, 0.18);
+      context.strokeStyle = colorWithAlpha(TOKENS.ink, 0.72);
+      context.lineWidth = 2.4;
+      context.stroke();
+    }
+
     if (engaged) {
-      inkCirclePath(position.x, position.y, 15, seed ^ 0x9a, 0.12);
+      inkCirclePath(position.x, position.y, 15 * markerScale, seed ^ 0x9a, 0.12);
       context.strokeStyle = colorWithAlpha(TOKENS.cinnabar, 0.85);
       context.lineWidth = 2.2;
       context.stroke();
@@ -916,9 +931,9 @@ export function createMapRenderer(canvas) {
     inkLabel(
       position.x,
       position.y + 11,
-      translate(language, "map.bandit", { count }),
-      `600 11px ${TOKENS.fontDisplay}`,
-      0.72
+      translate(language, elite ? "map.eliteBandit" : "map.bandit", { count }),
+      `${elite ? 700 : 600} ${elite ? 12 : 11}px ${TOKENS.fontDisplay}`,
+      elite ? 0.92 : 0.72
     );
   }
 

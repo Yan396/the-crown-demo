@@ -201,8 +201,6 @@ export async function sharePlaytestResult(state, language = "zh", environment = 
   const navigatorObject = environment.navigator || globalThis.navigator;
   const documentObject = environment.document || globalThis.document;
   const message = buildShareMessage(state, language);
-  const copyPromise = copyWithFallback(message, navigatorObject, documentObject);
-
   let shared = false;
   let cancelled = false;
   if (typeof navigatorObject?.share === "function") {
@@ -216,7 +214,6 @@ export async function sharePlaytestResult(state, language = "zh", environment = 
       cancelled = error?.name === "AbortError";
     }
   }
-
-  const copied = await copyPromise;
+  const copied = shared ? false : await copyWithFallback(message, navigatorObject, documentObject);
   return { message, copied, shared, cancelled };
 }

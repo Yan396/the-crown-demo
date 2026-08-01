@@ -1,6 +1,16 @@
-import { CONFIG } from "./data.js";
-import { buildRoads, findRoad, isOnRoad } from "./roads.js";
-import { assignBanditMoveTarget, clamp, copyPosition, getTown } from "./state.js";
+import { CONFIG, TROOP_TYPES } from "./data.js";
+import { nextFloat } from "./rng.js";
+import {
+  addEvent,
+  clamp,
+  copyPosition,
+  distance,
+  getFaction,
+  getPartyStrength,
+  getTown,
+  getTroopCount,
+  incrementTroop
+} from "./state.js";
 
 export function movePartyToward(party, speed) {
   if (!party.moveTarget) return false;
@@ -20,102 +30,255 @@ export function movePartyToward(party, speed) {
   return false;
 }
 
-// Roads are faster than open country. Free-moving parties (player, bandits) are
-// tested against the network each tick; lords are always on a road by
-// construction, so they always take the bonus.
-export function terrainSpeed(state, party, baseSpeed) {
-  if (!CONFIG.ROAD_MOVEMENT) return baseSpeed;
-  const roads = buildRoads(state.seed);
-  const onRoad = isOnRoad(roads, party.pos.x, party.pos.y);
-  return baseSpeed * (onRoad ? CONFIG.ROAD_SPEED_MULTIPLIER : CONFIG.OFF_ROAD_SPEED_MULTIPLIER);
+export function factionsAreHostile(state, firstFactionId, secondFactionId) {
+  if (!firstFactionId || !secondFactionId || firstFactionId === secondFactionId) return false;
+  const first = getFaction(state, firstFactionId);
+  return Boolean(first?.atWarWith?.includes(secondFactionId));
 }
 
-// Walking direction along a road's point array: forward when the destination is
-// the road's second town, backward when it is the first.
-function routeFor(state, lord) {
-  const roads = buildRoads(state.seed);
-  const destinationId = lord.patrolTownIds[lord.patrolIndex];
-  const originId = lord.patrolTownIds[lord.patrolIndex === 0 ? 1 : 0];
-  const road = findRoad(roads, originId, destinationId);
-  if (!road) return null;
-  return { road, forward: road.townIds[1] === destinationId };
+function ownTowns(state, lord) {
+  return state.towns.filter((town) => town.factionId === lord.factionId);
 }
 
-function waypointAt(route, index) {
-  const { road, forward } = route;
-  const count = road.points.length;
-  const resolved = forward ? index : count - 1 - index;
-  if (resolved < 0 || resolved >= count) return null;
-  return road.points[resolved];
+function nearestByPosition(items, position, positionOf = (item) => item.pos) {
+  return items.reduce((nearest, item) => {
+    if (!nearest) return item;
+    const itemDistance = distance(position, positionOf(item));
+    const nearestDistance = distance(position, positionOf(nearest));
+    if (itemDistance !== nearestDistance) return itemDistance < nearestDistance ? item : nearest;
+    return String(item.id).localeCompare(String(nearest.id)) < 0 ? item : nearest;
+  }, null);
 }
 
-// Saves written before road movement have no waypoint, so derive one from where
-// the lord currently stands rather than snapping it back to a town.
-function nearestWaypointIndex(route, position) {
-  const count = route.road.points.length;
-  let best = 0;
-  let bestDistance = Infinity;
-  for (let index = 0; index < count; index += 1) {
-    const point = waypointAt(route, index);
-    const gap = Math.hypot(point.x - position.x, point.y - position.y);
-    if (gap < bestDistance) {
-      bestDistance = gap;
-      best = index;
+export function getGarrisonStrength(town) {
+  return (town.garrison || []).reduce((sum, stack) => {
+    return sum + (TROOP_TYPES[stack.type]?.atk || 0) * stack.count;
+  }, 0);
+}
+
+export function hostilePartiesNear(state, lord, radius = CONFIG.LORD_ENEMY_SCAN_RADIUS) {
+  const hostileLords = state.lords
+    .filter((other) => (
+      other.id !== lord.id &&
+      (!other.defeatedUntilTick || other.defeatedUntilTick <= state.tick) &&
+      factionsAreHostile(state, lord.factionId, other.factionId)
+    ))
+    .map((party) => ({ kind: "lord", party }));
+  const hostileBandits = state.bandits.map((party) => ({ kind: "bandit", party }));
+
+  return [...hostileLords, ...hostileBandits]
+    .map((entry) => ({ ...entry, separation: distance(lord.pos, entry.party.pos) }))
+    .filter((entry) => entry.separation <= radius)
+    .sort((first, second) => (
+      first.separation - second.separation || first.party.id.localeCompare(second.party.id)
+    ));
+}
+
+function setLordIntent(lord, aiState, target, targetKind) {
+  lord.aiState = aiState;
+  lord.targetId = target?.id || null;
+  lord.targetKind = targetKind || null;
+  lord.moveTarget = target ? copyPosition(target.pos) : null;
+  lord.aiStateSinceTick ??= 0;
+}
+
+function refreshPatrolRoute(state, lord) {
+  const towns = ownTowns(state, lord).sort((first, second) => first.id.localeCompare(second.id));
+  lord.patrolTownIds = towns.slice(0, 2).map((town) => town.id);
+  if (!lord.patrolTownIds.length) {
+    lord.patrolIndex = 0;
+    return null;
+  }
+  lord.patrolIndex = clamp(lord.patrolIndex || 0, 0, lord.patrolTownIds.length - 1);
+  return getTown(state, lord.patrolTownIds[lord.patrolIndex]);
+}
+
+function chooseNextPatrolTown(state, lord) {
+  const validIds = (lord.patrolTownIds || []).filter((id) => getTown(state, id)?.factionId === lord.factionId);
+  if (!validIds.length || validIds.length !== lord.patrolTownIds.length) refreshPatrolRoute(state, lord);
+  if (!lord.patrolTownIds.length) return null;
+  lord.patrolIndex = lord.patrolTownIds.length === 1
+    ? 0
+    : ((lord.patrolIndex || 0) + 1) % lord.patrolTownIds.length;
+  return getTown(state, lord.patrolTownIds[lord.patrolIndex]);
+}
+
+function setPatrolIntent(state, lord) {
+  let target = chooseNextPatrolTown(state, lord);
+  if (!target) target = refreshPatrolRoute(state, lord);
+  setLordIntent(lord, "patrol", target, "town");
+}
+
+function nearestOwnTown(state, lord) {
+  return nearestByPosition(ownTowns(state, lord), lord.pos);
+}
+
+function nearestBesiegedOwnTown(state, lord) {
+  return nearestByPosition(
+    ownTowns(state, lord).filter((town) => (
+      town.underSiege && town.siege && town.siege.attackerFactionId !== lord.factionId
+    )),
+    lord.pos
+  );
+}
+
+function eligibleSiegeTargets(state, lord) {
+  const strength = getPartyStrength(lord);
+  return state.towns.filter((town) => (
+    factionsAreHostile(state, lord.factionId, town.factionId) &&
+    strength >= Math.max(1, getGarrisonStrength(town)) * CONFIG.SIEGE_STRENGTH_RATIO
+  ));
+}
+
+function ensureLordFields(lord) {
+  lord.targetKind ||= lord.targetId ? "town" : null;
+  lord.aiState ||= "patrol";
+  lord.aiStateSinceTick ??= 0;
+  lord.defeatedUntilTick ??= lord.defeatedUntil || 0;
+  lord.defeatedUntil = lord.defeatedUntilTick;
+}
+
+// Implements the ordered Phase 2 state machine and adds a strategic town target
+// only when the normal party/defense branches do not apply.
+export function reevaluateLordAi(state, lord) {
+  ensureLordFields(lord);
+  if (lord.defeatedUntilTick > state.tick) return lord.aiState;
+  const previousState = lord.aiState;
+  const troopCount = getTroopCount(lord);
+  const ownTown = nearestOwnTown(state, lord);
+
+  if (
+    troopCount < CONFIG.LORD_TROOP_CAP * CONFIG.LORD_RECRUIT_THRESHOLD_RATIO &&
+    lord.gold > CONFIG.LORD_RECRUIT_MIN_GOLD &&
+    ownTown
+  ) {
+    setLordIntent(lord, "recruit", ownTown, "town");
+  } else {
+    const activeSiegeTown = state.towns.find((town) => (
+      town.underSiege &&
+      town.siegeAttackerId === lord.id &&
+      town.factionId !== lord.factionId &&
+      factionsAreHostile(state, lord.factionId, town.factionId) &&
+      getPartyStrength(lord) >= Math.max(1, getGarrisonStrength(town)) * CONFIG.SIEGE_STRENGTH_RATIO
+    ));
+    if (activeSiegeTown) {
+      setLordIntent(lord, "attack", activeSiegeTown, "town");
+      if (lord.aiState !== previousState) lord.aiStateSinceTick = state.tick;
+      return lord.aiState;
+    }
+    const nearby = hostilePartiesNear(state, lord);
+    const enemy = nearby[0] || null;
+    const ownStrength = Math.max(1, getPartyStrength(lord));
+    const enemyStrength = enemy ? Math.max(1, getPartyStrength(enemy.party)) : 1;
+    const strengthRatio = ownStrength / enemyStrength;
+    const attackThreshold = CONFIG.LORD_ATTACK_RATIO_BASE + (
+      lord.personality * CONFIG.LORD_ATTACK_PERSONALITY_SCALE
+    );
+
+    if (enemy && strengthRatio > attackThreshold) {
+      setLordIntent(lord, "attack", enemy.party, enemy.kind);
+    } else if (enemy && strengthRatio < CONFIG.LORD_FLEE_RATIO && ownTown) {
+      setLordIntent(lord, "flee", ownTown, "town");
+    } else {
+      const threatenedTown = nearestBesiegedOwnTown(state, lord);
+      if (threatenedTown) {
+        setLordIntent(lord, "defend", threatenedTown, "town");
+      } else {
+        // Faction-wide stable ordering concentrates an army on one objective
+        // instead of spreading four lords across both enemy towns forever.
+        const siegeTarget = eligibleSiegeTargets(state, lord)
+          .sort((first, second) => first.id.localeCompare(second.id))[0] || null;
+        const faction = getFaction(state, lord.factionId);
+        if (siegeTarget && (CONFIG.DEMO || nextFloat(state.rng) < (faction?.aggression || 0))) {
+          setLordIntent(lord, "attack", siegeTarget, "town");
+        } else {
+          setPatrolIntent(state, lord);
+        }
+      }
     }
   }
-  return Math.min(count - 1, best + 1);
+
+  if (lord.aiState !== previousState) lord.aiStateSinceTick = state.tick;
+  return lord.aiState;
 }
 
-function turnAround(state, lord) {
-  lord.patrolIndex = lord.patrolIndex === 0 ? 1 : 0;
-  const nextTown = getTown(state, lord.patrolTownIds[lord.patrolIndex]);
-  lord.targetId = nextTown.id;
-  lord.aiState = "patrol";
-  lord.roadWaypoint = 1;
-  const route = routeFor(state, lord);
-  lord.moveTarget = route
-    ? copyPosition(waypointAt(route, 1) || nextTown.pos)
-    : copyPosition(nextTown.pos);
+export function reevaluateAllLords(state) {
+  state.lords
+    .slice()
+    .sort((first, second) => first.id.localeCompare(second.id))
+    .forEach((lord) => reevaluateLordAi(state, lord));
 }
 
-export function updateLordPatrol(state, lord) {
-  const route = CONFIG.ROAD_MOVEMENT ? routeFor(state, lord) : null;
-
-  // No road between the patrol pair: fall back to the straight-line march.
-  if (!route) {
-    if (!movePartyToward(lord, CONFIG.LORD_SPEED)) return;
-    lord.patrolIndex = lord.patrolIndex === 0 ? 1 : 0;
-    const nextTown = getTown(state, lord.patrolTownIds[lord.patrolIndex]);
-    lord.moveTarget = copyPosition(nextTown.pos);
-    lord.targetId = nextTown.id;
-    lord.aiState = "patrol";
-    return;
-  }
-
-  if (!Number.isInteger(lord.roadWaypoint)) {
-    lord.roadWaypoint = nearestWaypointIndex(route, lord.pos);
-  }
-  if (!lord.moveTarget) {
-    const point = waypointAt(route, lord.roadWaypoint);
-    lord.moveTarget = copyPosition(point || getTown(state, lord.targetId).pos);
-  }
-
-  const speed = CONFIG.LORD_SPEED * CONFIG.ROAD_SPEED_MULTIPLIER;
-  if (!movePartyToward(lord, speed)) return;
-
-  // Reached a waypoint: step to the next one, or turn around at the far town.
-  const next = lord.roadWaypoint + 1;
-  const point = waypointAt(route, next);
-  if (!point) {
-    turnAround(state, lord);
-    return;
-  }
-  lord.roadWaypoint = next;
-  lord.moveTarget = copyPosition(point);
+function recruitLordAtTown(state, lord, town) {
+  if (!town || town.factionId !== lord.factionId || town.recruitPool <= 0) return 0;
+  const current = getTroopCount(lord);
+  const capacity = Math.max(0, CONFIG.LORD_TROOP_CAP - current);
+  const affordable = Math.max(0, Math.floor(
+    (lord.gold - CONFIG.LORD_RECRUIT_GOLD_RESERVE) / TROOP_TYPES.militia.cost
+  ));
+  const quantity = Math.min(capacity, town.recruitPool, affordable);
+  if (quantity <= 0) return 0;
+  incrementTroop(lord, "militia", quantity);
+  town.recruitPool -= quantity;
+  lord.gold -= quantity * TROOP_TYPES.militia.cost;
+  addEvent(state, "log.lordRecruited", {
+    lordId: lord.id,
+    townId: town.id,
+    count: quantity
+  });
+  return quantity;
 }
 
-export function updateBanditRoam(state, bandit) {
-  if (movePartyToward(bandit, terrainSpeed(state, bandit, CONFIG.BANDIT_SPEED))) {
-    assignBanditMoveTarget(state, bandit);
+function resolveDynamicTarget(state, lord) {
+  if (lord.targetKind === "lord") return state.lords.find((party) => party.id === lord.targetId) || null;
+  if (lord.targetKind === "bandit") return state.bandits.find((party) => party.id === lord.targetId) || null;
+  if (lord.targetKind === "town") return getTown(state, lord.targetId);
+  return null;
+}
+
+export function updateLordMovement(state, lord, speed = CONFIG.LORD_SPEED) {
+  ensureLordFields(lord);
+  if (lord.defeatedUntilTick > state.tick) return false;
+  const target = resolveDynamicTarget(state, lord);
+  if (target) lord.moveTarget = copyPosition(target.pos);
+  else if (lord.aiState !== "patrol") {
+    reevaluateLordAi(state, lord);
+  }
+
+  const arrived = movePartyToward(lord, speed);
+  if (!arrived) return false;
+
+  if (lord.aiState === "recruit") {
+    recruitLordAtTown(state, lord, getTown(state, lord.targetId));
+  } else if (lord.aiState === "patrol") {
+    const nextTown = chooseNextPatrolTown(state, lord);
+    if (nextTown) {
+      lord.targetId = nextTown.id;
+      lord.targetKind = "town";
+      lord.moveTarget = copyPosition(nextTown.pos);
+    }
+  }
+  return true;
+}
+
+// Preserved Phase 1 API; Phase 2 callers should prefer updateLordMovement.
+export function updateLordPatrol(state, lord, speed = CONFIG.LORD_SPEED) {
+  if (lord.aiState !== "patrol") setPatrolIntent(state, lord);
+  return updateLordMovement(state, lord, speed);
+}
+
+export function updateBanditRoam(state, bandit, speed = CONFIG.BANDIT_SPEED) {
+  if (movePartyToward(bandit, speed)) {
+    const angle = nextFloat(state.rng) * Math.PI * 2;
+    const range = CONFIG.BANDIT_ROAM_MIN + nextFloat(state.rng) * (
+      CONFIG.BANDIT_ROAM_MAX - CONFIG.BANDIT_ROAM_MIN
+    );
+    bandit.moveTarget = {
+      x: clamp(bandit.pos.x + Math.cos(angle) * range, CONFIG.BANDIT_WORLD_MARGIN, CONFIG.WORLD_SIZE - CONFIG.BANDIT_WORLD_MARGIN),
+      y: clamp(bandit.pos.y + Math.sin(angle) * range, CONFIG.BANDIT_WORLD_MARGIN, CONFIG.WORLD_SIZE - CONFIG.BANDIT_WORLD_MARGIN)
+    };
   }
 }
+
+export const evaluateLordAI = reevaluateLordAi;
+export const reevaluateLordAI = reevaluateLordAi;
