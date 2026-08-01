@@ -29,7 +29,8 @@ jobs:
         uses: actions/configure-pages@v5
 
       - name: Stamp deployed commit
-        run: sed -i "s/BUILD_VERSION: \"[^\"]*\"/BUILD_VERSION: \"${GITHUB_SHA::7}\"/" outputs/js/data.js
+        run: |
+          sed -i "s/BUILD_VERSION: \"[^\"]*\"/BUILD_VERSION: \"${GITHUB_SHA::7}\"/" outputs/js/data.js
 
       - name: Upload static demo
         uses: actions/upload-pages-artifact@v4
