@@ -16,6 +16,29 @@
   <link rel="stylesheet" href="./css/ui.css">
 </head>
 <body>
+  <svg class="svg-sprite" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="road-event-glyph-animal" viewBox="0 0 24 24">
+        <path d="M7 9 4.5 5.5 9 7m8 2 2.5-3.5L15 7M7 9c0-3 2.2-5 5-5s5 2 5 5v4c0 4-2.2 7-5 7s-5-3-5-7z"/>
+        <path d="M9.5 12h.1m4.8 0h.1M10 16c1.2.8 2.8.8 4 0"/>
+      </symbol>
+      <symbol id="road-event-glyph-traveler" viewBox="0 0 24 24">
+        <circle cx="12" cy="6" r="3"/><path d="M7 21c.4-6 2-10 5-10s4.6 4 5 10M5 13l4 2m10-2-4 2M12 11v10"/>
+      </symbol>
+      <symbol id="road-event-glyph-trade" viewBox="0 0 24 24">
+        <path d="M12 3v17M6 6h12M8 6l-4 8h8L8 6zm8 0-4 8h8l-4-8zM8 21h8"/>
+      </symbol>
+      <symbol id="road-event-glyph-village" viewBox="0 0 24 24">
+        <path d="m3 11 9-7 9 7M6 9v11h12V9M10 20v-6h4v6M4 20h16"/>
+      </symbol>
+      <symbol id="road-event-glyph-camp" viewBox="0 0 24 24">
+        <path d="M3 20 12 4l9 16H3zm5 0 4-7 4 7M5 8l-2-3m16 3 2-3"/>
+      </symbol>
+      <symbol id="road-event-glyph-omen" viewBox="0 0 24 24">
+        <path d="m12 3 2.2 5.8L20 11l-5.8 2.2L12 19l-2.2-5.8L4 11l5.8-2.2L12 3z"/><circle cx="12" cy="11" r="1.5"/>
+      </symbol>
+    </defs>
+  </svg>
   <canvas id="map"></canvas>
 
   <main id="app-overlay" class="overlay">
@@ -206,10 +229,13 @@
     <section id="road-event-modal" class="full-screen-layer road-event-layer" hidden>
       <article class="road-event-card" role="dialog" aria-modal="true">
         <small id="road-event-kicker"></small>
+        <svg id="road-event-glyph" class="road-event-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <use id="road-event-glyph-use" href="#road-event-glyph-omen"></use>
+        </svg>
         <p id="road-event-text"></p>
         <div class="road-event-actions">
-          <button id="road-event-choice-a" class="primary-button" type="button"></button>
-          <button id="road-event-choice-b" class="ghost-button" type="button"></button>
+          <button id="road-event-choice-a" class="road-event-choice" type="button"></button>
+          <button id="road-event-choice-b" class="road-event-choice" type="button"></button>
         </div>
       </article>
     </section>

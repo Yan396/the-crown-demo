@@ -43,7 +43,7 @@ export const STRINGS = Object.freeze({
       wages: "-{wage}/日",
       wageGrace: "第3天起发军饷",
       renownGateAct1: "声望 {renown}/50 → 自由队长",
-      renownGateAct2: "声望 {renown}/100 → 完整版",
+      renownGateAct2: "声望 {renown}/100 → 试玩终点",
       promiseCompact: "你说 {goal}",
       troopOvershoot: "兵力 {actual} ▸ 你说 {goal}",
       goldOvershoot: "金币 {actual} ▸ 你说 {goal}",
@@ -66,7 +66,7 @@ export const STRINGS = Object.freeze({
       verdictSureWin: "稳赢",
       verdictEven: "势均力敌",
       verdictOutmatched: "打不过",
-      skip: "立即结算",
+      skip: "进攻",
       retreat: "撤退"
     }),
     townPanel: Object.freeze({
@@ -282,7 +282,7 @@ export const STRINGS = Object.freeze({
       wages: "-{wage}/day",
       wageGrace: "Wages begin on Day 3",
       renownGateAct1: "Renown {renown}/50 → Free Captain",
-      renownGateAct2: "Renown {renown}/100 → Full game",
+      renownGateAct2: "Renown {renown}/100 → Demo End",
       promiseCompact: "You said {goal}",
       troopOvershoot: "Troops {actual} ▸ you said {goal}",
       goldOvershoot: "Gold {actual} ▸ you said {goal}",
@@ -305,7 +305,7 @@ export const STRINGS = Object.freeze({
       verdictSureWin: "Easy win",
       verdictEven: "Even match",
       verdictOutmatched: "Outmatched",
-      skip: "Resolve Now",
+      skip: "Attack",
       retreat: "Retreat"
     }),
     townPanel: Object.freeze({

@@ -25,7 +25,12 @@ export const ROAD_CONFIG = Object.freeze({
   // at 92 the off-road penalty applied almost everywhere (a straight line
   // between two towns leaves a road that wobbles +/-70px) and battles/day fell
   // from 0.42 to 0.26. 130 restores 0.46 — see work/pacing.mjs.
-  CORRIDOR: 130
+  CORRIDOR: 130,
+  // Navigation uses exact centreline projections. This is deliberately much
+  // smaller than CORRIDOR: the latter controls the speed bonus, while this
+  // epsilon only prevents floating-point noise from making a lord oscillate at
+  // a shared polyline vertex.
+  NAV_EPSILON: 1e-6
 });
 
 function roadRandom(seed) {
@@ -57,6 +62,7 @@ function smoothPolyline(points, passes) {
 }
 
 const networkCache = new Map();
+const navigationCache = new WeakMap();
 
 export function buildRoads(seed) {
   const key = seed >>> 0;
@@ -108,6 +114,202 @@ export function findRoad(roads, townIdA, townIdB) {
     (road.townIds[0] === townIdA && road.townIds[1] === townIdB) ||
     (road.townIds[0] === townIdB && road.townIds[1] === townIdA)
   )) || null;
+}
+
+function polylineMetrics(points) {
+  const cumulative = [0];
+  for (let index = 0; index < points.length - 1; index += 1) {
+    cumulative.push(cumulative[index] + Math.hypot(
+      points[index + 1].x - points[index].x,
+      points[index + 1].y - points[index].y
+    ));
+  }
+  return { cumulative, length: cumulative[cumulative.length - 1] || 0 };
+}
+
+function navigationFor(roads) {
+  const cached = navigationCache.get(roads);
+  if (cached) return cached;
+
+  const adjacency = new Map(TOWN_DATA.map((town) => [town.id, []]));
+  const metrics = new Map();
+  roads.forEach((road) => {
+    const measure = polylineMetrics(road.points);
+    metrics.set(road.id, measure);
+    const [firstTownId, secondTownId] = road.townIds;
+    if (!adjacency.has(firstTownId)) adjacency.set(firstTownId, []);
+    if (!adjacency.has(secondTownId)) adjacency.set(secondTownId, []);
+    adjacency.get(firstTownId).push({
+      road,
+      fromTownId: firstTownId,
+      toTownId: secondTownId,
+      length: measure.length
+    });
+    adjacency.get(secondTownId).push({
+      road,
+      fromTownId: secondTownId,
+      toTownId: firstTownId,
+      length: measure.length
+    });
+  });
+  adjacency.forEach((edges) => edges.sort((first, second) => (
+    first.road.id.localeCompare(second.road.id) ||
+    first.toTownId.localeCompare(second.toTownId)
+  )));
+
+  const navigation = { adjacency, metrics, pathCache: new Map() };
+  navigationCache.set(roads, navigation);
+  return navigation;
+}
+
+function routeSignature(legs) {
+  return legs.map((leg) => `${leg.road.id}:${leg.toTownId}`).join(">");
+}
+
+// Dijkstra is weighted by the actual curved polyline length, not town-to-town
+// air distance. Equal routes are resolved by their stable road-id signature so
+// navigation never consumes or depends on the simulation RNG.
+export function findRoadPath(roads, fromTownId, toTownId) {
+  if (fromTownId === toTownId) return { distance: 0, legs: [], signature: "" };
+  const navigation = navigationFor(roads);
+  const cacheKey = `${fromTownId}__${toTownId}`;
+  if (navigation.pathCache.has(cacheKey)) return navigation.pathCache.get(cacheKey);
+  if (!navigation.adjacency.has(fromTownId) || !navigation.adjacency.has(toTownId)) {
+    navigation.pathCache.set(cacheKey, null);
+    return null;
+  }
+
+  const best = new Map([[fromTownId, { distance: 0, legs: [], signature: "" }]]);
+  const open = new Set([fromTownId]);
+  while (open.size) {
+    const currentTownId = [...open].sort((firstId, secondId) => {
+      const first = best.get(firstId);
+      const second = best.get(secondId);
+      return first.distance - second.distance ||
+        first.signature.localeCompare(second.signature) ||
+        firstId.localeCompare(secondId);
+    })[0];
+    open.delete(currentTownId);
+    const current = best.get(currentTownId);
+    if (currentTownId === toTownId) break;
+
+    for (const edge of navigation.adjacency.get(currentTownId)) {
+      const legs = [...current.legs, edge];
+      const candidate = {
+        distance: current.distance + edge.length,
+        legs,
+        signature: routeSignature(legs)
+      };
+      const previous = best.get(edge.toTownId);
+      const improvesDistance = !previous || candidate.distance < previous.distance - ROAD_CONFIG.NAV_EPSILON;
+      const winsTie = previous &&
+        Math.abs(candidate.distance - previous.distance) <= ROAD_CONFIG.NAV_EPSILON &&
+        candidate.signature.localeCompare(previous.signature) < 0;
+      if (improvesDistance || winsTie) {
+        best.set(edge.toTownId, candidate);
+        open.add(edge.toTownId);
+      }
+    }
+  }
+
+  const result = best.get(toTownId) || null;
+  navigation.pathCache.set(cacheKey, result);
+  return result;
+}
+
+function projectToSegment(position, first, second) {
+  const dx = second.x - first.x;
+  const dy = second.y - first.y;
+  const lengthSquared = dx * dx + dy * dy;
+  const t = lengthSquared === 0
+    ? 0
+    : Math.max(0, Math.min(1, (
+      (position.x - first.x) * dx + (position.y - first.y) * dy
+    ) / lengthSquared));
+  const point = { x: first.x + dx * t, y: first.y + dy * t };
+  return { point, t, gap: Math.hypot(position.x - point.x, position.y - point.y) };
+}
+
+function nextPointFromTown(leg) {
+  if (!leg) return null;
+  const points = leg.road.points;
+  if (points.length < 2) return null;
+  return leg.road.townIds[0] === leg.fromTownId ? points[1] : points[points.length - 2];
+}
+
+function nextPointTowardEndpoint(candidate) {
+  const { road, segmentIndex, projection, endpointTownId, path } = candidate;
+  const points = road.points;
+  const towardFirst = endpointTownId === road.townIds[0];
+  if (towardFirst) {
+    if (projection.t > ROAD_CONFIG.NAV_EPSILON) return points[segmentIndex];
+    if (segmentIndex > 0) return points[segmentIndex - 1];
+  } else {
+    if (projection.t < 1 - ROAD_CONFIG.NAV_EPSILON) return points[segmentIndex + 1];
+    if (segmentIndex + 2 < points.length) return points[segmentIndex + 2];
+  }
+  return nextPointFromTown(path.legs[0]);
+}
+
+// Returns exactly one centreline waypoint toward a town. A party off the road
+// first joins the geometrically nearest segment; once on it, the two possible
+// directions are ranked by remaining curved distance plus the deterministic
+// town-graph path. `null` means the target is disconnected and callers should
+// retain their straight-line fallback.
+export function nextRoadWaypoint(roads, position, targetTownId) {
+  const navigation = navigationFor(roads);
+  const projections = [];
+  let nearestGap = Infinity;
+
+  roads.forEach((road) => {
+    for (let segmentIndex = 0; segmentIndex < road.points.length - 1; segmentIndex += 1) {
+      const projection = projectToSegment(
+        position,
+        road.points[segmentIndex],
+        road.points[segmentIndex + 1]
+      );
+      if (projection.gap < nearestGap) nearestGap = projection.gap;
+      projections.push({ road, segmentIndex, projection });
+    }
+  });
+  if (!Number.isFinite(nearestGap)) return null;
+
+  const nearest = projections.filter((entry) => (
+    entry.projection.gap <= nearestGap + ROAD_CONFIG.NAV_EPSILON
+  ));
+  const candidates = [];
+  nearest.forEach((entry) => {
+    const measure = navigation.metrics.get(entry.road.id);
+    const segmentLength = measure.cumulative[entry.segmentIndex + 1] -
+      measure.cumulative[entry.segmentIndex];
+    const arcFromFirst = measure.cumulative[entry.segmentIndex] +
+      segmentLength * entry.projection.t;
+    entry.road.townIds.forEach((endpointTownId, endpointIndex) => {
+      const path = findRoadPath(roads, endpointTownId, targetTownId);
+      if (!path) return;
+      const partialDistance = endpointIndex === 0
+        ? arcFromFirst
+        : measure.length - arcFromFirst;
+      candidates.push({
+        ...entry,
+        endpointTownId,
+        path,
+        remainingDistance: partialDistance + path.distance
+      });
+    });
+  });
+  if (!candidates.length) return null;
+
+  candidates.sort((first, second) => (
+    first.remainingDistance - second.remainingDistance ||
+    first.road.id.localeCompare(second.road.id) ||
+    first.segmentIndex - second.segmentIndex ||
+    first.endpointTownId.localeCompare(second.endpointTownId) ||
+    first.path.signature.localeCompare(second.path.signature)
+  ));
+  const chosen = candidates[0];
+  if (chosen.projection.gap > ROAD_CONFIG.NAV_EPSILON) return chosen.projection.point;
+  return nextPointTowardEndpoint(chosen);
 }
 
 function pointToSegment(px, py, ax, ay, bx, by) {

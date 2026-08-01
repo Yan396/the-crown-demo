@@ -18,6 +18,7 @@ export function createTelemetry(options = {}) {
     battlesFled: 0,
     townEntries: 0,
     recruitClicks: 0,
+    eventChoices: [],
     promiseValues: { troops: null, gold: null },
     promiseFinalActuals: { troops: null, gold: null },
     actTimestamps: { act1: startedAt, act2: null, ending: null },
@@ -40,6 +41,9 @@ export function normalizeTelemetry(value, options = {}) {
   const normalized = {
     ...fallback,
     ...value,
+    eventChoices: Array.isArray(value.eventChoices)
+      ? value.eventChoices.slice(-CONFIG.ROAD_EVENT_HISTORY_LIMIT)
+      : [],
     promiseValues: { ...fallback.promiseValues, ...(value.promiseValues || {}) },
     promiseFinalActuals: { ...fallback.promiseFinalActuals, ...(value.promiseFinalActuals || {}) },
     actTimestamps: { ...fallback.actTimestamps, ...(value.actTimestamps || {}) },

@@ -234,6 +234,18 @@ export function chooseRoadEvent(state, choiceIndex) {
   };
   state.casual.eventHistory.push(historyEntry);
   state.casual.eventHistory = state.casual.eventHistory.slice(-CONFIG.ROAD_EVENT_HISTORY_LIMIT);
+  if (state.telemetry) {
+    state.telemetry.eventChoices = Array.isArray(state.telemetry.eventChoices)
+      ? state.telemetry.eventChoices
+      : [];
+    state.telemetry.eventChoices.push({
+      eventId: event.id,
+      choiceIndex: index,
+      day: active.day,
+      delta: Object.fromEntries(Object.entries(delta).filter(([, value]) => value !== 0))
+    });
+    state.telemetry.eventChoices = state.telemetry.eventChoices.slice(-CONFIG.ROAD_EVENT_HISTORY_LIMIT);
+  }
   state.demo.roadEvent = null;
   state.demo.activeRoadEvent = null;
   if (state.demo.modal === "roadEvent") {

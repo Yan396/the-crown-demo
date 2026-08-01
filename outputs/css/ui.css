@@ -28,6 +28,13 @@
   box-sizing: border-box;
 }
 
+.svg-sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
 button,
 input[type="range"] {
   touch-action: manipulation;
@@ -470,7 +477,6 @@ body.town-open #report {
   display: none;
 }
 
-body.act-two .wage-marker,
 body.victory-fx-active .wage-marker,
 body.victory-fx-active .promise-marker {
   display: none !important;
@@ -1017,6 +1023,19 @@ body.diagnostics-visible #title-diagnostics {
   letter-spacing: 0.22em;
 }
 
+.road-event-glyph {
+  display: block;
+  width: 58px;
+  height: 58px;
+  margin: 18px auto -6px;
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.7;
+}
+
 #road-event-text {
   margin: 24px auto 28px;
   font: 700 clamp(24px, 6vw, 34px)/1.65 var(--font-display);
@@ -1028,8 +1047,19 @@ body.diagnostics-visible #title-diagnostics {
   gap: 10px;
 }
 
-.road-event-actions .ghost-button {
+.road-event-choice {
+  min-height: 52px;
+  padding: 11px 14px;
+  border: 1px solid rgba(43, 38, 32, 0.48);
+  border-radius: 13px;
+  background: rgba(232, 220, 195, 0.3);
   color: var(--ink);
+  font: 700 14px/1.35 var(--font-display);
+  cursor: pointer;
+}
+
+.road-event-choice:active {
+  background: rgba(43, 38, 32, 0.1);
 }
 
 .ending-layer {

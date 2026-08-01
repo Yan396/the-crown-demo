@@ -329,6 +329,22 @@ test("events: exactly 20 bilingual, one-to-two sentence, binary-choice definitio
   diagnostics.eventDeck = `${candidate.moduleName}:${candidate.exportName}`;
 });
 
+test("events: six reusable topic glyphs and neutral equal-choice styling", () => {
+  const deck = findEventDeck()?.value || [];
+  const topics = [...new Set(deck.map((event) => event.topic))].sort();
+  assert.equal(topics.length, 6, "the 20 cards must reuse exactly six topic glyph categories");
+  assert.deepEqual(topics, [...(data.ROAD_EVENT_TOPICS || [])].sort(), "every exported road-event topic must be used");
+  const index = read("index.html");
+  for (const topic of topics) {
+    assert.match(index, new RegExp(`id=["']road-event-glyph-${topic}["']`), `missing inline SVG symbol for ${topic}`);
+  }
+  assert.match(index, /id=["']road-event-glyph-use["']/, "event card needs one reusable SVG <use> target");
+  assert.match(index, /id=["']road-event-choice-a["'][^>]*class=["']road-event-choice["']/, "choice A must use the neutral event-choice style");
+  assert.match(index, /id=["']road-event-choice-b["'][^>]*class=["']road-event-choice["']/, "choice B must use the same neutral event-choice style");
+  const css = read("css/ui.css");
+  assert.match(css, /\.road-event-choice\s*\{/, "neutral event-choice CSS is required");
+});
+
 test("events: three specified examples preserve exact choices and effects", () => {
   const deck = findEventDeck()?.value || [];
   const text = (event) => allLocalizedText(event, "zh");
@@ -376,6 +392,12 @@ test("events: specified special effects execute through the seeded production re
     assert.equal(result.ok, true);
     assert.equal(totalTroops(state.player), troopsBefore + 1, "收下 must actually add one troop");
     assert.equal(state.player.gold, 100, "收下 must cost exactly zero gold");
+    assert.equal(state.telemetry.eventChoices.length, 1, "event choices must be recorded in telemetry");
+    assert.deepEqual(
+      state.telemetry.eventChoices[0],
+      { eventId: deserter.id, choiceIndex: 0, day: state.stats.days, delta: { troops: 1 } },
+      "event telemetry must stay compact and preserve the chosen card, button, day, and applied delta"
+    );
   }
   {
     const state = quietWorld(stateModule.createInitialState(0xe002, { skipOnboarding: true }));

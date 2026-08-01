@@ -25,7 +25,7 @@ export const CONFIG = Object.freeze({
   LOGIC_MS: 500,
   TICKS_PER_DAY: 60,
   MAX_CATCHUP_TICKS: 4,
-  PLAYER_SPEED: 46,
+  PLAYER_SPEED: 44,
   LORD_SPEED: 24,
   BANDIT_SPEED: 14,
   ARRIVAL_RADIUS: 7,
@@ -79,16 +79,18 @@ export const CONFIG = Object.freeze({
   PROMISE_TROOPS_MIN: 10,
   PROMISE_TROOPS_MAX: 200,
   PROMISE_TROOPS_STEP: 5,
+  PROMISE_TROOPS_DEFAULT: 60,
   PROMISE_GOLD_MIN: 100,
   PROMISE_GOLD_MAX: 2000,
   PROMISE_GOLD_STEP: 100,
+  PROMISE_GOLD_DEFAULT: 500,
   LOW_GOLD_WAGE_DAYS: 3,
   WAGE_GRACE_DAYS: 2,
   ROAD_DAILY_EVENT_CHANCE: 0.25,
   MAX_DAILY_EVENTS: 1,
   FIRST_EVENT_MAX_SECONDS: 180,
   ROAD_FIRST_EVENT_TARGET_SECONDS: 180,
-  ROAD_FIRST_EVENT_PITY_DAY: 6,
+  ROAD_FIRST_EVENT_PITY_DAY: 4,
   ROAD_EVENT_HISTORY_LIMIT: 20,
   ROAD_EVENT_RELATION_MIN: -100,
   ROAD_EVENT_RELATION_MAX: 100,
@@ -183,7 +185,7 @@ export const CONFIG = Object.freeze({
   AUTOPLAY_MULTIPLIER: 20,
   AUTOPLAY_REEVALUATE_TICKS: 2,
   AUTOPLAY_ACT1_RECOVERY_TICKS: 104,
-  AUTOPLAY_ACT2_RECOVERY_TICKS: 800,
+  AUTOPLAY_ACT2_RECOVERY_TICKS: 1000,
   AUTOPLAY_CATCHUP_START_SECONDS: 1500,
   AUTOPLAY_CATCHUP_RECOVERY_TICKS: 60,
   AUTOPLAY_GOLD_RESERVE: 0,
@@ -217,10 +219,43 @@ export const TROOP_TYPES = Object.freeze({
   bandit: Object.freeze({ atk: 3, def: 2, cost: 0, wage: 0 })
 });
 
+export const ROAD_EVENT_TOPICS = Object.freeze([
+  "animal",
+  "traveler",
+  "trade",
+  "village",
+  "camp",
+  "omen"
+]);
+
+const ROAD_EVENT_TOPIC_BY_ID = Object.freeze({
+  goat_checkpoint: "animal",
+  deserter_cook: "traveler",
+  dry_ink_toll: "trade",
+  runaway_pies: "village",
+  wishing_well: "omen",
+  backward_helmet: "traveler",
+  noble_dog: "animal",
+  proud_scales: "trade",
+  bridge_children: "village",
+  wet_socks: "camp",
+  merchant_escort: "trade",
+  wrong_wedding_band: "village",
+  bandit_resume: "traveler",
+  goose_seal: "animal",
+  bards_rhyme: "omen",
+  flour_ghost: "village",
+  chicken_deserter: "animal",
+  tax_cart_wheel: "trade",
+  banner_laundry: "traveler",
+  camp_drinks: "camp"
+});
+
 function casualEvent(id, prompt, choices) {
   const localizedPrompt = Object.freeze(prompt);
   return Object.freeze({
     id,
+    topic: ROAD_EVENT_TOPIC_BY_ID[id],
     prompt: localizedPrompt,
     text: localizedPrompt,
     choices: Object.freeze(choices.map((choice) => {

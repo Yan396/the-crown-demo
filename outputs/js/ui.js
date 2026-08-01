@@ -128,6 +128,7 @@ export function createUi(callbacks) {
     contextTooltip: element("context-tooltip"),
     roadEventModal: element("road-event-modal"),
     roadEventKicker: element("road-event-kicker"),
+    roadEventGlyphUse: element("road-event-glyph-use"),
     roadEventText: element("road-event-text"),
     roadEventChoiceA: element("road-event-choice-a"),
     roadEventChoiceB: element("road-event-choice-b"),
@@ -267,6 +268,7 @@ export function createUi(callbacks) {
       refs.roadEventModal.hidden = true;
       return;
     }
+    refs.roadEventGlyphUse.setAttribute("href", `#road-event-glyph-${definition.topic}`);
     refs.roadEventText.textContent = localizedRoadCopy(definition.text);
     refs.roadEventChoiceA.textContent = localizedRoadCopy(definition.choices[0]?.label);
     refs.roadEventChoiceB.textContent = localizedRoadCopy(definition.choices[1]?.label);
@@ -432,7 +434,7 @@ export function createUi(callbacks) {
       const minimum = troops ? CONFIG.PROMISE_TROOPS_MIN : CONFIG.PROMISE_GOLD_MIN;
       const maximum = troops ? CONFIG.PROMISE_TROOPS_MAX : CONFIG.PROMISE_GOLD_MAX;
       const step = troops ? CONFIG.PROMISE_TROOPS_STEP : CONFIG.PROMISE_GOLD_STEP;
-      const fallback = troops ? (CONFIG.PROMISE_TROOPS_DEFAULT ?? 60) : (CONFIG.PROMISE_GOLD_DEFAULT ?? 500);
+      const fallback = troops ? CONFIG.PROMISE_TROOPS_DEFAULT : CONFIG.PROMISE_GOLD_DEFAULT;
       refs.promiseSlider.min = String(minimum);
       refs.promiseSlider.max = String(maximum);
       refs.promiseSlider.step = String(step);

@@ -294,6 +294,7 @@ function assertTelemetrySchema(state) {
   if (tooltipViews) {
     for (const id of ["town", "lowGold", "act2"]) assert.ok(Number.isFinite(tooltipViews[id]) && tooltipViews[id] >= 0, `tooltipViews.${id} must be numeric`);
   }
+  assert.ok(Array.isArray(telemetry.eventChoices), "telemetry must contain an event-card choice list");
 }
 
 function eliteBandits(state) {
@@ -328,6 +329,8 @@ test("static: Phase 2.5 demo gates and timing constants", () => {
   requireConfig(CONFIG, "Act 2 renown gate", [/ACT.*(?:1|2).*RENOWN/i, /RENOWN.*ACT.*2/i], 50);
   requireConfig(CONFIG, "demo ending renown gate", [/DEMO.*END.*RENOWN/i, /END.*RENOWN/i], 100);
   requireConfig(CONFIG, "autoplay multiplier", [/AUTOPLAY.*(SPEED|MULTIPLIER)/i], 20);
+  assert.equal(CONFIG.PROMISE_TROOPS_DEFAULT, 60, "troop-promise default must live in CONFIG");
+  assert.equal(CONFIG.PROMISE_GOLD_DEFAULT, 500, "gold-promise default must live in CONFIG");
   requireConfig(CONFIG, "version", [/^(APP_|BUILD_)?VERSION$/i]);
   const maximumAct = configEntry(CONFIG, [/^DEMO_MAX_ACT$/i, /(?:^|_)MAX_ACT$/i]);
   assert.ok(maximumAct && maximumAct[1] === 2, "DEMO must explicitly cap progression at Act 2");
@@ -348,7 +351,9 @@ test("static: exact onboarding, tooltip, mirror, ending, and share copy", () => 
     "你两次上调了'够了'。完整版会问你第三次。",
     "把结果发给 Ja",
     "再玩一局(新种子)",
-    "已复制,粘贴给 Ja 就行"
+    "已复制,粘贴给 Ja 就行",
+    "声望 {renown}/100 → 试玩终点",
+    "进攻"
   ];
   for (const text of exact) assert.ok(values.includes(text), `missing exact zh string: ${text}`);
   assert.ok(values.some((value) => value.includes("上一幕你说") && value.includes("你招到了") && value.includes("多少金币才够")), "Act 2 gold-promise modal copy is missing");
@@ -553,6 +558,7 @@ test("save: current schema JSON round-trip is lossless", () => {
   state.player.gold = 213;
   state.player.renown = 51;
   state.stats.peakGold = 213;
+  state.telemetry.eventChoices.push({ eventId: "save-probe", choiceIndex: 1, day: 2, delta: { gold: 4 } });
   assert.ok(saveState(state, storage), "saveState should succeed");
   const raw = storage.getItem(CONFIG.SAVE_KEY);
   assert.doesNotThrow(() => JSON.parse(raw));
@@ -684,6 +690,7 @@ test("telemetry: full semantic schema and gameplay counters", () => {
   assert.deepEqual(state.telemetry.promiseValues, { troops: null, gold: null });
   assert.deepEqual(state.telemetry.promiseFinalActuals, { troops: null, gold: null });
   assert.deepEqual(state.telemetry.tooltipViews, { town: 0, lowGold: 0, act2: 0 });
+  assert.deepEqual(state.telemetry.eventChoices, []);
   if (state.demo) {
     state.demo.onboardingComplete = true;
     state.demo.modal = null;
@@ -847,6 +854,8 @@ test("economy: deterministic day-3 wage start and HUD rate", () => {
     const values = translatedValues(language);
     assert.ok(values.some((value) => /-\{[^}]+\}\/(?:day|天|日)/i.test(value)), `${language} HUD must show a parameterized -n/day wage rate`);
   }
+  const css = fs.readFileSync(path.join(OUTPUTS, "css/ui.css"), "utf8");
+  assert.doesNotMatch(css, /body\.act-two\s+\.wage-marker\s*\{[^}]*display\s*:\s*none/i, "Act 2 must keep the numeric wage drain visible in the HUD");
 });
 
 test("Phase 2 config: living-world cadence and balance constants", () => {
@@ -859,6 +868,8 @@ test("Phase 2 config: living-world cadence and balance constants", () => {
   requireConfig(CONFIG, "peace minimum days", [/PEACE.*(MIN.*DAYS|DAYS)/i], 30);
   requireConfig(CONFIG, "peace chance", [/PEACE.*(CHANCE|PROBABILITY)/i], 0.5);
   requireConfig(CONFIG, "siege duration", [/SIEGE.*DAYS/i], 2);
+  assert.equal(CONFIG.FIELD_TERRAIN, 1, "open-field terrain must remain 1");
+  assert.equal(CONFIG.TOWN_DEFENDER_TERRAIN, 1.5, "town defenders must receive the authorized 1.5 terrain value");
   requireConfig(CONFIG, "recruit pool refill", [/RECRUIT.*(?:POOL.*)?(REFILL|GAIN|AMOUNT)/i], 5);
   requireConfig(CONFIG, "recruit pool refill cadence", [/RECRUIT.*(?:POOL.*)?(?:REGEN.*)?DAYS/i], 3);
   requireConfig(CONFIG, "recruit pool cap", [/RECRUIT.*POOL.*CAP/i], 20);
@@ -1019,7 +1030,11 @@ test("Phase 2 sieges: exactly two adjacent days capture and log truthfully", () 
   attackerFaction.atWarWith = [...new Set([...(attackerFaction.atWarWith || []), oldOwner])];
   ownerFaction.atWarWith = [...new Set([...(ownerFaction.atWarWith || []), attacker.factionId])];
   town.garrison = [{ type: "militia", count: 5, xp: 0 }];
-  setStack(attacker, "militia", Math.max(20, Math.ceil(CONFIG.LORD_TROOP_CAP * 0.5)));
+  const defendedGarrisonStrength = partyStrength({ troops: town.garrison })
+    * CONFIG.SIEGE_STRENGTH_RATIO
+    * CONFIG.TOWN_DEFENDER_TERRAIN;
+  const requiredAttackers = Math.ceil(defendedGarrisonStrength / TROOP_TYPES.militia.atk);
+  setStack(attacker, "militia", Math.max(requiredAttackers, Math.ceil(CONFIG.LORD_TROOP_CAP * 0.5)));
   attacker.gold = 1000;
   attacker.pos = clone(town.pos);
   attacker.prevPos = clone(town.pos);
@@ -1036,7 +1051,7 @@ test("Phase 2 sieges: exactly two adjacent days capture and log truthfully", () 
   for (let tick = 0; tick < requiredTicks - 1; tick += 1) worldTick(state);
   assert.equal(town.factionId, oldOwner, "capture must not occur before two complete adjacent game-days");
   worldTick(state);
-  assert.equal(town.factionId, attacker.factionId, "the exact two-day threshold at >=2x garrison strength must capture");
+  assert.equal(town.factionId, attacker.factionId, "the exact two-day threshold with the town's 1.5 defensive terrain must capture");
   const capture = state.eventLog.find((event) => /capture|townCaptured|siegeWon/i.test(event.key || ""));
   assert.ok(capture, "town capture must create an event-log entry");
   assert.ok(Object.values(capture.parameters || {}).includes(town.id), "capture event must identify the town that actually changed owner");
@@ -1411,6 +1426,8 @@ test("ending/replay: mirror schema, stats, session end, replay count, and new se
   }
   const ended = findSemantic(telemetryOf(state), [/session.*end/i], (value) => typeof value === "string" && Number.isFinite(Date.parse(value)));
   assert.ok(ended, "ending must stamp telemetry.sessionEnd");
+  const mainSource = fs.readFileSync(path.join(JS_DIR, "main.js"), "utf8");
+  assert.match(mainSource, /stampSeal\s*\(\s*ui\.text\s*\(\s*["']ending\.seal["']\s*\)/, "the renown-100 transition must invoke stampSeal with the demo-ending seal");
   const replayResult = replay(state);
   const next = typeof replayResult === "number" ? createInitialState(replayResult) : replayResult;
   assert.ok(next && next.seed !== state.seed, "replay must start with a new seed");

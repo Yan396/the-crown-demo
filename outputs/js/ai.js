@@ -1,5 +1,6 @@
 import { CONFIG, TROOP_TYPES } from "./data.js";
 import { nextFloat } from "./rng.js";
+import { buildRoads, nextRoadWaypoint, ROAD_CONFIG } from "./roads.js";
 import {
   addEvent,
   clamp,
@@ -126,7 +127,8 @@ function eligibleSiegeTargets(state, lord) {
   const strength = getPartyStrength(lord);
   return state.towns.filter((town) => (
     factionsAreHostile(state, lord.factionId, town.factionId) &&
-    strength >= Math.max(1, getGarrisonStrength(town)) * CONFIG.SIEGE_STRENGTH_RATIO
+    strength >= Math.max(1, getGarrisonStrength(town)) *
+      CONFIG.SIEGE_STRENGTH_RATIO * CONFIG.TOWN_DEFENDER_TERRAIN
   ));
 }
 
@@ -159,7 +161,8 @@ export function reevaluateLordAi(state, lord) {
       town.siegeAttackerId === lord.id &&
       town.factionId !== lord.factionId &&
       factionsAreHostile(state, lord.factionId, town.factionId) &&
-      getPartyStrength(lord) >= Math.max(1, getGarrisonStrength(town)) * CONFIG.SIEGE_STRENGTH_RATIO
+      getPartyStrength(lord) >= Math.max(1, getGarrisonStrength(town)) *
+        CONFIG.SIEGE_STRENGTH_RATIO * CONFIG.TOWN_DEFENDER_TERRAIN
     ));
     if (activeSiegeTown) {
       setLordIntent(lord, "attack", activeSiegeTown, "town");
@@ -236,16 +239,69 @@ function resolveDynamicTarget(state, lord) {
   return null;
 }
 
+function moveLordTowardTownOnRoad(state, lord, town, speed) {
+  const roads = buildRoads(state.seed);
+  let remainingSpeed = Math.max(0, speed);
+  // A tick normally crosses at most one point, but consuming the remaining
+  // budget keeps x1.2/x0.85 as real movement speeds even near short segments.
+  const maximumHops = roads.reduce((sum, road) => sum + road.points.length, 1);
+
+  for (let hop = 0; hop < maximumHops; hop += 1) {
+    const finalDx = town.pos.x - lord.pos.x;
+    const finalDy = town.pos.y - lord.pos.y;
+    const finalGap = Math.hypot(finalDx, finalDy);
+    if (finalGap <= remainingSpeed || finalGap <= CONFIG.ARRIVAL_RADIUS) {
+      lord.pos.x = town.pos.x;
+      lord.pos.y = town.pos.y;
+      lord.moveTarget = null;
+      return true;
+    }
+
+    const waypoint = nextRoadWaypoint(roads, lord.pos, town.id);
+    if (!waypoint) {
+      // A disconnected or malformed network must not strand the AI.
+      lord.moveTarget = copyPosition(town.pos);
+      return movePartyToward(lord, remainingSpeed);
+    }
+    lord.moveTarget = copyPosition(waypoint);
+    const dx = waypoint.x - lord.pos.x;
+    const dy = waypoint.y - lord.pos.y;
+    const gap = Math.hypot(dx, dy);
+    if (gap <= ROAD_CONFIG.NAV_EPSILON) continue;
+    if (gap <= remainingSpeed) {
+      lord.pos.x = waypoint.x;
+      lord.pos.y = waypoint.y;
+      remainingSpeed -= gap;
+      if (remainingSpeed <= ROAD_CONFIG.NAV_EPSILON) return false;
+      continue;
+    }
+
+    lord.pos.x = clamp(lord.pos.x + (dx / gap) * remainingSpeed, 0, CONFIG.WORLD_SIZE);
+    lord.pos.y = clamp(lord.pos.y + (dy / gap) * remainingSpeed, 0, CONFIG.WORLD_SIZE);
+    return false;
+  }
+
+  // Defensive fallback for degenerate zero-length polylines.
+  lord.moveTarget = copyPosition(town.pos);
+  return movePartyToward(lord, remainingSpeed);
+}
+
 export function updateLordMovement(state, lord, speed = CONFIG.LORD_SPEED) {
   ensureLordFields(lord);
   if (lord.defeatedUntilTick > state.tick) return false;
-  const target = resolveDynamicTarget(state, lord);
-  if (target) lord.moveTarget = copyPosition(target.pos);
-  else if (lord.aiState !== "patrol") {
+  let target = resolveDynamicTarget(state, lord);
+  if (!target && lord.aiState !== "patrol") {
     reevaluateLordAi(state, lord);
+    target = resolveDynamicTarget(state, lord);
   }
 
-  const arrived = movePartyToward(lord, speed);
+  let arrived = false;
+  if (target && lord.targetKind === "town" && CONFIG.ROAD_MOVEMENT) {
+    arrived = moveLordTowardTownOnRoad(state, lord, target, speed);
+  } else {
+    if (target) lord.moveTarget = copyPosition(target.pos);
+    arrived = movePartyToward(lord, speed);
+  }
   if (!arrived) return false;
 
   if (lord.aiState === "recruit") {

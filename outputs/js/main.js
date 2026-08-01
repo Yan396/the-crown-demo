@@ -86,10 +86,10 @@ function persist(showFailure = false) {
   return saveAvailable;
 }
 
-function handleBattleResult(result) {
+function handleBattleResult(result, options = {}) {
   if (!result) return;
   if (result.type === "victory") {
-    stampSeal(ui.text("map.victorySeal"));
+    if (!options.transition) stampSeal(ui.text("map.victorySeal"));
     ui.playVictoryFx(result.loot, result.renown);
     ui.showToast("toast.victory", { loot: result.loot });
   } else if (result.type === "defeat") {
@@ -242,9 +242,10 @@ ui = createUi({
       return;
     }
     const result = skipBattle(state);
-    handleBattleResult(result);
     updateSessionPeaks(state);
     const transition = advanceActIfNeeded(state);
+    handleBattleResult(result, { transition: Boolean(transition) });
+    if (transition?.type === "ending") stampSeal(ui.text("ending.seal"));
     if (transition?.type === "act2") scheduleAct2Intro();
     persist(true);
     sync();
@@ -305,7 +306,6 @@ function runLogicStep() {
     return;
   }
 
-  handleBattleResult(result.battleResult);
   updateSessionPeaks(state);
   const activeSeconds = state.telemetry.totalActiveSeconds;
   autoplayMetrics.activeSeconds = activeSeconds;
@@ -315,6 +315,8 @@ function runLogicStep() {
     state,
     autoplayEnabled ? new Date(state.tick * CONFIG.LOGIC_MS).toISOString() : undefined
   );
+  handleBattleResult(result.battleResult, { transition: Boolean(transition) });
+  if (transition?.type === "ending" && !autoplayEnabled) stampSeal(ui.text("ending.seal"));
   if (transition?.type === "act2") recordAutoplayMilestone("act2Seconds", activeSeconds);
   if (transition?.type === "ending") recordAutoplayMilestone("endingSeconds", activeSeconds);
   while (resolveAutoplayModal()) {

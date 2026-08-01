@@ -413,7 +413,12 @@ function captureTown(state, town, attacker) {
 }
 
 function validSiegeCandidates(state, town) {
-  const requiredStrength = Math.max(1, getGarrisonStrength(town)) * CONFIG.SIEGE_STRENGTH_RATIO;
+  // A town garrison receives the same 1.5 defensive terrain value used by
+  // nearby lord battles. FIELD_TERRAIN remains 1 so open-field combat is not
+  // accidentally buffed by the siege rule.
+  const requiredStrength = Math.max(1, getGarrisonStrength(town))
+    * CONFIG.SIEGE_STRENGTH_RATIO
+    * CONFIG.TOWN_DEFENDER_TERRAIN;
   return state.lords
     .filter((lord) => (
       lord.aiState === "attack" &&

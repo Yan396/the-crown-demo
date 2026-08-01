@@ -442,7 +442,11 @@ export function isValidState(value) {
     !Number.isSafeInteger(value.casual.playerBattlesResolved) ||
     !Number.isSafeInteger(value.casual.recoverySpawnsRemaining)
   ) return false;
-  if (!Number.isFinite(value.telemetry.totalActiveSeconds) || value.telemetry.totalActiveSeconds < 0) return false;
+  if (
+    !Number.isFinite(value.telemetry.totalActiveSeconds) ||
+    value.telemetry.totalActiveSeconds < 0 ||
+    !Array.isArray(value.telemetry.eventChoices)
+  ) return false;
   if (!Number.isSafeInteger(value.nextBanditId) || value.nextBanditId < 1) return false;
   if (value.battle !== null && (!value.battle || typeof value.battle.banditId !== "string")) return false;
   return true;
