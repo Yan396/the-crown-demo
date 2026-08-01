@@ -28,7 +28,7 @@ export const STRINGS = Object.freeze({
       day: "天数",
       pauseGlyph: "Ⅱ",
       resumeGlyph: "▶",
-      settingsGlyph: "⚙"
+      settingsGlyph: ""
     }),
     hint: Object.freeze({
       move: "轻触或拖动地图前进 · 靠近灰色匪队自动交战",
@@ -36,7 +36,7 @@ export const STRINGS = Object.freeze({
       paused: "世界已暂停 · 点击继续恢复行军"
     }),
     legend: Object.freeze({
-      items: "□ 你　△ 领主　● 匪队　🏰 城镇",
+      items: "朱印 我军　旌旗 领主　墨点 匪队",
       seed: "世界种子 {seed}"
     }),
     report: Object.freeze({
@@ -81,7 +81,6 @@ export const STRINGS = Object.freeze({
     map: Object.freeze({
       you: "你",
       bandit: "匪 {count}",
-      castle: "🏰"
     }),
     factions: Object.freeze({
       north: "北境",
@@ -138,7 +137,7 @@ export const STRINGS = Object.freeze({
       day: "Day",
       pauseGlyph: "Ⅱ",
       resumeGlyph: "▶",
-      settingsGlyph: "⚙"
+      settingsGlyph: ""
     }),
     hint: Object.freeze({
       move: "Tap or drag to move · Approach a gray bandit party to fight",
@@ -146,7 +145,7 @@ export const STRINGS = Object.freeze({
       paused: "World paused · Resume to continue the march"
     }),
     legend: Object.freeze({
-      items: "□ You　△ Lord　● Bandits　🏰 Town",
+      items: "Seal you   Banner lord   Blot bandits",
       seed: "World seed {seed}"
     }),
     report: Object.freeze({
@@ -191,7 +190,6 @@ export const STRINGS = Object.freeze({
     map: Object.freeze({
       you: "You",
       bandit: "B {count}",
-      castle: "🏰"
     }),
     factions: Object.freeze({
       north: "Northern Realm",

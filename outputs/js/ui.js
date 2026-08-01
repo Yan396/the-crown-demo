@@ -56,6 +56,7 @@ export function createUi(callbacks) {
   let settingsOpen = false;
   let saveAvailable = true;
   let toastTimer = null;
+  let activeToast = null;
 
   function language() {
     return currentState?.settings.language || "zh";
@@ -117,6 +118,9 @@ export function createUi(callbacks) {
     refs.languageZh.textContent = t("settings.chinese");
     refs.languageEn.textContent = t("settings.english");
     refs.autosaveTitle.textContent = t("settings.autosave");
+    if (activeToast) {
+      refs.toast.textContent = t(activeToast.key, resolveParameters(activeToast.parameters));
+    }
   }
 
   function sync(state, runtime = {}) {
@@ -172,10 +176,15 @@ export function createUi(callbacks) {
 
   function showToast(key, parameters = {}) {
     if (!currentState) return;
+    activeToast = { key, parameters };
     refs.toast.textContent = t(key, resolveParameters(parameters));
     refs.toast.classList.add("show");
     if (toastTimer) clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => refs.toast.classList.remove("show"), 1300);
+    toastTimer = setTimeout(() => {
+      refs.toast.classList.remove("show");
+      refs.toast.textContent = "";
+      activeToast = null;
+    }, 1300);
   }
 
   refs.pause.addEventListener("click", () => callbacks.onTogglePause());
