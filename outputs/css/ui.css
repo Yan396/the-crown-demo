@@ -442,14 +442,6 @@ body.has-gold-overshoot #hint {
   text-align: right;
 }
 
-body.has-troop-overshoot #legend {
-  top: calc(max(10px, env(safe-area-inset-top)) + 158px);
-}
-
-body.has-gold-overshoot #legend {
-  top: calc(max(10px, env(safe-area-inset-top)) + 178px);
-}
-
 #legend small {
   /* No nested opacity: it would compound with #legend's and fail contrast. */
   color: var(--ink);
@@ -1953,4 +1945,62 @@ body.demo-ended #town-sheet {
   display: grid;
   justify-items: center;
   gap: 8px;
+}
+
+/* ---- 4: encounter verdict ------------------------------------------------ */
+/* All three verdicts share one ink tone. The words carry the judgement; making
+   打不过 red would make the colour decide for the player. */
+#encounter-verdict {
+  color: var(--paper-on-lacquer);
+  font: 700 23px/1.25 var(--font-display);
+  letter-spacing: 0.14em;
+  text-indent: 0.14em;
+}
+
+/* The bars are the supporting evidence, so they shrink and sit under it. */
+.strength-bars {
+  gap: 10px;
+  margin-top: 9px;
+  padding: 0 2px;
+}
+
+.strength-bars span {
+  height: 3px;
+  border-radius: 0;
+  background: rgba(232, 220, 195, 0.14);
+}
+
+.strength-bars i {
+  border-radius: 0;
+  background: var(--paper-dim);
+}
+
+/* Faction tint when the opponent has one. Encounters in this build are always
+   against bandits, which belong to no faction, so this currently never fires —
+   it is here so lord battles are already correct when they land. */
+.strength-bars span[data-faction="north"] i { background: color-mix(in srgb, var(--faction-north) 58%, var(--paper)); }
+.strength-bars span[data-faction="south"] i { background: color-mix(in srgb, var(--faction-south) 58%, var(--paper)); }
+.strength-bars span[data-faction="east"] i  { background: color-mix(in srgb, var(--faction-east) 58%, var(--paper)); }
+
+.strength-bars small {
+  top: -5px;
+  font-size: 8px;
+}
+
+/* ---- 8a: legend breathing room ------------------------------------------ */
+#legend-text {
+  display: grid;
+  gap: 3px;
+}
+
+.legend-item {
+  font-weight: 400;
+  letter-spacing: 0.08em;
+}
+
+/* ---- 8b: the dispatch drawer stops hiding town names -------------------- */
+/* Translucent rather than panning the map: one property, no layout maths, and
+   the map keeps reading underneath while the drawer is open. */
+#report {
+  background: rgba(28, 25, 22, 0.85);
 }

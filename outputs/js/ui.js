@@ -368,7 +368,16 @@ export function createUi(callbacks) {
     refs.renownLabel.textContent = t("hud.renown");
     refs.dayLabel.textContent = t("hud.day");
     refs.settingsButton.setAttribute("aria-label", t("aria.openSettings"));
-    refs.legendText.textContent = t("legend.items");
+    refs.legendText.replaceChildren(...t("legend.items")
+      .split(/\u3000+|\s{2,}/)
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const row = document.createElement("b");
+        row.className = "legend-item";
+        row.textContent = part;
+        return row;
+      }));
     refs.skipBattle.textContent = t("report.skip");
     refs.retreatBattle.textContent = t("report.retreat");
     refs.retreatBattle.setAttribute("aria-label", t("aria.retreat"));

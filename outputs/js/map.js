@@ -845,8 +845,35 @@ export function createMapRenderer(canvas) {
     }
   }
 
+  // Visual only: after dusk a lord's pennant settles into the nearest town of
+  // its own faction and drifts back out at dawn. The simulation never sees
+  // this — lord.pos is untouched, so movement, encounters and saves are
+  // byte-identical with or without it. nightAmount() is already 0 under
+  // reduced motion, so the egg disappears there for free.
+  function nightRestPosition(state, lord, world, night) {
+    if (night <= 0.02) return world;
+    let best = null;
+    let bestDistance = Infinity;
+    state.towns.forEach((town) => {
+      if (town.factionId !== lord.factionId) return;
+      const gap = Math.hypot(town.pos.x - world.x, town.pos.y - world.y);
+      if (gap < bestDistance) {
+        bestDistance = gap;
+        best = town;
+      }
+    });
+    if (!best) return world;
+    const pull = night * 0.85;
+    return {
+      x: world.x + (best.pos.x - world.x) * pull,
+      y: world.y + (best.pos.y - world.y) * pull
+    };
+  }
+
   function drawLord(state, lord, alpha, language) {
-    const position = worldToScreen(interpolatedPosition(lord, alpha));
+    const position = worldToScreen(
+      nightRestPosition(state, lord, interpolatedPosition(lord, alpha), nightAmount(state))
+    );
     if (position.x < -30 || position.x > viewportWidth + 30 || position.y < -34 || position.y > viewportHeight + 30) return;
     const ink = factionInk(lord.factionId);
 
