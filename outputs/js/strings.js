@@ -170,9 +170,10 @@ export const STRINGS = Object.freeze({
       share: "把结果发给 Ja",
       replay: "再玩一局(新种子)",
       shareTitle: "《王冠》试玩结果",
-      shareMessage: "我的《王冠》试玩结果:{code}"
+      shareMessage: "我的《王冠》试玩结果:crown1.{payload}"
     }),
     decode: Object.freeze({
+      seal: "C1",
       title: "《王冠》试玩结果解码器",
       description: "粘贴完整消息或 crown1. 开头的代码。数据只在当前浏览器中解码。",
       placeholder: "我的《王冠》试玩结果:crown1.…",
@@ -382,9 +383,10 @@ export const STRINGS = Object.freeze({
       share: "Send my result to Ja",
       replay: "Play again (new seed)",
       shareTitle: "The Crown demo result",
-      shareMessage: "我的《王冠》试玩结果:{code}"
+      shareMessage: "我的《王冠》试玩结果:crown1.{payload}"
     }),
     decode: Object.freeze({
+      seal: "C1",
       title: "The Crown Playtest Decoder",
       description: "Paste the full message or a crown1. code. It is decoded only in this browser.",
       placeholder: "My Crown result: crown1.…",

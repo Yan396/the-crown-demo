@@ -8,7 +8,7 @@ function nowIso() {
 }
 
 export function createTelemetry(options = {}) {
-  const startedAt = options.startedAt || nowIso();
+  const startedAt = options.startedAt || null;
   return {
     sessionStart: startedAt,
     sessionEnd: null,
@@ -25,6 +25,13 @@ export function createTelemetry(options = {}) {
     tooltipViews: { town: 0, lowGold: 0, act2: 0 },
     replayCount: Math.max(0, Number(options.replayCount) || 0)
   };
+}
+
+export function startTelemetrySession(state, startedAt = nowIso()) {
+  if (!state?.telemetry) return null;
+  state.telemetry.sessionStart ||= startedAt;
+  state.telemetry.actTimestamps.act1 ||= state.telemetry.sessionStart;
+  return state.telemetry.sessionStart;
 }
 
 export function normalizeTelemetry(value, options = {}) {
@@ -149,7 +156,17 @@ export function buildResultCode(state) {
 }
 
 export function buildShareMessage(state, language = "zh") {
-  return translate(language, "ending.shareMessage", { code: buildResultCode(state) });
+  const code = buildResultCode(state);
+  return translate(language, "ending.shareMessage", { payload: code.slice(CODE_PREFIX.length) });
+}
+
+export function encodeShare(payload, language = "zh") {
+  const code = encodeCrownCode(payload);
+  return translate(language, "ending.shareMessage", { payload: code.slice(CODE_PREFIX.length) });
+}
+
+export function decodeShare(input) {
+  return decodeCrownCode(input);
 }
 
 async function copyWithFallback(text, navigatorObject, documentObject) {
@@ -203,4 +220,3 @@ export async function sharePlaytestResult(state, language = "zh", environment = 
   const copied = await copyPromise;
   return { message, copied, shared, cancelled };
 }
-

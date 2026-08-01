@@ -1,0 +1,16 @@
+{
+  "name": "The Crown Friend-Test Demo",
+  "short_name": "The Crown",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#1C1916",
+  "theme_color": "#1C1916",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='34' fill='%231C1916'/%3E%3Crect x='42' y='42' width='96' height='96' fill='%23B03A2E'/%3E%3Cpath d='M60 111V68l16 16 14-25 14 25 16-16v43z' fill='%23E8DCC3'/%3E%3C/svg%3E",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

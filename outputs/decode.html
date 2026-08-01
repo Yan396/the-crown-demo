@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1C1916">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="description" content="">
+  <title></title>
+  <link rel="stylesheet" href="./css/decode.css">
+</head>
+<body>
+  <main>
+    <header>
+      <span id="decode-seal" class="seal" aria-hidden="true"></span>
+      <div>
+        <h1 id="decode-title"></h1>
+        <p id="decode-description"></p>
+      </div>
+    </header>
+    <form id="decode-form">
+      <textarea id="decode-input" rows="6" spellcheck="false"></textarea>
+      <button id="decode-button" type="submit"></button>
+    </form>
+    <p id="decode-error" role="alert" hidden></p>
+    <section id="decode-output" hidden>
+      <section class="result-section">
+        <h2 id="run-heading"></h2>
+        <table><tbody id="run-table"></tbody></table>
+      </section>
+      <section class="result-section">
+        <h2 id="telemetry-heading"></h2>
+        <table><tbody id="telemetry-table"></tbody></table>
+      </section>
+      <section class="result-section">
+        <h2 id="stats-heading"></h2>
+        <table><tbody id="stats-table"></tbody></table>
+      </section>
+    </section>
+  </main>
+  <script type="module" src="./js/decode.js"></script>
+</body>
+</html>

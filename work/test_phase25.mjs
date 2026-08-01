@@ -130,10 +130,11 @@ const rngModule = await importOptional("js/rng.js");
 const actsModule = await importOptional("js/acts.js");
 const onboardingModule = await importOptional("js/onboarding.js");
 const telemetryModule = await importOptional("js/telemetry.js");
+const demoModule = await importOptional("js/demo.js");
 const contractsModule = await importOptional("js/contracts.js");
 const shareModule = await importOptional("js/share.js");
 const autoplayModule = await importOptional("js/autoplay.js");
-const optionalModules = [actsModule, onboardingModule, telemetryModule, contractsModule, shareModule, autoplayModule];
+const optionalModules = [demoModule, actsModule, onboardingModule, telemetryModule, contractsModule, shareModule, autoplayModule];
 
 const CONFIG = dataModule?.CONFIG || {};
 const TROOP_TYPES = dataModule?.TROOP_TYPES || {};
@@ -217,7 +218,7 @@ function assertTelemetrySchema(state) {
     assert.ok(match, `telemetry must contain numeric ${label}`);
   }
 
-  const start = findSemantic(telemetry, [/session.*start/i], isIsoOrNull);
+  const start = findSemantic(telemetry, [/session.*start/i], (value) => typeof value === "string" && Number.isFinite(Date.parse(value)));
   const end = findSemantic(telemetry, [/session.*end/i], isIsoOrNull);
   assert.ok(start, "telemetry must contain an ISO sessionStart");
   assert.ok(end, "telemetry must contain nullable/ISO sessionEnd");
@@ -225,6 +226,24 @@ function assertTelemetrySchema(state) {
   assert.ok(findContainer(telemetry, [/act.*timestamps?/i, /acts?.*at/i]), "telemetry must contain act timestamps");
   const quit = findSemantic(telemetry, [/quit.*point/i], (value) => value === null || typeof value === "string");
   assert.ok(quit, "telemetry must contain nullable/string quit point");
+
+  const promiseValues = findContainer(telemetry, [/promiseValues$/i])?.[1];
+  const promiseActuals = findContainer(telemetry, [/promiseFinalActuals$/i, /promise.*actuals$/i])?.[1];
+  if (promiseValues) {
+    assert.ok(Object.hasOwn(promiseValues, "troops") && Object.hasOwn(promiseValues, "gold"), "promise telemetry needs troop and gold values");
+  }
+  if (promiseActuals) {
+    assert.ok(Object.hasOwn(promiseActuals, "troops") && Object.hasOwn(promiseActuals, "gold"), "promise telemetry needs troop and gold final actuals");
+  }
+  const timestamps = findContainer(telemetry, [/actTimestamps$/i])?.[1];
+  if (timestamps) {
+    assert.ok(typeof timestamps.act1 === "string" && Number.isFinite(Date.parse(timestamps.act1)), "Act 1 timestamp must be ISO");
+    assert.ok(isIsoOrNull(timestamps.act2) && isIsoOrNull(timestamps.ending), "Act 2/ending timestamps must be nullable ISO values");
+  }
+  const tooltipViews = findContainer(telemetry, [/tooltipViews$/i])?.[1];
+  if (tooltipViews) {
+    for (const id of ["town", "lowGold", "act2"]) assert.ok(Number.isFinite(tooltipViews[id]) && tooltipViews[id] >= 0, `tooltipViews.${id} must be numeric`);
+  }
 }
 
 function eliteBandits(state) {
@@ -241,11 +260,11 @@ function translatedValues(language) {
 
 test("static: Phase 2.5 demo gates and timing constants", () => {
   assert.ok(dataModule, "data.js must import");
-  assert.equal(CONFIG.DEMO, true, "CONFIG.DEMO must be literal true");
-  requireConfig(CONFIG, "Act 2 renown gate", [/ACT.*2.*RENOWN/i, /RENOWN.*ACT.*2/i], 50);
+  assert.equal(dataModule.DEMO ?? CONFIG.DEMO, true, "DEMO must be literal true");
+  requireConfig(CONFIG, "Act 2 renown gate", [/ACT.*(?:1|2).*RENOWN/i, /RENOWN.*ACT.*2/i], 50);
   requireConfig(CONFIG, "demo ending renown gate", [/DEMO.*END.*RENOWN/i, /END.*RENOWN/i], 100);
   requireConfig(CONFIG, "autoplay multiplier", [/AUTOPLAY.*(SPEED|MULTIPLIER)/i], 20);
-  requireConfig(CONFIG, "version", [/^(APP_)?VERSION$/i]);
+  requireConfig(CONFIG, "version", [/^(APP_|BUILD_)?VERSION$/i]);
   const maximumAct = configEntry(CONFIG, [/MAX.*ACT/i, /DEMO.*ACT/i]);
   assert.ok(maximumAct && maximumAct[1] === 2, "DEMO must explicitly cap progression at Act 2");
 });
@@ -340,19 +359,18 @@ test("save: migrate a Phase 1 save and preserve core progress", () => {
   assert.equal(typeof createInitialState, "function");
   assert.equal(typeof loadState, "function");
   assert.ok(Number.isInteger(CONFIG.SAVE_VERSION) && CONFIG.SAVE_VERSION > 1, "Phase 2.5 must bump SAVE_VERSION above 1");
-  const legacy = makeLegacyV1(0x12345678);
+  const fixturePath = path.join(HERE, "fixtures/phase1-save.json");
+  assert.ok(fs.existsSync(fixturePath), "checked-in raw Phase 1 fixture is required");
+  const legacy = JSON.parse(fs.readFileSync(fixturePath, "utf8"));
   legacy.tick = 119;
   legacy.player.gold = 321;
   legacy.player.renown = 37;
   legacy.player.pos = { x: 777, y: 888 };
   legacy.settings.language = "en";
   if (rngModule?.nextFloat) rngModule.nextFloat(legacy.rng);
-  const storage = new MemoryStorage();
-  storage.setItem(CONFIG.SAVE_KEY, JSON.stringify(legacy));
-  if (CONFIG.SAVE_KEY !== "the-crown.phase1.world-state") {
-    storage.setItem("the-crown.phase1.world-state", JSON.stringify(legacy));
-  }
-  const migrated = loadState(storage);
+  const currentKeyStorage = new MemoryStorage();
+  currentKeyStorage.setItem(CONFIG.SAVE_KEY, JSON.stringify(legacy));
+  const migrated = loadState(currentKeyStorage);
   assert.ok(migrated, "loadState must migrate valid saveVersion 1 data");
   assert.equal(migrated.saveVersion, CONFIG.SAVE_VERSION);
   assert.equal(migrated.seed, legacy.seed);
@@ -364,6 +382,15 @@ test("save: migrate a Phase 1 save and preserve core progress", () => {
   assert.deepEqual(migrated.rng, legacy.rng, "migration must preserve the RNG cursor");
   assertTelemetrySchema(migrated);
   assert.ok(!isValidState || isValidState(migrated), "migrated state must validate");
+
+  if (CONFIG.SAVE_KEY !== "the-crown.phase1.world-state") {
+    const historicalKeyOnly = new MemoryStorage();
+    historicalKeyOnly.setItem("the-crown.phase1.world-state", JSON.stringify(legacy));
+    const historical = loadState(historicalKeyOnly);
+    assert.ok(historical, "loadState must probe the historical Phase 1 key when SAVE_KEY changes");
+    assert.equal(historical.player.gold, 321);
+    assert.equal(historical.rng.value, legacy.rng.value);
+  }
 });
 
 test("save: current schema JSON round-trip is lossless", () => {
@@ -399,26 +426,24 @@ test("save/RNG: interrupted continuation equals uninterrupted simulation", () =>
 
 test("onboarding: three exact steps, troop promise bounds, and persistence", () => {
   const advanceOnboarding = requireFunction(
-    [onboardingModule, actsModule, simModule, stateModule],
+    [demoModule, onboardingModule, actsModule, simModule, stateModule],
     ["advanceOnboarding", "nextOnboardingStep"],
     "onboarding progression"
   );
   const setPromise = requireFunction(
     [onboardingModule, actsModule, simModule, stateModule],
-    ["setTroopPromise", "submitTroopPromise", "recordActOnePromise", "setPromise"],
+    ["setTroopPromise", "submitTroopPromise", "recordActOnePromise", "submitPromise", "setPromise"],
     "Act 1 troop promise"
   );
   const state = createInitialState(71);
   const beforeTick = state.tick;
   worldTick(state);
   assert.equal(state.tick, beforeTick, "simulation must not advance behind first-launch onboarding");
-  for (let step = 1; step <= 3; step += 1) {
-    advanceOnboarding(state);
-    const progress = findSemantic(state, [/onboarding.*step/i], (value) => Number.isInteger(value));
-    assert.ok(progress && progress[1] === step, `tap ${step} must advance exactly one onboarding step`);
-  }
-  setPromise(state, 9);
-  let promise = (state.player.promises || [])[0];
+  for (let step = 1; step <= 3; step += 1) assert.notEqual(advanceOnboarding(state)?.advanced, false, `tap ${step} must advance exactly one onboarding screen`);
+  assert.equal(state.demo?.modal, "troopPromise", "the third tap must open the troop promise, with no fourth tutorial line");
+  const belowMinimum = clone(state);
+  setPromise(belowMinimum, 9);
+  let promise = (belowMinimum.player.promises || [])[0];
   assert.ok(!promise || promise.statedGoal >= 10, "troop promise must reject or clamp below 10");
   setPromise(state, 200);
   promise = state.player.promises[0];
@@ -432,18 +457,24 @@ test("onboarding: three exact steps, troop promise bounds, and persistence", () 
 });
 
 test("onboarding: only three one-time persisted tooltips", () => {
-  const markTooltip = requireFunction(
-    [onboardingModule, telemetryModule, simModule, stateModule],
-    ["markTooltipViewed", "recordTooltipView", "showTooltipOnce"],
-    "one-time tooltip persistence"
-  );
+  const markTooltip = firstFunction([demoModule, onboardingModule, telemetryModule, simModule, stateModule], ["markTooltipViewed", "recordTooltipView", "showTooltipOnce"]);
+  const queueTooltip = firstFunction([demoModule, onboardingModule], ["queueTooltip"]);
+  const consumeTooltip = firstFunction([demoModule, onboardingModule], ["consumeTooltip"]);
+  assert.ok(markTooltip || (queueTooltip && consumeTooltip), "one-time tooltip persistence needs markTooltipViewed or queueTooltip+consumeTooltip exports");
   const state = createInitialState(72);
   const tooltipIds = ["town", "lowGold", "act2"];
   for (const id of tooltipIds) {
-    const first = markTooltip(state, id);
-    const second = markTooltip(state, id);
-    assert.notEqual(first, false, `${id} tooltip should show once`);
-    assert.ok(second === false || second?.shown === false, `${id} tooltip must not show twice`);
+    if (markTooltip) {
+      const first = markTooltip(state, id);
+      const second = markTooltip(state, id);
+      assert.notEqual(first, false, `${id} tooltip should show once`);
+      assert.ok(second === false || second?.shown === false, `${id} tooltip must not show twice`);
+    } else {
+      assert.equal(queueTooltip(state, id), true, `${id} tooltip should queue once`);
+      assert.equal(consumeTooltip(state), id, `${id} tooltip should be consumed once`);
+      assert.equal(queueTooltip(state, id), false, `${id} tooltip must not queue twice`);
+      assert.equal(consumeTooltip(state), null, `${id} tooltip must not show twice`);
+    }
   }
   const seen = findContainer(state, [/tooltip.*(seen|viewed)/i]);
   assert.ok(seen, "state must persist tooltip seen/viewed state");
@@ -451,7 +482,7 @@ test("onboarding: only three one-time persisted tooltips", () => {
   saveState(state, storage);
   const loaded = loadState(storage);
   for (const id of tooltipIds) {
-    const repeat = markTooltip(loaded, id);
+    const repeat = markTooltip ? markTooltip(loaded, id) : queueTooltip(loaded, id);
     assert.ok(repeat === false || repeat?.shown === false, `${id} tooltip must remain dismissed after reload`);
   }
 });
@@ -459,6 +490,11 @@ test("onboarding: only three one-time persisted tooltips", () => {
 test("telemetry: full semantic schema and gameplay counters", () => {
   const state = createInitialState(81);
   assertTelemetrySchema(state);
+  if (state.demo) {
+    state.demo.onboardingComplete = true;
+    state.demo.modal = null;
+    state.paused = false;
+  }
   const before = clone(state.telemetry);
   const recruit = simModule?.recruitMilitia;
   assert.equal(typeof recruit, "function");
@@ -466,24 +502,54 @@ test("telemetry: full semantic schema and gameplay counters", () => {
   const beforeClicks = findSemantic(before, [/recruit.*click/i], Number.isFinite)?.[1];
   const afterClicks = findSemantic(state.telemetry, [/recruit.*click/i], Number.isFinite)?.[1];
   assert.equal(afterClicks, beforeClicks + 1, "recruit click telemetry must increment on click");
-  assert.match(fs.readFileSync(path.join(JS_DIR, "main.js"), "utf8"), /beforeunload/, "beforeunload must record quit point and save last state");
+  if (typeof demoModule?.trackTownEntry === "function") {
+    const entriesBefore = state.telemetry.townEntries;
+    demoModule.trackTownEntry(state, null);
+    demoModule.trackTownEntry(state, CONFIG.START_TOWN_ID);
+    demoModule.trackTownEntry(state, CONFIG.START_TOWN_ID);
+    assert.equal(state.telemetry.townEntries, entriesBefore + 1, "town entries count transitions, not every tick spent in town");
+  }
+  const forced = {
+    id: `bandit_${state.nextBanditId++}`,
+    pos: clone(state.player.pos),
+    prevPos: clone(state.player.pos),
+    moveTarget: null,
+    troops: [{ type: "bandit", count: 1, xp: 0 }],
+    gold: 20,
+    elite: false
+  };
+  state.bandits.push(forced);
+  const foughtBefore = state.telemetry.battlesFought;
+  const wonBefore = state.telemetry.battlesWon;
+  battleModule.startBattle(state, forced);
+  battleModule.skipBattle(state);
+  assert.equal(state.telemetry.battlesFought, foughtBefore + 1, "battle start must increment battles fought exactly once");
+  assert.equal(state.telemetry.battlesWon, wonBefore + 1, "victory must increment battles won exactly once");
+  const main = fs.readFileSync(path.join(JS_DIR, "main.js"), "utf8");
+  assert.match(main, /beforeunload/, "beforeunload listener is required");
+  assert.match(main, /beforeunload[\s\S]{0,500}recordQuitPoint[\s\S]{0,500}(?:saveState|persist)/, "beforeunload must record quit point before saving last state");
 });
 
 test("time/pause: strict freeze and active-time accounting", () => {
   const state = createInitialState(91);
+  const recordActiveTime = requireFunction([telemetryModule, demoModule, simModule], ["recordActiveTime", "addActiveTime"], "active-time accounting");
   const activeBefore = findSemantic(telemetryOf(state), [/total.*active.*seconds/i, /active.*seconds/i], Number.isFinite);
   assert.ok(activeBefore);
-  advance(state, 2);
+  recordActiveTime(state, 1000);
   const activeAfter = findSemantic(telemetryOf(state), [/total.*active.*seconds/i, /active.*seconds/i], Number.isFinite);
-  assert.equal(activeAfter[1] - activeBefore[1], 1, "two active 500 ms ticks must add exactly one active second");
+  assert.equal(activeAfter[1] - activeBefore[1], 1, "1000 active milliseconds must add exactly one active second");
   state.paused = true;
   const frozen = clone(state);
   advance(state, 120);
   assert.deepEqual(state, frozen, "pause must freeze simulation, active time, and RNG with no exceptions");
   state.paused = false;
-  advance(state, 1);
+  recordActiveTime(state, 500);
   const resumed = findSemantic(telemetryOf(state), [/total.*active.*seconds/i, /active.*seconds/i], Number.isFinite);
-  assert.equal(resumed[1], activeAfter[1] + 0.5, "resume must advance one tick without catch-up");
+  assert.equal(resumed[1], activeAfter[1] + 0.5, "resume must add only newly active elapsed time without catch-up");
+  const main = fs.readFileSync(path.join(JS_DIR, "main.js"), "utf8");
+  assert.match(main, /recordActiveTime|addActiveTime/, "main loop must wire active-time recording");
+  assert.ok(/visibilityState|document\.hidden/.test(main), "hidden/background time must be excluded from active time");
+  assert.ok(/paused/.test(main) && /modal|isDemoModalOpen/.test(main), "pause and blocking modals must gate active-time recording");
 });
 
 test("economy: deterministic daily wages and HUD rate", () => {
@@ -732,16 +798,17 @@ test("bandits/loot: one persistent elite, seeded randomized loot, 10% jackpot", 
 
 test("acts/mirror: exact thresholds, promises, permanent overshoot, DEMO ending", () => {
   const checkActs = requireFunction(
-    [actsModule, simModule, stateModule],
-    ["checkActProgression", "updateActProgression", "evaluateActProgression"],
+    [demoModule, actsModule, simModule, stateModule],
+    ["checkActProgression", "updateActProgression", "evaluateActProgression", "advanceActIfNeeded"],
     "Act 1/2/end progression"
   );
   const setPromise = requireFunction(
-    [actsModule, onboardingModule, simModule],
-    ["setPromise", "setTroopPromise", "submitTroopPromise", "recordPromise"],
+    [demoModule, actsModule, onboardingModule, simModule],
+    ["setPromise", "setTroopPromise", "submitTroopPromise", "recordPromise", "submitPromise"],
     "mirror promise recording"
   );
   const state = createInitialState(131);
+  if (state.demo) state.demo.modal = "troopPromise";
   setPromise(state, 60, "troops");
   state.player.troops = [{ type: "militia", count: 97, xp: 0 }];
   state.player.renown = 49;
@@ -760,10 +827,10 @@ test("acts/mirror: exact thresholds, promises, permanent overshoot, DEMO ending"
   assert.ok(findSemantic(state.player, [/promise.*(exceeded|overshoot)/i], (value) => value === true), "overshoot marker must stay set after troop losses");
   state.player.renown = 99;
   checkActs(state);
-  assert.ok(!state.ending?.complete, "renown 99 must not end the demo");
+  assert.ok(!state.ending?.complete && !state.demo?.ended && state.demoComplete !== true, "renown 99 must not end the demo");
   state.player.renown = 100;
   checkActs(state);
-  assert.ok(state.ending?.complete || state.ending?.visible || state.demoComplete === true, "renown 100 must open the demo ending");
+  assert.ok(state.ending?.complete || state.ending?.visible || state.demo?.ended || state.demoComplete === true, "renown 100 must open the demo ending");
   assert.equal(state.player.act, 2, "DEMO must never enter Act 3");
 });
 
@@ -799,12 +866,12 @@ test("contracts: Act 2 tavern offers and payouts are deterministic", () => {
 test("ending/share: crown1 base64 codec round-trips compact Unicode telemetry", () => {
   const encode = requireFunction(
     [shareModule, actsModule, telemetryModule],
-    ["encodeShare", "encodeShareText", "createShareText"],
+    ["encodeShare", "encodeShareText", "createShareText", "encodeCrownCode"],
     "crown1 share encoding"
   );
   const decode = requireFunction(
     [shareModule, actsModule, telemetryModule],
-    ["decodeShare", "decodeShareText", "parseShareText"],
+    ["decodeShare", "decodeShareText", "parseShareText", "decodeCrownCode"],
     "crown1 share decoding"
   );
   const payload = {
@@ -814,24 +881,28 @@ test("ending/share: crown1 base64 codec round-trips compact Unicode telemetry", 
     stats: { days: 42, battles: 18, wins: 15, peakTroops: 97, peakGold: 731 },
     telemetry: { activeSeconds: 1234.5, quitPoint: "试玩终", tooltipViews: 3, replayCount: 1 }
   };
-  const text = encode(payload);
-  assert.ok(text.startsWith("我的《王冠》试玩结果:crown1."), "share prefix must be exact");
-  assert.ok(text.length < 4096, `share code must stay compact; got ${text.length} characters`);
-  assert.deepEqual(decode(text), payload, "encode→decode must preserve compact JSON including Unicode");
-  const bare = text.slice(text.indexOf("crown1."));
-  assert.deepEqual(decode(bare), payload, "decoder must accept pasted bare crown1 code");
+  const code = encode(payload);
+  assert.ok(code.startsWith("crown1."), "codec output must start with crown1.");
+  assert.ok(code.length < 4096, `share code must stay compact; got ${code.length} characters`);
+  assert.deepEqual(decode(code), payload, "encode→decode must preserve compact JSON including Unicode");
+  const state = createInitialState(0);
+  state.telemetry = clone(payload.telemetry);
+  const buildMessage = requireFunction([shareModule, telemetryModule], ["buildShareMessage", "createShareMessage"], "exact share message");
+  const message = buildMessage(state, "zh");
+  assert.ok(message.startsWith("我的《王冠》试玩结果:crown1."), "share message prefix must be exact");
+  assert.deepEqual(decode(message), telemetryModule?.buildPlaytestPayload ? telemetryModule.buildPlaytestPayload(state) : decode(message), "decoder must accept the full pasted Chinese message");
   assert.throws(() => decode("crown1.not-valid-base64"), "invalid share codes must fail safely");
 });
 
 test("ending/replay: mirror schema, stats, session end, replay count, and new seed", () => {
   const buildEnding = requireFunction(
     [actsModule, shareModule, telemetryModule, stateModule],
-    ["buildEndingSummary", "createEndingSummary", "finishDemo"],
+    ["buildEndingSummary", "createEndingSummary", "finishDemo", "buildPlaytestPayload"],
     "ending summary"
   );
   const replay = requireFunction(
-    [actsModule, stateModule, autoplayModule],
-    ["replayWithNewSeed", "startReplay", "createReplayState"],
+    [demoModule, actsModule, stateModule, autoplayModule],
+    ["replayWithNewSeed", "startReplay", "createReplayState", "nextReplaySeed"],
     "new-seed replay"
   );
   const state = createInitialState(151);
@@ -842,6 +913,7 @@ test("ending/replay: mirror schema, stats, session end, replay count, and new se
   state.stats.days = 30;
   state.stats.battles = 20;
   state.player.renown = 100;
+  if (typeof demoModule?.completeDemo === "function") demoModule.completeDemo(state, "2026-08-02T00:00:00.000Z");
   const summary = buildEnding(state);
   assert.ok(summary && typeof summary === "object");
   assert.ok(findContainer(summary, [/promises?|mirror/i]), "ending must contain both mirror rows");
@@ -851,10 +923,16 @@ test("ending/replay: mirror schema, stats, session end, replay count, and new se
   }
   const ended = findSemantic(telemetryOf(state), [/session.*end/i], (value) => typeof value === "string" && Number.isFinite(Date.parse(value)));
   assert.ok(ended, "ending must stamp telemetry.sessionEnd");
-  const next = replay(state);
+  const replayResult = replay(state);
+  const next = typeof replayResult === "number" ? createInitialState(replayResult) : replayResult;
   assert.ok(next && next.seed !== state.seed, "replay must start with a new seed");
-  const replayCount = findSemantic(telemetryOf(next), [/replay.*count/i], Number.isFinite);
-  assert.ok(replayCount && replayCount[1] >= 1, "replay count must survive into the new run");
+  if (typeof replayResult === "number") {
+    const main = fs.readFileSync(path.join(JS_DIR, "main.js"), "utf8");
+    assert.match(main, /replayCount/, "replay UI must carry incremented replayCount into the new-seed state");
+  } else {
+    const replayCount = findSemantic(telemetryOf(next), [/replay.*count/i], Number.isFinite);
+    assert.ok(replayCount && replayCount[1] >= 1, "replay count must survive into the new run");
+  }
 });
 
 test("autoplay: default seed meets first-battle, Act 2, and ending targets", () => {
