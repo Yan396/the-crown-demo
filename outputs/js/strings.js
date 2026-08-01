@@ -26,9 +26,9 @@ export const STRINGS = Object.freeze({
       troops: "兵力",
       renown: "声望",
       day: "天数",
+      renownGate: "声望 {renown}/{gate} · 距自由队长",
       pauseGlyph: "Ⅱ",
-      resumeGlyph: "▶",
-      settingsGlyph: ""
+      resumeGlyph: "▶"
     }),
     hint: Object.freeze({
       move: "轻触或拖动地图前进 · 靠近灰色匪队自动交战",
@@ -81,6 +81,7 @@ export const STRINGS = Object.freeze({
     map: Object.freeze({
       you: "你",
       bandit: "匪 {count}",
+      playerSeal: "帥"
     }),
     factions: Object.freeze({
       north: "北境",
@@ -135,9 +136,9 @@ export const STRINGS = Object.freeze({
       troops: "Troops",
       renown: "Renown",
       day: "Day",
+      renownGate: "Renown {renown}/{gate} · to Free Captain",
       pauseGlyph: "Ⅱ",
-      resumeGlyph: "▶",
-      settingsGlyph: ""
+      resumeGlyph: "▶"
     }),
     hint: Object.freeze({
       move: "Tap or drag to move · Approach a gray bandit party to fight",
@@ -190,6 +191,7 @@ export const STRINGS = Object.freeze({
     map: Object.freeze({
       you: "You",
       bandit: "B {count}",
+      playerSeal: "P"
     }),
     factions: Object.freeze({
       north: "Northern Realm",

@@ -17,6 +17,7 @@
   --rule-on-lacquer: rgba(232, 220, 195, 0.16);
   --rule-on-paper: rgba(43, 38, 32, 0.22);
   --cinnabar-on-lacquer: #D2695C;
+  --cinnabar-deep: #A33525;
   --green-on-lacquer: #8FB183;
   --font-display: "Songti SC", "Noto Serif CJK SC", "STSong", serif;
   --font-body: "PingFang SC", "Noto Sans CJK SC", -apple-system, sans-serif;
@@ -140,6 +141,13 @@ body.paused canvas {
   border-left: 1px solid var(--rule-on-lacquer);
 }
 
+.stat-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
 .stat span {
   color: var(--paper-dim);
   font-family: var(--font-body);
@@ -157,20 +165,66 @@ body.paused canvas {
   line-height: 1.1;
 }
 
+/* Counter lands on its new value with a single small settle. */
+.stat strong.ticking {
+  animation: stat-settle 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes stat-settle {
+  0% { transform: scale(1); }
+  55% { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+
+/* Inline SVG glyph set. Stroked in currentColor so one rule tones them all. */
+.glyph {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.72;
+}
+
+.glyph .glyph-solid {
+  fill: currentColor;
+  stroke: none;
+}
+
 .hud-actions {
   display: flex;
   gap: 5px;
 }
 
 .hud-button {
+  display: grid;
   width: 42px;
-  min-height: 42px;
+  min-height: 44px;
   padding: 0;
+  place-content: center;
   border-radius: 5px;
   color: var(--paper-on-lacquer);
-  font: 700 16px var(--font-body);
   cursor: pointer;
   pointer-events: auto;
+}
+
+.hud-button .glyph {
+  width: 16px;
+  height: 16px;
+  opacity: 0.86;
+}
+
+/* Pause/resume swap by class, so the SVG markup survives re-render. */
+.hud-button .glyph-resume,
+.hud-button.is-paused .glyph-pause {
+  display: none;
+}
+
+.hud-button.is-paused .glyph-resume {
+  display: block;
 }
 
 .hud-button:last-child {
@@ -182,9 +236,54 @@ body.paused canvas {
   background: rgba(232, 220, 195, 0.1);
 }
 
+/* ---- Renown gate: a brush stroke, not a progress bar -------------------- */
+#renown-gate {
+  position: absolute;
+  z-index: 4;
+  top: calc(max(10px, env(safe-area-inset-top)) + 58px);
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 24px);
+  transform: translateX(-50%);
+}
+
+#renown-gate[hidden] {
+  display: none;
+}
+
+#renown-gate-track {
+  width: 104px;
+  height: 3px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 2px;
+  /* Ink on paper: --rule-on-paper is too faint to read as a track here. */
+  background: rgba(43, 38, 32, 0.16);
+}
+
+#renown-gate-fill {
+  width: 0%;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--ink);
+  transition: width var(--ease-panel);
+}
+
+#renown-gate-label {
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  opacity: 0.78;
+}
+
 #hint {
   position: absolute;
-  top: calc(max(10px, env(safe-area-inset-top)) + 68px);
+  top: calc(max(10px, env(safe-area-inset-top)) + 96px);
   left: 50%;
   display: flex;
   align-items: center;
@@ -218,20 +317,22 @@ body.paused canvas {
 
 #legend {
   position: absolute;
-  top: calc(max(10px, env(safe-area-inset-top)) + 110px);
+  top: calc(max(10px, env(safe-area-inset-top)) + 138px);
   right: max(12px, env(safe-area-inset-right));
   display: grid;
   gap: 4px;
-  color: var(--ink-faint);
+  /* --ink-faint on paper is only 4.47:1; this is 10px text. */
+  color: var(--ink);
+  opacity: 0.8;
   font-family: var(--font-body);
   font-size: 10px;
   text-align: right;
 }
 
 #legend small {
-  color: var(--ink-faint);
+  /* No nested opacity: it would compound with #legend's and fail contrast. */
+  color: var(--ink);
   font-variant-numeric: tabular-nums;
-  opacity: 0.78;
 }
 
 #report {
@@ -379,9 +480,9 @@ body.settings-open #report {
   min-width: 146px;
   min-height: 54px;
   padding: 8px 14px;
-  border: 1px solid var(--cinnabar);
+  border: 1px solid var(--cinnabar-deep);
   border-radius: 13px;
-  background: var(--cinnabar);
+  background: var(--cinnabar-deep);
   box-shadow: 0 7px 18px rgba(0, 0, 0, 0.28);
   color: var(--paper);
   font: 700 15px var(--font-display);
@@ -588,13 +689,13 @@ body.settings-open #report {
   }
 
   #hint {
-    top: calc(max(10px, env(safe-area-inset-top)) + 61px);
+    top: calc(max(10px, env(safe-area-inset-top)) + 92px);
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   #legend {
-    top: calc(max(10px, env(safe-area-inset-top)) + 98px);
+    top: calc(max(10px, env(safe-area-inset-top)) + 130px);
   }
 
   #town-sheet {

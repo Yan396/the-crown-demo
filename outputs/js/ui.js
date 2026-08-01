@@ -2,6 +2,14 @@ import { CONFIG } from "./data.js";
 import { activeTown, getFaction, getTown, getTroopCount } from "./state.js";
 import { translate } from "./strings.js";
 
+const reducedMotion = typeof window.matchMedia === "function"
+  ? window.matchMedia("(prefers-reduced-motion: reduce)")
+  : { matches: false };
+
+function motionOff() {
+  return reducedMotion.matches;
+}
+
 function element(id) {
   return document.getElementById(id);
 }
@@ -48,9 +56,44 @@ export function createUi(callbacks) {
     languageEn: element("language-en"),
     autosaveTitle: element("autosave-title"),
     autosaveStatus: element("autosave-status"),
+    renownGate: element("renown-gate"),
+    renownGateFill: element("renown-gate-fill"),
+    renownGateLabel: element("renown-gate-label"),
     toast: element("toast"),
     description: document.querySelector('meta[name="description"]')
   };
+
+  // Presentation-only. The act system this points at does not exist in this
+  // build yet, so nothing reads this value; it drives the bar and label only.
+  const RENOWN_GATE = 50;
+
+  const counterValues = new WeakMap();
+
+  // Counters land on their new value with a single settle (450ms family easing,
+  // per the shared juice spec). Skipped entirely under reduced motion.
+  function setCounter(node, value) {
+    const text = String(value);
+    if (node.textContent === text) return;
+    const had = counterValues.has(node);
+    node.textContent = text;
+    counterValues.set(node, value);
+    if (!had || motionOff()) return;
+    node.classList.remove("ticking");
+    void node.offsetWidth;
+    node.classList.add("ticking");
+  }
+
+  function syncRenownGate(state, t) {
+    const renown = Math.max(0, state.player.renown);
+    const reached = renown >= RENOWN_GATE;
+    refs.renownGate.hidden = reached;
+    if (reached) return;
+    refs.renownGateFill.style.width = `${Math.min(100, (renown / RENOWN_GATE) * 100)}%`;
+    refs.renownGateLabel.textContent = t("hud.renownGate", {
+      renown,
+      gate: RENOWN_GATE
+    });
+  }
 
   let currentState = null;
   let settingsOpen = false;
@@ -104,7 +147,6 @@ export function createUi(callbacks) {
     refs.troopLabel.textContent = t("hud.troops");
     refs.renownLabel.textContent = t("hud.renown");
     refs.dayLabel.textContent = t("hud.day");
-    refs.settingsButton.textContent = t("hud.settingsGlyph");
     refs.settingsButton.setAttribute("aria-label", t("aria.openSettings"));
     refs.legendText.textContent = t("legend.items");
     refs.skipBattle.textContent = t("report.skip");
@@ -112,7 +154,6 @@ export function createUi(callbacks) {
     refs.recruitLabel.textContent = t("townPanel.recruit");
     refs.recruitCost.textContent = t("townPanel.recruitCost", { cost: CONFIG.RECRUIT_COST });
     refs.settingsTitle.textContent = t("settings.title");
-    refs.settingsClose.textContent = t("settings.closeGlyph");
     refs.settingsClose.setAttribute("aria-label", t("aria.closeSettings"));
     refs.languageLabel.textContent = t("settings.language");
     refs.languageZh.textContent = t("settings.chinese");
@@ -128,13 +169,16 @@ export function createUi(callbacks) {
     if (typeof runtime.saveAvailable === "boolean") saveAvailable = runtime.saveAvailable;
     syncStaticStrings();
 
-    refs.gold.textContent = String(state.player.gold);
-    refs.troops.textContent = String(getTroopCount(state.player));
-    refs.renown.textContent = String(state.player.renown);
-    refs.day.textContent = String(state.stats.days + 1);
+    setCounter(refs.gold, state.player.gold);
+    setCounter(refs.troops, getTroopCount(state.player));
+    setCounter(refs.renown, state.player.renown);
+    setCounter(refs.day, state.stats.days + 1);
     refs.seed.textContent = t("legend.seed", { seed: state.seed });
+    syncRenownGate(state, t);
 
-    refs.pause.textContent = state.paused ? t("hud.resumeGlyph") : t("hud.pauseGlyph");
+    // Glyphs are inline SVG; toggling a class swaps them without touching
+    // textContent, which would delete the markup.
+    refs.pause.classList.toggle("is-paused", Boolean(state.paused));
     refs.pause.setAttribute("aria-label", state.paused ? t("aria.resume") : t("aria.pause"));
     refs.hint.classList.toggle("battle", Boolean(state.battle) && !state.paused);
     refs.hint.classList.toggle("paused", state.paused);

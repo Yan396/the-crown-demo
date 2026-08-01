@@ -3,7 +3,7 @@ import { activeTown, clamp } from "./state.js";
 import { lordName, translate } from "./strings.js";
 
 /*
- * 「兵戈舆图」 — map rendering.
+ * War Atlas map rendering.
  *
  * Everything here is presentation. It reads game state but never writes it, and
  * it never draws from `state.rng`: that stream is serialized into the save and
@@ -1025,7 +1025,7 @@ export function createMapRenderer(canvas) {
     context.restore();
   }
 
-  function drawPlayer(state, alpha, now) {
+  function drawPlayer(state, alpha, now, language) {
     const position = worldToScreen(interpolatedPosition(state.player, alpha));
     const breath = motionOff() ? 0 : (Math.sin(now / 620) * 0.5 + 0.5);
     const half = 10;
@@ -1044,7 +1044,7 @@ export function createMapRenderer(canvas) {
       context.fillRect(position.x - 30, position.y - 30, 60, 60);
     }
 
-    // 朱文 seal: solid vermilion field, border and character reserved in paper.
+    // The player seal uses a solid vermilion field with a paper-cut mark.
     context.fillStyle = TOKENS.cinnabar;
     context.fillRect(position.x - half, position.y - half, half * 2, half * 2);
     context.strokeStyle = colorWithAlpha(TOKENS.paper, 0.85);
@@ -1055,7 +1055,7 @@ export function createMapRenderer(canvas) {
     context.font = `700 12px ${TOKENS.fontDisplay}`;
     context.textAlign = "center";
     context.textBaseline = "middle";
-    context.fillText("帥", position.x, position.y + 0.5);
+    context.fillText(translate(language, "map.playerSeal"), position.x, position.y + 0.5);
     context.restore();
   }
 
@@ -1097,7 +1097,7 @@ export function createMapRenderer(canvas) {
     drawMoveTarget(state, alpha, now);
     state.lords.forEach((lord) => drawLord(state, lord, alpha, language));
     state.bandits.forEach((bandit) => drawBandit(state, bandit, alpha, language));
-    drawPlayer(state, alpha, now);
+    drawPlayer(state, alpha, now, language);
 
     // Grain and vignette last, so every element shares one sheet of paper.
     if (screenLayer) {
