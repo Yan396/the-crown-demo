@@ -17,7 +17,7 @@ export const TOKENS = Object.freeze({
 
 export const CONFIG = Object.freeze({
   DEMO,
-  BUILD_VERSION: "8a14b64",
+  BUILD_VERSION: "3df2c7c",
   SAVE_VERSION: 2,
   SAVE_KEY: "the-crown.phase1.world-state",
   WORLD_SIZE: 2000,
