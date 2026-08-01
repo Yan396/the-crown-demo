@@ -928,8 +928,7 @@ body.diagnostics-visible #title-diagnostics {
   display: grid;
   padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   place-content: center;
-  background: rgba(28, 25, 22, 0.72);
-  backdrop-filter: blur(8px);
+  background: rgba(28, 25, 22, 0.6);
 }
 
 .promise-card {
@@ -1009,8 +1008,7 @@ body.diagnostics-visible #title-diagnostics {
   display: grid;
   padding: max(24px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
   place-items: center;
-  background: rgba(28, 25, 22, 0.58);
-  backdrop-filter: blur(5px);
+  background: rgba(28, 25, 22, 0.6);
 }
 
 .road-event-card {
@@ -1648,5 +1646,123 @@ body.demo-ended #town-sheet {
   .full-screen-layer,
   .modal-layer {
     height: 100dvh;
+  }
+}
+
+/* ---- torn paper sheet (shared by event cards and onboarding) ------------- */
+/* A fixed polygon, not a filter: the tear must be identical on every open and
+   must not cost a compositing pass on a mid-range phone. */
+.paper-sheet {
+  position: relative;
+  background: var(--paper);
+  color: var(--ink);
+  clip-path: polygon(0% 1.33px, 4.23% 1.33px, 8.87% 0.85px, 14.77% 1.14px, 17.84% 2.26px, 23.42% 0.68px, 25.06% 2.15px, 29.23% 0.65px, 33.31% 5.31px, 37.34% 2.66px, 41.39% 1.6px, 44.87% 2.35px, 47.07% 2.17px, 51.46% 2.67px, 57.07% 1.5px, 58.78% 0.94px, 62.5% 1.09px, 64.83% 2.53px, 70.02% 1.86px, 74.27% 1.99px, 77.33% 3.6px, 80.12% 1.66px, 84.58% 1.62px, 88.55% 2.18px, 90.68% 2.16px, 95.68% 3.75px, 99.56% 2.2px, 100.0% 1.3px, 100.0% calc(100% - 2.62px), 95.02% calc(100% - 5.3px), 89.11% calc(100% - 1.41px), 83.84% calc(100% - 2.3px), 79.62% calc(100% - 2.19px), 74.28% calc(100% - 2.42px), 69.26% calc(100% - 1.88px), 65.64% calc(100% - 2.64px), 61.04% calc(100% - 2.25px), 55.13% calc(100% - 2.4px), 50.35% calc(100% - 2.07px), 45.19% calc(100% - 2.25px), 42.15% calc(100% - 0.67px), 36.2% calc(100% - 2.42px), 31.3% calc(100% - 2.54px), 26.19% calc(100% - 1.18px), 22.43% calc(100% - 1.9px), 17.29% calc(100% - 2.66px), 11.68% calc(100% - 1.33px), 8.56% calc(100% - 1.29px), 4.58% calc(100% - 3.54px), 0% calc(100% - 3.54px));
+}
+
+/* drop-shadow traces the torn silhouette. A pseudo-element behind the sheet is
+   clipped away by the sheet's own clip-path, so it cannot work here. */
+.paper-sheet {
+  filter: drop-shadow(0 6px 14px rgba(28, 25, 22, 0.45));
+}
+
+/* ---- event cards --------------------------------------------------------- */
+.road-event-layer {
+  place-items: center;
+  background: rgba(28, 25, 22, 0.6);
+}
+
+.road-event-card {
+  width: min(460px, calc(100vw - 40px));
+  padding: 26px 26px 22px;
+  border: 0;
+  border-radius: 0;
+  background: var(--paper);
+  box-shadow: none;
+  text-align: center;
+}
+
+#road-event-kicker {
+  display: block;
+  color: var(--ink-faint);
+  font-family: var(--font-body);
+  font-size: 11px;
+  letter-spacing: 0.32em;
+  text-indent: 0.32em;
+}
+
+/* A small inked stamp at the head of the card, not an illustration. */
+.road-event-glyph {
+  width: 34px;
+  height: 34px;
+  margin: 14px auto 16px;
+  stroke: var(--ink);
+  stroke-width: 1.5;
+  opacity: 0.72;
+}
+
+#road-event-text {
+  margin: 0 auto;
+  max-width: 19em;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 20px;
+  line-height: 1.62;
+  text-wrap: balance;
+}
+
+.road-event-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+/* Both chips are identical. A cost-bearing choice is never coloured red:
+   colour must not make the judgement the player is here to make. */
+.road-event-choice {
+  min-height: 52px;
+  padding: 12px 10px;
+  border: 1px solid rgba(43, 38, 32, 0.55);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.4;
+  transition: background var(--ease-panel);
+}
+
+.road-event-choice:active {
+  background: rgba(43, 38, 32, 0.09);
+}
+
+/* Enters as a sheet laid down on the table: slides in and settles with one
+   light sway. Leaving, it tips toward the side that was chosen. */
+.road-event-card {
+  animation: card-lay 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes card-lay {
+  0% { opacity: 0; transform: translateY(-18px) rotate(-1.4deg); }
+  70% { opacity: 1; transform: translateY(0) rotate(0.5deg); }
+  100% { opacity: 1; transform: translateY(0) rotate(0); }
+}
+
+.road-event-card.is-choosing-a { animation: card-tip-a 200ms ease-in both; }
+.road-event-card.is-choosing-b { animation: card-tip-b 200ms ease-in both; }
+
+@keyframes card-tip-a {
+  to { opacity: 0; transform: translate(-14px, 10px) rotate(-3deg); }
+}
+
+@keyframes card-tip-b {
+  to { opacity: 0; transform: translate(14px, 10px) rotate(3deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .road-event-card,
+  .road-event-card.is-choosing-a,
+  .road-event-card.is-choosing-b {
+    animation: none;
   }
 }
