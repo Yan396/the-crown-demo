@@ -436,7 +436,6 @@ body.has-gold-overshoot #hint {
   gap: 4px;
   /* --ink-faint on paper is only 4.47:1; this is 10px text. */
   color: var(--ink);
-  opacity: 0.8;
   font-family: var(--font-body);
   font-size: 10px;
   text-align: right;
@@ -846,7 +845,7 @@ body.battle-active #stats .promise-marker:not(.exceeded) {
 }
 
 #onboarding-step {
-  color: var(--ink-faint);
+  color: var(--ink);
   font: 700 11px var(--font-body);
   letter-spacing: 0.22em;
 }
@@ -870,7 +869,7 @@ body.battle-active #stats .promise-marker:not(.exceeded) {
 }
 
 #onboarding-tap {
-  color: var(--ink-faint);
+  color: var(--ink);
   font: 11px var(--font-body);
   letter-spacing: 0.1em;
 }
@@ -939,7 +938,7 @@ body.diagnostics-visible #title-diagnostics {
 }
 
 #promise-kicker {
-  color: var(--ink-faint);
+  color: var(--ink);
   font: 700 10px var(--font-body);
   letter-spacing: 0.22em;
 }
@@ -972,7 +971,7 @@ body.diagnostics-visible #title-diagnostics {
   display: flex;
   justify-content: space-between;
   margin: -2px 3px 20px;
-  color: var(--ink-faint);
+  color: var(--ink);
   font: 10px var(--font-body);
 }
 
@@ -1020,7 +1019,7 @@ body.diagnostics-visible #title-diagnostics {
 }
 
 #road-event-kicker {
-  color: var(--ink-faint);
+  color: var(--ink);
   font: 700 10px var(--font-body);
   letter-spacing: 0.22em;
 }
@@ -1101,7 +1100,7 @@ body.diagnostics-visible #title-diagnostics {
 
 .ending-section h2 {
   margin: 0 0 14px;
-  color: var(--ink-faint);
+  color: var(--ink);
   font: 700 12px var(--font-body);
   letter-spacing: 0.18em;
 }
@@ -1177,7 +1176,7 @@ body.diagnostics-visible #title-diagnostics {
   overflow: auto;
   border: 1px solid var(--rule-on-paper);
   border-radius: 10px;
-  color: var(--ink-faint);
+  color: var(--ink);
   font: 9px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
   overflow-wrap: anywhere;
   user-select: text;
@@ -2025,13 +2024,13 @@ body.demo-ended #town-sheet {
 }
 
 .mirror-row span {
-  color: var(--ink-faint);
+  color: var(--ink);
   font: 12px var(--font-body);
   letter-spacing: 0.1em;
 }
 
 .mirror-row strong {
-  color: var(--ink-faint);
+  color: var(--ink);
   font-weight: 400;
 }
 
@@ -2200,4 +2199,20 @@ body.demo-ended #town-sheet {
 
 @media (prefers-reduced-motion: reduce) {
   #ticker.arriving { animation: none; }
+}
+
+/* Small labels on paper take --ink (13.6:1). --ink-faint is 4.47:1 and fails AA
+   below 18.66px — the same note already sits on #legend. They stay secondary
+   through size, tracking and a mild opacity that still measures about 5:1. */
+#road-event-kicker,
+#promise-kicker,
+#onboarding-step,
+#onboarding-tap {
+  opacity: 0.72;
+}
+
+.mirror-row span,
+.ending-section h2,
+.promise-range {
+  opacity: 0.72;
 }
