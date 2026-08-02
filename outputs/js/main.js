@@ -211,6 +211,7 @@ function persist(showFailure = false) {
 const STAGE_HINT_KEY = "the-crown.stage-hint-seen";
 
 let battleStage = null;
+let battlePresentationActive = false;
 
 function getBattleStage() {
   if (battleStage) return battleStage;
@@ -231,6 +232,7 @@ function getBattleStage() {
       if (state.battlePlayback) state.battlePlayback.skip = true;
     }
   });
+  if (query.get("qa") === "1") window.__CROWN_STAGE__ = battleStage;
   return battleStage;
 }
 
@@ -596,6 +598,9 @@ ui = createUi({
     const script = result?.battleScript || state.battleScript;
 
     const settle = (staged) => {
+      battlePresentationActive = false;
+      logicAccumulator = 0;
+      lastFrameAt = performance.now();
       handleBattleResult(result, { transition: Boolean(transition), staged });
       if (transition?.type === "ending") stampSeal(ui.text("ending.seal"));
       if (transition?.type === "act2") scheduleAct2Intro();
@@ -610,6 +615,9 @@ ui = createUi({
     }
     // The stage is a replay of an already-resolved battle: state is settled
     // before a single frame plays, so a mid-playback reload loses no progress.
+    battlePresentationActive = true;
+    logicAccumulator = 0;
+    lastFrameAt = performance.now();
     persist(true);
     sync();
     getBattleStage().play(script, () => settle(true));
@@ -896,7 +904,7 @@ function frame(now) {
   lastFrameAt = now;
   updatePerf(now, elapsed);
 
-  if (state.paused || document.visibilityState === "hidden") {
+  if (state.paused || battlePresentationActive || document.visibilityState === "hidden") {
     logicAccumulator = 0;
   } else {
     const speed = autoplayEnabled ? CONFIG.AUTOPLAY_MULTIPLIER : 1;
@@ -915,7 +923,9 @@ function frame(now) {
     }
   }
 
-  const alpha = state.paused ? 1 : clamp(logicAccumulator / CONFIG.LOGIC_MS, 0, 1);
+  const alpha = state.paused || battlePresentationActive
+    ? 1
+    : clamp(logicAccumulator / CONFIG.LOGIC_MS, 0, 1);
   renderer.render(state, now, alpha, state.settings.language);
   requestAnimationFrame(frame);
 }
