@@ -2805,6 +2805,30 @@ body.battle-stage-open #town-sheet {
   100% { background: rgba(43, 38, 32, 0.22); transform: scaleY(1); }
 }
 
+/* -- playback speed chip ---------------------------------------------------- */
+/* The only speed control. It states the current effective speed, so display and
+   effect are never separate facts. */
+.stage-speed {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  min-width: 44px;
+  min-height: 30px;
+  padding: 4px 12px;
+  border: 1px solid rgba(43, 38, 32, 0.34);
+  background: rgba(232, 220, 195, 0.86);
+  color: var(--ink);
+  font: 400 13px var(--font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .04em;
+  cursor: pointer;
+}
+
+.stage-speed:active { background: rgba(43, 38, 32, 0.1); }
+.stage-speed:focus-visible { outline: 2px solid var(--cinnabar); outline-offset: 2px; }
+
 /* -- wall archers ----------------------------------------------------------- */
 /* Terrain scenery for a town fight, not a unit: they stand on the wall, belong
    to neither roster, and no troop token is ever swapped for a bow. */

@@ -473,6 +473,7 @@ export function createBattleStage(host, options = {}) {
       '<div class="stage-ranks stage-ranks-enemy"></div>' +
       "</div>" +
       '<p class="stage-log" aria-live="polite"></p>' +
+      '<button type="button" class="stage-speed" aria-live="polite"></button>' +
       '<p class="stage-hint" hidden></p>' +
       "</div>" +
       // Outside .stage-paper on purpose: the paper clips its children, and the
@@ -661,7 +662,16 @@ export function createBattleStage(host, options = {}) {
     if (!worldNode) return;
     const width = worldNode.clientWidth;
     const centre = width / 2;
-    const band = Math.min(P.MELEE_BAND_PX, width * P.MELEE_BAND_MAX_RATIO);
+    const crowd = Math.max(
+      script.sides.player.tokens.length,
+      script.sides.enemy.tokens.length
+    );
+    // Widen for the crowd, then clamp to the stage: a big battle spreads out
+    // instead of stacking every man on the same few pixels.
+    const band = Math.min(
+      width * P.MELEE_BAND_MAX_RATIO,
+      Math.max(P.MELEE_BAND_PX, crowd * P.MELEE_BAND_PER_TOKEN_PX)
+    );
 
     ["player", "enemy"].forEach((sideKey) => {
       const dir = sideKey === "player" ? 1 : -1;
