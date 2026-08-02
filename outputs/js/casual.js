@@ -3,6 +3,7 @@ import { nextFloat, randomBetween, randomInt } from "./rng.js";
 import {
   addEvent,
   applyCasualties,
+  changePlayerRenown,
   clamp,
   getTroopCount,
   incrementTroop,
@@ -69,7 +70,11 @@ export function ensureCasualState(state) {
 }
 
 function activeTroopCap(state) {
-  return state.player.act >= 2 ? CONFIG.ACT2_TROOP_CAP : CONFIG.ACT1_TROOP_CAP;
+  return state.player.act >= 3
+    ? CONFIG.ACT3_TROOP_CAP
+    : state.player.act >= 2
+      ? CONFIG.ACT2_TROOP_CAP
+      : CONFIG.ACT1_TROOP_CAP;
 }
 
 function playerSnapshot(state, factionId) {
@@ -92,7 +97,7 @@ export function applyEffects(state, effects = {}, options = {}) {
   const beforeTroops = getTroopCount(state.player);
   const beforeGold = state.player.gold;
   state.player.gold = Math.max(0, state.player.gold + (Number(effects.gold) || 0));
-  state.player.renown = Math.max(0, state.player.renown + (Number(effects.renown) || 0));
+  changePlayerRenown(state, Number(effects.renown) || 0);
 
   const requestedTroops = Number(effects.troops) || 0;
   const targetTroops = clamp(

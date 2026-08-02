@@ -139,6 +139,17 @@ export function createUi(callbacks) {
     onboardingTap: element("onboarding-tap"),
     titleNewSeed: element("title-new-seed"),
     titleDiagnostics: element("title-diagnostics"),
+    originModal: element("origin-modal"),
+    originKicker: element("origin-kicker"),
+    originTitle: element("origin-title"),
+    originFiction: element("origin-fiction"),
+    originButtons: [...document.querySelectorAll("[data-origin]")],
+    originHunterTitle: element("origin-hunter-title"),
+    originHunterDetail: element("origin-hunter-detail"),
+    originBorderTitle: element("origin-border-title"),
+    originBorderDetail: element("origin-border-detail"),
+    originWandererTitle: element("origin-wanderer-title"),
+    originWandererDetail: element("origin-wanderer-detail"),
     promiseModal: element("promise-modal"),
     promiseCard: document.querySelector(".promise-card"),
     promiseKicker: element("promise-kicker"),
@@ -170,6 +181,18 @@ export function createUi(callbacks) {
     fiefThreatTitle: element("fief-threat-title"),
     fiefThreatDetail: element("fief-threat-detail"),
     fiefThreatDismiss: element("fief-threat-dismiss"),
+    kingdomModal: element("kingdom-modal"),
+    kingdomSeal: element("kingdom-seal"),
+    kingdomKicker: element("kingdom-kicker"),
+    kingdomTitle: element("kingdom-title"),
+    kingdomCopy: element("kingdom-copy"),
+    foundingActions: element("founding-actions"),
+    foundingAccept: element("founding-accept"),
+    foundingDecline: element("founding-decline"),
+    foundingSealContinue: element("founding-seal-continue"),
+    edictActions: element("edict-actions"),
+    edictContinue: element("edict-continue"),
+    edictStop: element("edict-stop"),
     contractModal: element("contract-modal"),
     contractKicker: element("contract-kicker"),
     contractTitle: element("contract-title"),
@@ -541,15 +564,25 @@ export function createUi(callbacks) {
       ? CONFIG.ACT2_RENOWN
       : state.player.act < 3
         ? (CONFIG.DEMO ? CONFIG.DEMO_END_RENOWN : CONFIG.ACT3_RENOWN)
-        : CONFIG.ACT3_RENOWN;
+        : state.kingdom?.founded
+          ? state.kingdom.nextDecisionDay
+          : CONFIG.ACT4_RENOWN;
     const key = state.player.act < 2
       ? "hud.renownGateAct1"
       : state.player.act < 3
         ? (CONFIG.DEMO ? "hud.renownGateAct2" : "hud.renownGateFief")
-        : "hud.renownGateHolding";
+        : state.kingdom?.founded
+          ? "hud.kingDaysGate"
+          : "hud.renownGateKingdom";
+    const value = state.kingdom?.founded ? state.kingdom.kingDays : renown;
     refs.renownGate.hidden = state.demo.ended;
-    refs.renownGateFill.style.width = `${Math.min(100, (renown / gate) * 100)}%`;
-    refs.renownGateLabel.textContent = t(key, { renown: Math.min(renown, gate) });
+    refs.renownGateFill.style.width = `${Math.min(100, (value / gate) * 100)}%`;
+    refs.renownGateLabel.textContent = t(key, {
+      renown: Math.min(renown, CONFIG.ACT4_RENOWN),
+      towns: state.player.fiefs.length,
+      day: state.kingdom?.kingDays || 0,
+      target: gate
+    });
     if (lastRenown !== null && renown > lastRenown && !motionOff()) {
       refs.renownGateFill.classList.remove("growing");
       void refs.renownGateFill.offsetWidth;
@@ -631,6 +664,8 @@ export function createUi(callbacks) {
     refs.settingsSheet.setAttribute("aria-label", t("aria.settings"));
     refs.settingsScrim.setAttribute("aria-label", t("aria.closeSettings"));
     refs.onboarding.setAttribute("aria-label", t("aria.onboarding"));
+    refs.originModal.setAttribute("aria-label", t("aria.origin"));
+    refs.kingdomModal.setAttribute("aria-label", t("aria.kingdom"));
     refs.promiseCard.setAttribute("aria-label", t("aria.promise"));
     refs.roadEventModal.setAttribute("aria-label", t("aria.roadEvent"));
     refs.contextTooltip.setAttribute("aria-label", t("aria.tooltip"));
@@ -685,6 +720,20 @@ export function createUi(callbacks) {
     refs.onboardingTap.textContent = t("onboarding.tap");
     refs.titleNewSeed.textContent = t("onboarding.newSeed");
     refs.titleNewSeed.setAttribute("aria-label", t("aria.newSeed"));
+    refs.originKicker.textContent = t("origin.kicker");
+    refs.originTitle.textContent = t("origin.title");
+    refs.originFiction.textContent = t("origin.fiction");
+    refs.originHunterTitle.textContent = t("origin.hunterTitle");
+    refs.originHunterDetail.textContent = t("origin.hunterDetail");
+    refs.originBorderTitle.textContent = t("origin.borderTitle");
+    refs.originBorderDetail.textContent = t("origin.borderDetail");
+    refs.originWandererTitle.textContent = t("origin.wandererTitle");
+    refs.originWandererDetail.textContent = t("origin.wandererDetail");
+    refs.foundingAccept.textContent = t("kingdom.found");
+    refs.foundingDecline.textContent = t("kingdom.notYet");
+    refs.foundingSealContinue.textContent = t("kingdom.sealContinue");
+    refs.edictContinue.textContent = t("kingdom.continueConquest");
+    refs.edictStop.textContent = t("kingdom.stopHere");
     refs.promiseConfirm.textContent = t("promise.confirm");
     refs.fiefPromiseAll.textContent = t("promise.allFiefs");
     refs.garrisonTitle.textContent = t("fief.garrisonTitle");
@@ -717,6 +766,39 @@ export function createUi(callbacks) {
     refs.onboardingLine.textContent = t(`onboarding.step${current}`);
   }
 
+  function syncOrigin(state) {
+    refs.originModal.hidden = state.demo.modal !== "origin";
+  }
+
+  function syncKingdomModal(state) {
+    const mode = state.demo.modal;
+    const visible = ["founding", "foundingSeal", "kingdomEdict"].includes(mode);
+    refs.kingdomModal.hidden = !visible;
+    if (!visible) return;
+    const seal = mode === "foundingSeal";
+    const edict = mode === "kingdomEdict";
+    refs.kingdomSeal.hidden = !seal;
+    refs.kingdomSeal.textContent = seal ? t("kingdom.seal") : "";
+    refs.foundingActions.hidden = mode !== "founding";
+    refs.foundingSealContinue.hidden = !seal;
+    refs.edictActions.hidden = !edict;
+    refs.kingdomKicker.textContent = t(edict ? "kingdom.edictKicker" : "kingdom.foundingKicker");
+    refs.kingdomTitle.textContent = t(seal
+      ? "kingdom.foundedTitle"
+      : edict
+        ? "kingdom.edictTitle"
+        : "kingdom.foundingTitle");
+    refs.kingdomCopy.textContent = t(seal
+      ? "kingdom.foundedCopy"
+      : edict
+        ? "kingdom.edictCopy"
+        : "kingdom.foundingCopy", {
+          renown: state.player.renown,
+          towns: state.player.fiefs.length,
+          days: CONFIG.KINGDOM_DECISION_INTERVAL_DAYS
+        });
+  }
+
   function configurePromiseModal(state) {
     const mode = state.demo.modal;
     const visible = mode === "troopPromise" || mode === "goldPromise" || mode === "fiefPromise";
@@ -733,14 +815,6 @@ export function createUi(callbacks) {
         ? "promise.fiefKicker"
         : "promise.act2Kicker");
     const actOne = state.player.promises.find((entry) => entry.act === 1);
-    refs.promiseQuestion.textContent = troops
-      ? t("promise.troopsQuestion")
-      : fiefs
-        ? t("promise.fiefQuestion")
-        : t("promise.goldQuestion", {
-        said: actOne?.statedGoal ?? 0,
-        actual: actOne?.actualAtActEnd ?? getTroopCount(state.player)
-      });
     refs.promiseContext.hidden = false;
     const troopPromise = state.player.promises.find((entry) => entry.act === 1);
     const goldPromise = state.player.promises.find((entry) => entry.act === 2);
@@ -752,6 +826,14 @@ export function createUi(callbacks) {
         goldDid: goldPromise?.actualAtActEnd ?? state.player.gold
       })
       : t(troops ? "promise.act1Fiction" : "promise.act2Fiction");
+    refs.promiseQuestion.textContent = troops
+      ? t("promise.troopsQuestion")
+      : fiefs
+        ? t("promise.fiefQuestion")
+        : t("promise.goldQuestion", {
+        said: actOne?.statedGoal ?? 0,
+        actual: actOne?.actualAtActEnd ?? getTroopCount(state.player)
+      });
     refs.promiseValue.hidden = fiefs;
     refs.promiseSlider.hidden = fiefs;
     refs.promiseMin.parentElement.hidden = fiefs;
@@ -821,22 +903,35 @@ export function createUi(callbacks) {
       stampSeal(t("ending.seal"));
     }
     refs.mirrorTable.replaceChildren();
-    state.player.promises.slice(0, 2).forEach((promise) => {
+    const fullEnding = state.ending?.mode === "full";
+    state.player.promises.slice(0, fullEnding ? 3 : 2).forEach((promise) => {
       const row = document.createElement("div");
       const label = document.createElement("span");
       const said = document.createElement("strong");
       const did = document.createElement("strong");
-      const actual = promise.actualAtActEnd ?? (promise.kind === "gold" ? state.player.gold : getTroopCount(state.player));
+      const actual = promise.actualAtActEnd ?? (promise.kind === "gold"
+        ? state.player.gold
+        : promise.kind === "fiefs"
+          ? state.player.fiefs.length
+          : getTroopCount(state.player));
       row.className = "mirror-row";
       if (actual > promise.statedGoal) row.classList.add("overshot");
-      label.textContent = t(promise.kind === "gold" ? "ending.gold" : "ending.troops");
+      label.textContent = t(promise.kind === "gold"
+        ? "ending.gold"
+        : promise.kind === "fiefs"
+          ? "ending.fiefs"
+          : "ending.troops");
       said.textContent = t("ending.said", { value: promise.statedGoal });
       did.textContent = t("ending.did", { value: actual });
       row.append(label, said, did);
       refs.mirrorTable.appendChild(row);
     });
     refs.endingChronicle.replaceChildren();
-    for (const entry of buildChronicleEntries(state.telemetry, language())) {
+    const chronicle = fullEnding
+      ? buildChronicleEntries(state.telemetry, language(), { full: true })
+      : buildChronicleEntries(state.telemetry, language());
+    state.telemetry.endingChronicle = chronicle.map((entry) => ({ ...entry }));
+    for (const entry of chronicle) {
       const item = document.createElement("li");
       item.dataset.eventType = entry.type;
       item.textContent = entry.text;
@@ -850,6 +945,21 @@ export function createUi(callbacks) {
     appendEndingStat(t("ending.winRate"), `${winRate}%`);
     appendEndingStat(t("ending.peakTroops"), String(state.stats.peakTroops || 0));
     appendEndingStat(t("ending.peakGold"), String(state.stats.peakGold || 0));
+    if (fullEnding) {
+      const comparisons = state.player.promises.slice(0, 3).map((promise) => {
+        const actual = Number(promise.actualAtActEnd);
+        const goal = Number(promise.statedGoal);
+        return Number.isFinite(actual) && Number.isFinite(goal) ? Math.sign(actual - goal) : 0;
+      });
+      const over = comparisons.filter((value) => value > 0).length;
+      const under = comparisons.filter((value) => value < 0).length;
+      refs.endingLine.textContent = t(over === 3
+        ? "ending.lineAllOvershot"
+        : under === 3
+          ? "ending.lineAllHeld"
+          : "ending.lineMixed");
+      refs.endingSeal.textContent = t("ending.fullSeal");
+    }
     refs.resultCode.textContent = buildResultCode(state);
   }
 
@@ -992,6 +1102,8 @@ export function createUi(callbacks) {
       ? t("settings.autosaveOn", { day: Math.floor(Math.max(0, state.lastSavedTick) / CONFIG.TICKS_PER_DAY) + 1 })
       : t("settings.autosaveUnavailable");
     syncOnboarding(state);
+    syncOrigin(state);
+    syncKingdomModal(state);
     configurePromiseModal(state);
     syncFiefThreat(state);
     syncRoadEvent(state);
@@ -1218,6 +1330,9 @@ export function createUi(callbacks) {
   refs.skipBattle.addEventListener("click", () => callbacks.onSkipBattle());
   refs.retreatBattle.addEventListener("click", () => callbacks.onRetreat());
   refs.onboarding.addEventListener("click", () => callbacks.onAdvanceOnboarding());
+  refs.originButtons.forEach((button) => {
+    button.addEventListener("click", () => callbacks.onSelectOrigin(button.dataset.origin));
+  });
   refs.onboardingTitle.addEventListener("click", toggleDiagnosticsFromTitle);
   refs.brandTitle.addEventListener("click", toggleDiagnosticsFromTitle);
   refs.titleNewSeed.addEventListener("click", (event) => {
@@ -1255,6 +1370,11 @@ export function createUi(callbacks) {
     if (town) callbacks.onSetGarrison(town.id, Number(refs.garrisonSlider.value));
   });
   refs.fiefThreatDismiss.addEventListener("click", () => callbacks.onDismissFiefThreat());
+  refs.foundingAccept.addEventListener("click", () => callbacks.onFoundKingdom());
+  refs.foundingDecline.addEventListener("click", () => callbacks.onDeclineFounding());
+  refs.foundingSealContinue.addEventListener("click", () => callbacks.onDismissFoundingSeal());
+  refs.edictContinue.addEventListener("click", () => callbacks.onKingdomEdict("continue"));
+  refs.edictStop.addEventListener("click", () => callbacks.onKingdomEdict("stop"));
   refs.contextTooltip.addEventListener("click", () => { refs.contextTooltip.hidden = true; });
   refs.roadEventChoiceA.addEventListener("click", () => callbacks.onRoadEventChoice(0));
   refs.roadEventChoiceB.addEventListener("click", () => callbacks.onRoadEventChoice(1));
@@ -1288,11 +1408,17 @@ export function createUi(callbacks) {
     refs.skipBattle,
     refs.retreatBattle,
     refs.titleNewSeed,
+    ...refs.originButtons,
     refs.promiseSlider,
     refs.promiseConfirm,
     ...refs.fiefPromiseButtons,
     refs.garrisonSlider,
     refs.fiefThreatDismiss,
+    refs.foundingAccept,
+    refs.foundingDecline,
+    refs.foundingSealContinue,
+    refs.edictContinue,
+    refs.edictStop,
     refs.contextTooltip,
     refs.roadEventChoiceA,
     refs.roadEventChoiceB,

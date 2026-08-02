@@ -39,10 +39,21 @@ import {
 } from "./living.js";
 import { createRng, nextFloat, randomInt } from "./rng.js";
 import { buildRoads, isOnRoad } from "./roads.js";
+import {
+  awardPatronCapture,
+  chooseKingdomEdict,
+  declineFounding,
+  dismissFoundingSeal,
+  foundKingdom,
+  processAct3Expansion,
+  processKingdomDay,
+  selectOrigin
+} from "./kingdom.js";
 import { recordChronicleMilestone } from "./telemetry.js";
 import {
   activeTown,
   addEvent,
+  changePlayerRenown,
   clamp,
   copyPosition,
   createInitialState,
@@ -277,6 +288,13 @@ function currentTownCount(state, factionId) {
 function updateDiplomacy(state) {
   sortedFactionPairs(state).forEach(([first, second]) => {
     if (!first.alive || !second.alive) return;
+    if (state.kingdom?.founded && [first.id, second.id].includes("player")) {
+      if (!first.atWarWith.includes(second.id)) {
+        declareWarInternal(state, first, second, CONFIG.KINGDOM_WAR_RELATION);
+      }
+      setRelation(first, second, CONFIG.KINGDOM_WAR_RELATION);
+      return;
+    }
     const drift = nextFloat(state.rng) < 0.5
       ? -CONFIG.DIPLOMACY_RELATION_DRIFT
       : CONFIG.DIPLOMACY_RELATION_DRIFT;
@@ -683,9 +701,10 @@ function captureTown(state, town, attacker) {
     factionId: attacker.factionId,
     lordId: attacker.id
   }, "danger");
+  awardPatronCapture(state, town, oldFactionId, attacker.factionId);
   if (heldFief && attacker.factionId !== state.player.factionId) {
     state.player.fiefs = state.player.fiefs.filter((townId) => townId !== town.id);
-    state.player.renown = Math.max(0, state.player.renown - CONFIG.FIEF_LOSS_RENOWN);
+    changePlayerRenown(state, -CONFIG.FIEF_LOSS_RENOWN);
     if (state.player.factionId) {
       state.player.relations[state.player.factionId] = clamp(
         (Number(state.player.relations[state.player.factionId]) || 0) - CONFIG.FIEF_LOSS_RELATION,
@@ -711,7 +730,7 @@ function captureTown(state, town, attacker) {
     originalGrant?.townId === town.id &&
     originalGrant.factionId === attacker.factionId
   ) {
-    state.player.fiefs.push(town.id);
+    if (!state.player.fiefs.includes(town.id)) state.player.fiefs.push(town.id);
     state.telemetry.chronicle.fiefRecaptured ||= {
       tick: state.tick,
       day: Math.floor(state.tick / CONFIG.TICKS_PER_DAY) + 1,
@@ -877,7 +896,10 @@ function resolveAiEncounters(state) {
 function movementSpeed(state, party, baseSpeed) {
   if (!CONFIG.ROAD_MOVEMENT) return baseSpeed;
   const roads = buildRoads(state.seed);
-  return baseSpeed * (isOnRoad(roads, party.pos.x, party.pos.y)
+  const originMultiplier = party === state.player
+    ? (CONFIG.ORIGIN_BONUSES[state.kingdom?.origin]?.roadSpeed || 1)
+    : 1;
+  return baseSpeed * originMultiplier * (isOnRoad(roads, party.pos.x, party.pos.y)
     ? CONFIG.ROAD_SPEED_MULTIPLIER
     : CONFIG.OFF_ROAD_SPEED_MULTIPLIER);
 }
@@ -1158,6 +1180,9 @@ export function setAutoplay(state, enabled = true, options = {}) {
   state.autoplay.enabled = Boolean(enabled);
   state.autoplay.fullVersion = options.fullVersion === true;
   state.autoplay.patronFactionId ||= options.patronFactionId || "north";
+  state.autoplay.origin = options.origin || state.autoplay.origin || CONFIG.AUTOPLAY_F2_ORIGIN;
+  state.autoplay.endingChoice = options.endingChoice || state.autoplay.endingChoice || "stop";
+  state.autoplay.maxDecisions = Math.max(1, Number(options.maxDecisions) || state.autoplay.maxDecisions || 1);
   if (!state.autoplay.enabled) {
     state.autoplay.targetBanditId = null;
     state.player.moveTarget = null;
@@ -1294,10 +1319,14 @@ export function worldTick(state) {
   let spawnBalance = null;
   let warSpawnResult = null;
   let roadEventResult = null;
+  let act3ExpansionResult = null;
+  let kingdomDayResult = null;
   if (dayAdvanced) {
     state.stats.days += 1;
     dailyEconomyResult = processDailyEconomy(state);
     dailyContractResult = processDailyContract(state);
+    act3ExpansionResult = processAct3Expansion(state);
+    kingdomDayResult = processKingdomDay(state);
     if (state.bandits.length < CONFIG.MAX_BANDITS) {
       const spawned = spawnScaledBandit(state);
       spawnBalance = applyCasualSpawnBalance(state, spawned);
@@ -1323,6 +1352,8 @@ export function worldTick(state) {
     spawnBalance,
     warSpawnResult,
     roadEventResult,
+    act3ExpansionResult,
+    kingdomDayResult,
     battleScriptCheck,
     progression: progressionHook(state),
     events: eventsSince(state, previousNewestEvent)
@@ -1336,7 +1367,11 @@ export function recruitMilitia(state) {
   const town = activeTown(state);
   if (!town) return { ok: false, reason: "outsideTown" };
   const troops = getTroopCount(state.player);
-  const cap = state.player.act >= 2 ? CONFIG.ACT2_TROOP_CAP : CONFIG.ACT1_TROOP_CAP;
+  const cap = state.player.act >= 3
+    ? CONFIG.ACT3_TROOP_CAP
+    : state.player.act >= 2
+      ? CONFIG.ACT2_TROOP_CAP
+      : CONFIG.ACT1_TROOP_CAP;
   if (troops >= cap) return { ok: false, reason: "cap", cap };
   const recoveryRecruit = town.recruitPool <= 0 && troops < CONFIG.PLAYER_RECOVERY_RECRUIT_FLOOR;
   if (town.recruitPool <= 0 && !recoveryRecruit) return { ok: false, reason: "pool" };
@@ -1633,6 +1668,10 @@ function resolveAutoplayModal(state) {
     advanceOnboarding(state);
     return true;
   }
+  if (state.demo.modal === "origin") {
+    selectOrigin(state, state.autoplay?.origin || CONFIG.AUTOPLAY_F2_ORIGIN);
+    return true;
+  }
   if (state.demo.modal === "troopPromise") {
     submitPromise(state, CONFIG.AUTOPLAY_TROOP_PROMISE, deterministicTimestamp(state));
     return true;
@@ -1657,6 +1696,22 @@ function resolveAutoplayModal(state) {
     dismissFiefThreat(state);
     return true;
   }
+  if (state.demo.modal === "founding") {
+    foundKingdom(state);
+    return true;
+  }
+  if (state.demo.modal === "foundingSeal") {
+    dismissFoundingSeal(state);
+    return true;
+  }
+  if (state.demo.modal === "kingdomEdict") {
+    chooseKingdomEdict(
+      state,
+      state.autoplay?.endingChoice || "stop",
+      deterministicTimestamp(state)
+    );
+    return true;
+  }
   if (state.demo.modal === "formation") {
     const report = state.battle?.formations?.reportedEnemy || "line";
     choosePlayerFormation(state, counterFormation(report));
@@ -1674,11 +1729,16 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
   }
   const state = createInitialState(seed, {
     startedAt: new Date(0).toISOString(),
-    v11
+    v11,
+    fullVersion,
+    f2: options.phase2 === true
   });
   setAutoplay(state, true, {
     fullVersion,
-    patronFactionId: options.patronFactionId || "north"
+    patronFactionId: options.patronFactionId || "north",
+    origin: options.origin || CONFIG.AUTOPLAY_F2_ORIGIN,
+    endingChoice: options.endingChoice || "stop",
+    maxDecisions: options.maxDecisions || 1
   });
   initializeLivingWorld(state);
   while (resolveAutoplayModal(state)) {
@@ -1697,6 +1757,8 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
   let endingSeconds = null;
   let act3Seconds = null;
   let fiefThreatSeconds = null;
+  let foundingSeconds = null;
+  let edictSeconds = null;
   let act2BattleCount = null;
   let endingBattleCount = null;
   let resolvedBattleRounds = 0;
@@ -1709,7 +1771,12 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
   while (
     state.telemetry.totalActiveSeconds < maximumActiveSeconds &&
     !state.demo.ended &&
-    (!fullVersion || fiefThreatSeconds === null)
+    (!fullVersion || options.phase2 === true || fiefThreatSeconds === null) &&
+    !(
+      fullVersion &&
+      state.autoplay.endingChoice === "continue" &&
+      state.kingdom.decisionCount >= state.autoplay.maxDecisions
+    )
   ) {
     const burst = Math.max(1, CONFIG.AUTOPLAY_MULTIPLIER);
     for (let index = 0; index < burst && !state.demo.ended; index += 1) {
@@ -1746,12 +1813,15 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
         endingBattleRounds = resolvedBattleRounds;
       }
       if (transition?.type === "act3" && act3Seconds === null) act3Seconds = activeSeconds;
+      if (transition?.type === "founding" && foundingSeconds === null) foundingSeconds = activeSeconds;
       if (state.telemetry.chronicle.fiefThreat && fiefThreatSeconds === null) {
         fiefThreatSeconds = state.telemetry.chronicle.fiefThreat.activeSeconds;
       }
       while (resolveAutoplayModal(state)) {
         // Resolve the Act 2 promise before advancing more ticks.
       }
+      if (state.kingdom.founded && foundingSeconds === null) foundingSeconds = activeSeconds;
+      if (state.kingdom.decisionCount > 0 && edictSeconds === null) edictSeconds = activeSeconds;
       if (state.telemetry.totalActiveSeconds >= maximumActiveSeconds) break;
     }
   }
@@ -1771,6 +1841,10 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
     endingSeconds,
     act3Seconds,
     fiefThreatSeconds,
+    foundingSeconds,
+    edictSeconds,
+    endingPath: state.kingdom.endingPath,
+    kingdomDecisions: state.kingdom.decisionCount,
     fiefThreatDelaySeconds: act3Seconds === null || fiefThreatSeconds === null
       ? null
       : fiefThreatSeconds - act3Seconds,

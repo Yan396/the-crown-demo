@@ -19,6 +19,13 @@ import {
   updateSessionPeaks
 } from "./demo.js";
 import { createMapRenderer } from "./map.js";
+import {
+  chooseKingdomEdict,
+  declineFounding,
+  dismissFoundingSeal,
+  foundKingdom,
+  selectOrigin
+} from "./kingdom.js";
 import { CONFIG_PRESENTATION } from "./presentation.js";
 import { stampSeal } from "./seal.js";
 import {
@@ -78,17 +85,21 @@ const qaAct2TownEnabled = qaFreshEnabled && query.get("act2Town") === "1";
 let state = autoplayEnabled
   ? createInitialState(autoplaySeed, {
     startedAt: new Date(0).toISOString(),
-    v11: v11Enabled
+    v11: v11Enabled,
+    fullVersion,
+    f2: fullVersion
   })
   : qaFreshEnabled
     ? createInitialState(autoplaySeed, {
       skipOnboarding: true,
       startedAt: new Date(0).toISOString(),
-      v11: v11Enabled
+      v11: v11Enabled,
+      fullVersion,
+      f2: fullVersion
     })
-    : loadState(undefined, { v11: v11Enabled });
+    : loadState(undefined, { v11: v11Enabled, fullVersion, f2: fullVersion });
 const loadedExistingState = Boolean(state);
-if (!state) state = createInitialState(CONFIG.SEED, { v11: v11Enabled });
+if (!state) state = createInitialState(CONFIG.SEED, { v11: v11Enabled, fullVersion, f2: fullVersion });
 if (qaRecruitRecoveryEnabled) {
   state.player.gold = 164;
   state.player.troops = [{ type: "militia", count: 3, xp: 0 }];
@@ -126,6 +137,9 @@ const autoplayMetrics = {
   endingSeconds: null,
   act3Seconds: null,
   fiefThreatSeconds: null,
+  foundingSeconds: null,
+  edictSeconds: null,
+  endingPath: null,
   act2RawSeconds: null,
   endingRawSeconds: null,
   activeSeconds: 0,
@@ -293,6 +307,10 @@ function resolveAutoplayModal() {
     advanceOnboarding(state);
     return true;
   }
+  if (state.demo.modal === "origin") {
+    selectOrigin(state, CONFIG.AUTOPLAY_F2_ORIGIN);
+    return true;
+  }
   if (state.demo.modal === "troopPromise") {
     submitPromise(state, CONFIG.AUTOPLAY_TROOP_PROMISE, new Date(state.tick * CONFIG.LOGIC_MS).toISOString());
     return true;
@@ -317,6 +335,18 @@ function resolveAutoplayModal() {
     dismissFiefThreat(state);
     return true;
   }
+  if (state.demo.modal === "founding") {
+    foundKingdom(state);
+    return true;
+  }
+  if (state.demo.modal === "foundingSeal") {
+    dismissFoundingSeal(state);
+    return true;
+  }
+  if (state.demo.modal === "kingdomEdict") {
+    chooseKingdomEdict(state, query.get("ending") === "continue" ? "continue" : "stop");
+    return true;
+  }
   if (state.demo.modal === "formation") {
     if (holdAutoplayFormations) return false;
     const report = state.battle?.formations?.reportedEnemy || "line";
@@ -337,7 +367,11 @@ function finishAutoplaySetup() {
   console.info(
     `[CROWN autoplay] road-event effects ${eventAudit.choicesChecked}/${eventAudit.choicesChecked}: ok`
   );
-  setAutoplay(state, true, { fullVersion });
+  setAutoplay(state, true, {
+    fullVersion,
+    origin: CONFIG.AUTOPLAY_F2_ORIGIN,
+    endingChoice: query.get("ending") === "continue" ? "continue" : "stop"
+  });
   while (resolveAutoplayModal()) {
     // Tutorial taps and mirror answers intentionally consume no active time.
   }
@@ -534,6 +568,37 @@ ui = createUi({
     persist(true);
     sync();
   },
+  onSelectOrigin(originId) {
+    if (!selectOrigin(state, originId).ok) return;
+    persist(true);
+    sync();
+  },
+  onFoundKingdom() {
+    const result = foundKingdom(state);
+    if (!result.ok) return;
+    stampSeal(ui.text("kingdom.seal"));
+    persist(true);
+    sync();
+  },
+  onDeclineFounding() {
+    if (!declineFounding(state).ok) return;
+    persist(true);
+    sync();
+  },
+  onDismissFoundingSeal() {
+    if (!dismissFoundingSeal(state).ok) return;
+    lastFrameAt = performance.now();
+    logicAccumulator = 0;
+    persist(true);
+    sync();
+  },
+  onKingdomEdict(choice) {
+    const result = chooseKingdomEdict(state, choice);
+    if (!result.ok) return;
+    if (result.type === "ending") stampSeal(ui.text("ending.fullSeal"));
+    persist(true);
+    sync();
+  },
   onSubmitPromise(value) {
     const result = submitPromise(state, value);
     if (!result.accepted) return;
@@ -551,9 +616,11 @@ ui = createUi({
   onNewSeed(replay) {
     if (replay) {
       const next = createReplayState(state, { startedAt: new Date().toISOString() });
-      next.demo.modal = "troopPromise";
-      next.demo.pauseReason = "promise";
-      next.paused = true;
+      if (!fullVersion) {
+        next.demo.modal = "troopPromise";
+        next.demo.pauseReason = "promise";
+        next.paused = true;
+      }
       replaceState(next);
       return;
     }
@@ -561,7 +628,9 @@ ui = createUi({
       language: state.settings.language,
       replayCount: state.telemetry.replayCount,
       startedAt: new Date().toISOString(),
-      v11: v11Enabled
+      v11: v11Enabled,
+      fullVersion,
+      f2: fullVersion
     });
     replaceState(next);
   }
@@ -602,6 +671,11 @@ function runLogicStep() {
   }
   if (transition?.type === "ending") recordAutoplayMilestone("endingSeconds", activeSeconds);
   if (transition?.type === "act3") recordAutoplayMilestone("act3Seconds", activeSeconds);
+  if (transition?.type === "founding") recordAutoplayMilestone("foundingSeconds", activeSeconds);
+  if (state.kingdom?.decisionCount > 0) {
+    recordAutoplayMilestone("edictSeconds", activeSeconds);
+    autoplayMetrics.endingPath = state.kingdom.endingPath;
+  }
   if (state.telemetry.chronicle.fiefThreat) {
     recordAutoplayMilestone(
       "fiefThreatSeconds",
@@ -624,12 +698,9 @@ function runLogicStep() {
   }
 
   const autoplayLimit = fullVersion
-    ? CONFIG.AUTOPLAY_FULL_MAX_ACTIVE_SECONDS
+    ? CONFIG.AUTOPLAY_F2_HARD_LIMIT_SECONDS
     : CONFIG.AUTOPLAY_MAX_ACTIVE_SECONDS;
-  if (autoplayEnabled && fullVersion && autoplayMetrics.fiefThreatSeconds !== null) {
-    autoplayStopped = true;
-    state.paused = true;
-  } else if (autoplayEnabled && !state.demo.ended && activeSeconds >= autoplayLimit) {
+  if (autoplayEnabled && !state.demo.ended && activeSeconds >= autoplayLimit) {
     autoplayStopped = true;
     state.paused = true;
     console.warn(`[CROWN autoplay] target missed at ${(activeSeconds / 60).toFixed(2)} active minutes`);

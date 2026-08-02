@@ -50,6 +50,34 @@ export function getPartyStrength(party) {
   }, 0);
 }
 
+export function changePlayerRenown(state, amount) {
+  const requested = Number(amount) || 0;
+  if (!requested) return 0;
+  if (state.kingdom?.renownFrozenAt !== null && state.kingdom?.renownFrozenAt !== undefined) {
+    state.player.renown = state.kingdom.renownFrozenAt;
+    return 0;
+  }
+  let applied = requested;
+  if (
+    requested > 0 &&
+    state.features?.f2 &&
+    state.player.act >= 3 &&
+    !state.kingdom?.founded
+  ) {
+    applied = Math.max(1, Math.round(requested * CONFIG.ACT3_RENOWN_GAIN_MULTIPLIER));
+  }
+  if (
+    requested > 0 &&
+    state.features?.f2 &&
+    state.player.act === 2
+  ) {
+    applied = Math.max(0, Math.min(applied, CONFIG.ACT3_RENOWN - state.player.renown));
+  }
+  const before = Math.max(0, Number(state.player.renown) || 0);
+  state.player.renown = Math.max(0, before + applied);
+  return state.player.renown - before;
+}
+
 export function getAverageDefense(party) {
   const total = getTroopCount(party);
   if (total <= 0) return 1;
@@ -305,6 +333,7 @@ function createTowns() {
     nameKey: entry.nameKey,
     pos: { x: entry.x, y: entry.y },
     factionId: entry.factionId,
+    originalFactionId: entry.factionId,
     prosperity: CONFIG.TOWN_START_PROSPERITY,
     garrison: [{ type: "militia", count: CONFIG.TOWN_START_GARRISON, xp: 0 }],
     recruitPool: CONFIG.TOWN_START_RECRUIT_POOL,
@@ -352,11 +381,12 @@ function createLords(state) {
 
 function createDemoState(options = {}) {
   const skipOnboarding = Boolean(options.skipOnboarding);
+  const originPending = Boolean(options.f2) && !skipOnboarding;
   return {
     onboardingComplete: skipOnboarding,
     onboardingStep: 0,
-    modal: skipOnboarding ? null : "onboarding",
-    pauseReason: skipOnboarding ? null : "onboarding",
+    modal: skipOnboarding ? null : originPending ? "origin" : "onboarding",
+    pauseReason: skipOnboarding ? null : originPending ? "origin" : "onboarding",
     ended: false,
     act2Tick: null,
     act3Tick: null,
@@ -373,6 +403,29 @@ function createDemoState(options = {}) {
       act2: Boolean(options.tooltipsSeen?.act2)
     },
     pendingTooltips: []
+  };
+}
+
+function createKingdomState() {
+  return {
+    origin: null,
+    expansionAwards: 0,
+    foundingOffered: false,
+    foundingDeclinedDay: null,
+    founded: false,
+    foundedTick: null,
+    foundedDay: null,
+    kingDays: 0,
+    nextDecisionDay: CONFIG.KINGDOM_DECISION_INTERVAL_DAYS,
+    decisionCount: 0,
+    conquestContinues: false,
+    renownFrozenAt: null,
+    endingPath: null,
+    coalitionWaves: 0,
+    rebellionChecks: 0,
+    rebellions: 0,
+    lastRebellionWarningDay: null,
+    pendingRebellionTownId: null
   };
 }
 
@@ -402,10 +455,12 @@ export function createInitialState(seed = CONFIG.SEED, options = {}) {
   const normalizedSeed = Number(seed) >>> 0;
   const startTown = TOWN_DATA.find((town) => town.id === CONFIG.START_TOWN_ID);
   const startPosition = { x: startTown.x, y: startTown.y };
-  const demo = createDemoState(options);
+  const fullVersion = options.fullVersion === true;
+  const f2 = options.f2 === true;
+  const demo = createDemoState({ ...options, fullVersion, f2 });
   const state = {
     saveVersion: CONFIG.SAVE_VERSION,
-    features: { v11: Boolean(options.v11) },
+    features: { v11: Boolean(options.v11), full: fullVersion, f2 },
     seed: normalizedSeed,
     rng: createRng(normalizedSeed),
     tick: 0,
@@ -426,6 +481,7 @@ export function createInitialState(seed = CONFIG.SEED, options = {}) {
       promises: [],
       contract: null,
       lieutenant: null,
+      origin: null,
       encounterCooldownUntil: 0
     },
     factions: createFactions(),
@@ -448,6 +504,7 @@ export function createInitialState(seed = CONFIG.SEED, options = {}) {
     }),
     casual: createCasualState(),
     demo,
+    kingdom: createKingdomState(),
     ending: { complete: false, visible: false, tick: null },
     battle: null,
     battleScript: null,
@@ -670,7 +727,12 @@ export function isValidState(value) {
   if (!Number.isInteger(value.seed) || value.seed < 0 || value.seed > 0xffffffff) return false;
   if (!isValidRng(value.rng)) return false;
   if (!Number.isSafeInteger(value.tick) || value.tick < 0 || typeof value.paused !== "boolean") return false;
-  if (!value.features || typeof value.features.v11 !== "boolean") return false;
+  if (
+    !value.features ||
+    typeof value.features.v11 !== "boolean" ||
+    typeof value.features.full !== "boolean" ||
+    typeof value.features.f2 !== "boolean"
+  ) return false;
   if (!value.settings || !SUPPORTED_LANGUAGES.includes(value.settings.language)) return false;
   if (!Number.isSafeInteger(value.lastSavedTick) || value.lastSavedTick < -1) return false;
   if (!isParty(value.player) || !Number.isFinite(value.player.gold) || value.player.gold < 0) return false;
@@ -685,13 +747,17 @@ export function isValidState(value) {
     )
   ) return false;
   if (
-    ![1, 2, 3].includes(value.player.act) ||
+    ![1, 2, 3, 4].includes(value.player.act) ||
     !Array.isArray(value.player.promises) ||
     !Array.isArray(value.promises) ||
     !Array.isArray(value.player.fiefs) ||
     !value.player.fiefs.every((townId) => typeof townId === "string" && value.towns?.some((town) => town.id === townId))
   ) return false;
-  if (!Array.isArray(value.factions) || value.factions.length !== FACTION_DATA.length) return false;
+  if (
+    !value.kingdom || typeof value.kingdom.founded !== "boolean" ||
+    !Array.isArray(value.factions) ||
+    value.factions.length !== FACTION_DATA.length + (value.kingdom.founded ? 1 : 0)
+  ) return false;
   if (!Array.isArray(value.towns) || value.towns.length !== TOWN_DATA.length || !value.towns.every((town) => isPosition(town.pos))) return false;
   if (!Array.isArray(value.lords) || value.lords.length !== 12 || !value.lords.every(isParty)) return false;
   if (!Array.isArray(value.bandits) || !value.bandits.every(isParty)) return false;
@@ -746,8 +812,12 @@ function migrateState(state) {
   const legacy = state.saveVersion === 1;
   if (!legacy && state.saveVersion !== CONFIG.SAVE_VERSION) return null;
   state.saveVersion = CONFIG.SAVE_VERSION;
-  state.features = { v11: state.features?.v11 === true };
-  state.player.act = state.player.act >= 3 ? 3 : state.player.act >= 2 ? 2 : 1;
+  state.features = {
+    v11: state.features?.v11 === true,
+    full: state.features?.full === true,
+    f2: state.features?.f2 === true
+  };
+  state.player.act = state.player.act >= 4 ? 4 : state.player.act >= 3 ? 3 : state.player.act >= 2 ? 2 : 1;
   state.player.promises = (state.promises || state.player.promises || [])
     .map(normalizePromise)
     .slice(0, 3);
@@ -756,6 +826,7 @@ function migrateState(state) {
     ? [...new Set(state.player.fiefs.filter((townId) => state.towns.some((town) => town.id === townId)))]
     : [];
   state.player.contract ||= null;
+  state.player.origin ||= null;
   state.player.lieutenant = state.features.v11 && state.player.lieutenant?.id === "chen_mang"
     ? {
       id: "chen_mang",
@@ -798,11 +869,19 @@ function migrateState(state) {
     Number(state.casual.nextBattleAttackMultiplier) || 1
   );
   state.demo = state.demo ? {
-    ...createDemoState({ skipOnboarding: state.demo.onboardingComplete, tooltipsSeen: state.demo.tooltipsSeen }),
+    ...createDemoState({
+      skipOnboarding: state.demo.onboardingComplete,
+      tooltipsSeen: state.demo.tooltipsSeen,
+      fullVersion: state.features.full,
+      f2: state.features.f2
+    }),
     ...state.demo,
     tooltipsSeen: { ...createDemoState().tooltipsSeen, ...(state.demo.tooltipsSeen || {}) },
     pendingTooltips: Array.isArray(state.demo.pendingTooltips) ? state.demo.pendingTooltips : []
-  } : createDemoState();
+  } : createDemoState({ fullVersion: state.features.full, f2: state.features.f2 });
+  state.kingdom = { ...createKingdomState(), ...(state.kingdom || {}) };
+  state.kingdom.origin ||= state.player.origin || null;
+  state.player.origin ||= state.kingdom.origin;
   state.demo.roadEvent = state.demo.roadEvent || state.demo.activeRoadEvent || null;
   state.demo.activeRoadEvent = state.demo.activeRoadEvent || state.demo.roadEvent || null;
   state.ending ||= {
@@ -831,6 +910,7 @@ function migrateState(state) {
     if (typeof faction.alive !== "boolean") faction.alive = true;
   });
   state.towns.forEach((town) => {
+    town.originalFactionId ||= TOWN_DATA.find((entry) => entry.id === town.id)?.factionId || town.factionId;
     town.garrison = isTroopArray(town.garrison) && town.garrison.length
       ? town.garrison
       : [{ type: "militia", count: CONFIG.TOWN_START_GARRISON, xp: 0 }];
@@ -893,6 +973,10 @@ export function loadState(storage, options = {}) {
     const raw = target.getItem(v11 ? CONFIG.V11_SAVE_KEY : CONFIG.SAVE_KEY);
     if (!raw) return null;
     const parsed = migrateState(JSON.parse(raw));
+    if (parsed) {
+      parsed.features.full = options.fullVersion === true;
+      parsed.features.f2 = options.f2 === true;
+    }
     if (!parsed || isV11State(parsed) !== v11 || !isValidState(parsed)) return null;
     return prepareLoadedState(parsed);
   } catch {
@@ -914,10 +998,12 @@ export function createReplayState(previousState, options = {}) {
   return createInitialState(nextWorldSeed(previousState), {
     language: previousState.settings.language,
     replayCount: (previousState.telemetry?.replayCount || 0) + 1,
-    skipOnboarding: true,
+    skipOnboarding: previousState.features?.full !== true,
     tooltipsSeen: previousState.demo?.tooltipsSeen,
     startedAt: options.startedAt || null,
-    v11: isV11State(previousState)
+    v11: isV11State(previousState),
+    fullVersion: previousState.features?.full === true,
+    f2: previousState.features?.f2 === true
   });
 }
 

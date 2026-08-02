@@ -23,6 +23,7 @@ import {
   assignBanditMoveTarget,
   averageHpPerSoldier,
   awardSurvivorXp,
+  changePlayerRenown,
   clamp,
   copyPosition,
   distance,
@@ -783,13 +784,13 @@ function playerContractPayment(state, battle, enemy) {
   state.mechanics.contractBattles += 1;
   if (contract.type === "war") {
     const renown = Math.max(0, Number(contract.renownReward) || CONFIG.CONTRACT_WAR_RENOWN);
-    state.player.renown += renown;
-    contract.renownEarned = (contract.renownEarned || 0) + renown;
+    const appliedRenown = changePlayerRenown(state, renown);
+    contract.renownEarned = (contract.renownEarned || 0) + appliedRenown;
     contract.active = false;
     addEvent(state, "log.warContractPaid", {
       targetFactionId: contract.targetFactionId,
       reward: pay,
-      renown
+      renown: appliedRenown
     }, "win");
   } else {
     if (contract.type === "risky") contract.active = false;
@@ -816,7 +817,7 @@ function playerContractFailure(state, battle) {
     state.player.renown,
     Math.max(0, Number(contract.failureRenown) || CONFIG.CONTRACT_RISKY_FAILURE_RENOWN)
   );
-  state.player.renown -= penalty;
+  changePlayerRenown(state, -penalty);
   contract.active = false;
   contract.failed = true;
   addEvent(state, "log.riskyFailed", { renown: penalty }, "loss");
@@ -834,9 +835,9 @@ function playerBattleWinner(state, battle, enemy) {
   if (enemyKind === "lord") {
     enemy.playerPursuitCooldownUntil = state.tick + CONFIG.LORD_PLAYER_PURSUIT_COOLDOWN_TICKS;
   }
-  const renown = battle.banditCasualties * CONFIG.RENOWN_PER_ENEMY_CASUALTY;
+  const requestedRenown = battle.banditCasualties * CONFIG.RENOWN_PER_ENEMY_CASUALTY;
   if (enemyKind === "bandit") state.player.gold += loot;
-  state.player.renown += renown;
+  const renown = changePlayerRenown(state, requestedRenown);
   state.stats.goldEarned += loot;
   state.stats.wins += 1;
   if (enemyKind === "bandit" && enemy.jackpot) state.stats.jackpots += 1;

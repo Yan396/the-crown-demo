@@ -245,6 +245,19 @@
       </div>
     </section>
 
+    <section id="origin-modal" class="full-screen-layer choice-layer" hidden>
+      <article class="choice-card paper-sheet" role="dialog" aria-modal="true">
+        <small id="origin-kicker"></small>
+        <h2 id="origin-title"></h2>
+        <p id="origin-fiction"></p>
+        <div class="choice-stack">
+          <button type="button" data-origin="hunter"><strong id="origin-hunter-title"></strong><span id="origin-hunter-detail"></span></button>
+          <button type="button" data-origin="border"><strong id="origin-border-title"></strong><span id="origin-border-detail"></span></button>
+          <button type="button" data-origin="wanderer"><strong id="origin-wanderer-title"></strong><span id="origin-wanderer-detail"></span></button>
+        </div>
+      </article>
+    </section>
+
     <section id="promise-modal" class="modal-layer" hidden>
       <div class="promise-card paper-sheet" role="dialog" aria-modal="true">
         <small id="promise-kicker"></small>
@@ -262,6 +275,24 @@
         </div>
         <button id="promise-confirm" class="primary-button" type="button"></button>
       </div>
+    </section>
+
+    <section id="kingdom-modal" class="full-screen-layer choice-layer" hidden>
+      <article class="choice-card paper-sheet" role="dialog" aria-modal="true">
+        <div id="kingdom-seal" class="ending-seal" hidden></div>
+        <small id="kingdom-kicker"></small>
+        <h2 id="kingdom-title"></h2>
+        <p id="kingdom-copy"></p>
+        <div id="founding-actions" class="choice-stack">
+          <button id="founding-accept" class="primary-button" type="button"></button>
+          <button id="founding-decline" class="ghost-button" type="button"></button>
+        </div>
+        <button id="founding-seal-continue" class="primary-button" type="button" hidden></button>
+        <div id="edict-actions" class="choice-stack" hidden>
+          <button id="edict-continue" type="button"></button>
+          <button id="edict-stop" type="button"></button>
+        </div>
+      </article>
     </section>
 
     <section id="fief-threat-modal" class="modal-layer fief-threat-layer" hidden>
