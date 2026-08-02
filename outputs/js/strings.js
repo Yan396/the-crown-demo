@@ -61,6 +61,8 @@ export const STRINGS = Object.freeze({
     }),
     stage: Object.freeze({
       march: "两军入场",
+      standoff: "两军对峙",
+      charge: "两阵对冲",
       round: "第 {n} 轮",
       volley: "城头齐射",
       rout: "阵线崩了",
@@ -335,6 +337,8 @@ export const STRINGS = Object.freeze({
     }),
     stage: Object.freeze({
       march: "The lines advance",
+      standoff: "The lines face off",
+      charge: "The lines charge",
       round: "Round {n}",
       volley: "Volley from the wall",
       rout: "The line breaks",

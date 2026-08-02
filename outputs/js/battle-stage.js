@@ -1,4 +1,5 @@
 import { stampSeal } from "./seal.js";
+import { CONFIG_PRESENTATION as P } from "./presentation.js";
 
 /*
  * Battle cinematics — a full-screen paper stage that PLAYS a battleScript.
@@ -24,12 +25,16 @@ const reducedMotion = typeof window !== "undefined" && typeof window.matchMedia 
 
 const MAX_SCRIPT_TOKENS = 24; // mirrors the engine's bucketing constant
 
+// Kept as the module's local names; the values now live in presentation.js so
+// the whole performance can be retimed from one place.
 const TIMING = Object.freeze({
-  HIT_PAUSE: 60,        // full-stage freeze on impact
-  ROUT_SLOWMO: 300,
-  LONG_PRESS: 600,
-  ARROW_FLIGHT: 620
+  HIT_PAUSE: P.STRIKE_PAUSE_MS,
+  ROUT_SLOWMO: P.ROUT_SLOWMO_MS,
+  LONG_PRESS: P.LONG_PRESS_MS,
+  ARROW_FLIGHT: P.ARROW_FLIGHT_MS
 });
+
+const PHASES = Object.freeze(["deploy", "standoff", "charge", "melee", "rout"]);
 
 function seededRandom(seed) {
   let value = (seed ^ 0x9e3779b9) >>> 0;
@@ -81,6 +86,80 @@ export function normalizeScript(raw) {
     sides,
     events: raw.events.slice().sort((first, second) => first.t - second.t)
   };
+}
+
+/**
+ * Rebuild an absolute performance schedule for an already-ordered event array.
+ *
+ * The engine's `t` is a compact ordering, not a performance: a whole battle
+ * arrives inside a couple of seconds, which reads as one blur. This spreads the
+ * SAME events, in the SAME order, carrying the SAME data, across five legible
+ * phases.
+ *
+ * It returns times only. No event is added, dropped, reordered or edited, so
+ * survivors still land exactly on battle_end.survivors and a skipped battle
+ * still settles identically to a watched one.
+ */
+/**
+ * Split the melee budget across however many rounds the engine emitted.
+ *
+ * The ceiling is authoritative: MAX_BATTLE_ROUNDS is 100, so a pathological
+ * fight must compress rather than run for minutes. The floor stretches a
+ * one-round fight so the main act still has body.
+ */
+export function meleeShape(roundCount) {
+  if (!roundCount) return { roundMs: P.ROUND_MS, breathMs: P.ROUND_BREATH_MS, totalMs: 0 };
+  const ideal = roundCount * (P.ROUND_MS + P.ROUND_BREATH_MS);
+  const totalMs = Math.min(P.MELEE_MAX_MS, Math.max(P.MELEE_MIN_MS, ideal));
+  const slot = totalMs / roundCount;
+  const breathMs = Math.min(P.ROUND_BREATH_MS, slot * 0.2);
+  return { roundMs: Math.max(0, slot - breathMs), breathMs, totalMs };
+}
+
+export function scheduleEvents(events) {
+  const times = new Array(events.length).fill(undefined);
+  const contactAt = P.DEPLOY_MS + P.STANDOFF_MS + P.CHARGE_MS;
+
+  // Bucket strikes/morale under the round they belong to.
+  const rounds = [];
+  let current = null;
+  events.forEach((event, index) => {
+    if (event.type === "round_start") {
+      current = { head: index, items: [] };
+      rounds.push(current);
+    } else if (current && (event.type === "strike" || event.type === "morale")) {
+      current.items.push(index);
+    }
+  });
+
+  const { roundMs, breathMs } = meleeShape(rounds.length);
+
+  let clock = contactAt;
+  rounds.forEach((round) => {
+    times[round.head] = clock;
+    const count = round.items.length;
+    round.items.forEach((index, position) => {
+      // Spread inside the round, leaving the breath at the end clear.
+      times[index] = clock + Math.round(((position + 1) / (count + 1)) * roundMs);
+    });
+    clock += roundMs + breathMs;
+  });
+
+  const fleeMs = P.ROUT_SLOWMO_MS + P.FLEE_MIN_MS + P.FLEE_VAR_MS;
+  events.forEach((event, index) => {
+    if (times[index] !== undefined) return;
+    if (event.type === "battle_start") times[index] = 0;
+    else if (event.type === "volley") times[index] = P.DEPLOY_MS + P.VOLLEY_OFFSET_MS;
+    else if (event.type === "rout") times[index] = clock;
+    else if (event.type === "battle_end") times[index] = clock + fleeMs + P.VICTORY_HOLD_MS;
+    else times[index] = clock;
+  });
+
+  // The engine's order is authoritative; never let a rounding land out of it.
+  for (let index = 1; index < times.length; index += 1) {
+    if (times[index] < times[index - 1]) times[index] = times[index - 1];
+  }
+  return times;
 }
 
 export function survivorsOf(side) {
@@ -253,8 +332,10 @@ export function createBattleStage(host, options = {}) {
       "</div>" +
       '<p class="stage-log" aria-live="polite"></p>' +
       '<p class="stage-hint" hidden></p>' +
-      '<div class="stage-tally" hidden></div>' +
-      "</div>";
+      "</div>" +
+      // Outside .stage-paper on purpose: the paper clips its children, and the
+      // tally has to sit BELOW the battlefield rather than on top of it.
+      '<div class="stage-tally" hidden></div>';
     host.appendChild(root);
     worldNode = root.querySelector(".stage-world");
     logNode = root.querySelector(".stage-log");
@@ -295,12 +376,18 @@ export function createBattleStage(host, options = {}) {
       const jx = (roll() - 0.5) * 14;
       const jy = (roll() - 0.5) * 10;
       const scale = 1 + (rows - 1 - row) * 0.12;
-      node.style.setProperty("--tx", `${(column * spacing + row * spacing * 0.4) * dir + jx}px`);
+      const tx = (column * spacing + row * spacing * 0.4) * dir + jx;
+      node.style.setProperty("--tx", `${tx}px`);
       node.style.setProperty("--ty", `${row * -42 + jy}px`);
       node.style.setProperty("--tscale", scale.toFixed(2));
       node.style.setProperty("--sway", `${(1.6 + roll() * 1.2).toFixed(2)}s`);
+      // Back ranks lag into the charge, so the advance has depth.
+      node.style.setProperty("--lag", `${row * P.CHARGE_BACK_RANK_LAG_MS}ms`);
       rankHost.appendChild(node);
       token.node = node;
+      token.tx = tx;
+      token.row = row;
+      token.melee = 0;
     });
   }
 
@@ -322,6 +409,98 @@ export function createBattleStage(host, options = {}) {
       archer.style.setProperty("--adelay", `${index * 55}ms`);
       host.appendChild(archer);
     }
+  }
+
+  /* -- phases ---------------------------------------------------------------- */
+
+  const ZOOM_BY_PHASE = {
+    deploy: P.ZOOM_DEPLOY,
+    standoff: P.ZOOM_STANDOFF,
+    charge: P.ZOOM_CHARGE,
+    melee: P.ZOOM_MELEE,
+    rout: P.ZOOM_ROUT
+  };
+
+  function setPhase(name) {
+    if (!root || !worldNode) return;
+    PHASES.forEach((phase) => root.classList.toggle(`phase-${phase}`, phase === name));
+    root.dataset.phase = name;
+    worldNode.style.setProperty("--zoom", String(ZOOM_BY_PHASE[name] || 1));
+  }
+
+  // Contact: one hard freeze, an ink band torn open along the centre line, and
+  // the two straight ranks dissolving into a single interleaved melee.
+  function onContact() {
+    if (!root) return;
+    setPhase("melee");
+    root.classList.remove("is-lead");
+    frozenUntilReal = performance.now() + P.CONTACT_PAUSE_MS;
+    root.classList.add("is-hit-paused");
+    pending.push(window.setTimeout(
+      () => root && root.classList.remove("is-hit-paused"), P.CONTACT_PAUSE_MS
+    ));
+    shake(12);
+    splashCentreBand();
+    enterMelee();
+  }
+
+  function splashCentreBand() {
+    if (!worldNode) return;
+    const width = worldNode.clientWidth;
+    const height = worldNode.clientHeight;
+    for (let index = 0; index < 9; index += 1) {
+      paintStain(
+        width * 0.5 + (roll() - 0.5) * width * 0.16,
+        height * (0.62 + (roll() - 0.5) * 0.22),
+        roll() < 0.4
+      );
+    }
+  }
+
+  // The melee band: both lines step toward the centre and interleave, so the
+  // fight stops reading as two tidy rows facing each other.
+  function enterMelee() {
+    ["player", "enemy"].forEach((sideKey) => {
+      const pull = sideKey === "player" ? 1 : -1;
+      script.sides[sideKey].tokens.forEach((token) => {
+        if (!token.node) return;
+        const depth = 0.45 + roll() * 0.55;
+        token.melee = Math.round(pull * 30 * depth);
+        token.node.style.setProperty("--mx", `${token.melee}px`);
+        token.node.style.setProperty("--my", `${Math.round((roll() - 0.5) * 12)}px`);
+      });
+    });
+  }
+
+  // A round boundary: half a step back from both sides, then press in again.
+  function breatheRound() {
+    if (!root || root.dataset.phase !== "melee") return;
+    const { breathMs } = meleeShape(
+      script.events.filter((event) => event.type === "round_start").length
+    );
+    if (breathMs < 60) return; // too compressed to read; skip rather than flicker
+    root.classList.add("is-breathing");
+    pending.push(window.setTimeout(() => root && root.classList.remove("is-breathing"), breathMs));
+  }
+
+  // A gap in the line is filled: the two nearest survivors recoil, then move
+  // across. This is what makes the line read as alive rather than as a grid.
+  function closeRanks(sideKey, gapToken) {
+    const neighbours = script.sides[sideKey].tokens
+      .filter((token) => token !== gapToken && token.node && token.capacity > 0)
+      .sort((first, second) =>
+        Math.abs(first.tx - gapToken.tx) - Math.abs(second.tx - gapToken.tx))
+      .slice(0, 2);
+    neighbours.forEach((token) => {
+      const toward = gapToken.tx > token.tx ? 1 : -1;
+      token.node.classList.add("is-recoiling");
+      pending.push(window.setTimeout(() => {
+        if (!token.node) return;
+        token.node.classList.remove("is-recoiling");
+        token.melee = (token.melee || 0) + toward * P.CLOSE_RANKS_PX;
+        token.node.style.setProperty("--mx", `${token.melee}px`);
+      }, P.CLOSE_RANKS_MS));
+    });
   }
 
   function syncCounts() {
@@ -475,7 +654,11 @@ export function createBattleStage(host, options = {}) {
       const emptied = applyKill(event);
       paintStain(point.x, point.y, true);
       if (emptied) {
-        target.node.classList.add("is-dead");
+        // The body hangs a beat before it melts, and the line closes over it.
+        pending.push(window.setTimeout(() => {
+          if (target.node) target.node.classList.add("is-dead");
+        }, P.KILL_FALL_MS));
+        closeRanks(event.to.side, target);
         if (roll() < 0.15) fallenBanner(point.x, point.y);
       } else {
         target.node.classList.remove("is-reeling");
@@ -498,13 +681,17 @@ export function createBattleStage(host, options = {}) {
 
   function performRout(event) {
     log(translate("stage.rout"));
+    // The breaking blow lands in slow motion with the camera pushing in.
+    setPhase("rout");
     root.classList.add("is-slowmo");
     pending.push(window.setTimeout(() => {
       if (!root) return;
       root.classList.remove("is-slowmo");
       script.sides[event.side].tokens.forEach((token) => {
         if (!token.node || token.capacity <= 0) return;
-        token.node.style.setProperty("--flee-dur", `${Math.round(700 + roll() * 700)}ms`);
+        token.node.style.setProperty(
+          "--flee-dur", `${Math.round(P.FLEE_MIN_MS + roll() * P.FLEE_VAR_MS)}ms`
+        );
         token.node.style.setProperty("--flee-drift", `${Math.round((roll() - 0.5) * 60)}px`);
         token.node.classList.add("is-fleeing");
       });
@@ -524,19 +711,32 @@ export function createBattleStage(host, options = {}) {
   // The engine owns pacing: every event carries an absolute `t`, so the stage
   // walks the event array rather than inventing a schedule of its own.
   function buildTimeline() {
-    timeline = script.events.map((event) => ({
-      at: event.t,
+    const times = scheduleEvents(script.events);
+    const scripted = script.events.map((event, index) => ({
+      at: times[index],
+      order: index * 2 + 1,
       run: () => {
         switch (event.type) {
           case "battle_start":
             root.classList.add("is-entering");
             log(translate("stage.march"));
-            pending.push(window.setTimeout(() => root && root.classList.remove("is-entering"), 600));
+            pending.push(window.setTimeout(
+              () => root && root.classList.remove("is-entering"),
+              P.DEPLOY_MS - P.DEPLOY_SETTLE_MS
+            ));
+            // Both lines arrive, then dip together: one beat that says "formed".
+            pending.push(window.setTimeout(() => {
+              if (!root) return;
+              root.classList.add("is-set");
+              pending.push(window.setTimeout(
+                () => root && root.classList.remove("is-set"), P.DEPLOY_SETTLE_MS
+              ));
+            }, P.DEPLOY_MS - P.DEPLOY_SETTLE_MS));
             break;
           case "volley": performVolley(event); break;
           case "round_start":
-            worldNode.style.setProperty("--zoom", (1 + Math.min(0.15, event.n * 0.03)).toFixed(3));
             log(translate("stage.round").replace("{n}", String(event.n)));
+            breatheRound();
             break;
           case "strike": performStrike(event); break;
           case "morale": performMorale(event); break;
@@ -552,6 +752,26 @@ export function createBattleStage(host, options = {}) {
         if (event.type === "battle_end") showSettlement(event, true);
       }
     }));
+
+    // Phase cues ride the same virtual clock as the script, so 2x compresses
+    // the phases instead of desynchronising them. They carry no data at all:
+    // dataRun is a no-op, which is what keeps skip identical to watching.
+    const contactAt = P.DEPLOY_MS + P.STANDOFF_MS + P.CHARGE_MS;
+    const cues = [
+      { at: 0, run: () => setPhase("deploy") },
+      { at: P.DEPLOY_MS, run: () => { setPhase("standoff"); log(translate("stage.standoff")); } },
+      {
+        at: P.DEPLOY_MS + P.STANDOFF_MS,
+        run: () => { setPhase("charge"); log(translate("stage.charge")); }
+      },
+      { at: contactAt - P.CHARGE_LEAD_MS, run: () => root && root.classList.add("is-lead") },
+      { at: contactAt, run: onContact }
+    // Negative order: on a shared timestamp the phase is set before the event
+    // that belongs to it runs.
+    ].map((cue, index) => ({ ...cue, order: index - 100, dataRun: () => {} }));
+
+    timeline = scripted.concat(cues)
+      .sort((first, second) => (first.at - second.at) || (first.order - second.order));
     cursor = 0;
   }
 
@@ -568,6 +788,19 @@ export function createBattleStage(host, options = {}) {
 
     const tally = root.querySelector(".stage-tally");
     tally.hidden = false;
+    // Dock it to the paper's lower edge, measured rather than assumed, so it
+    // rises into the empty space under the sheet at any viewport height.
+    const paper = root.querySelector(".stage-paper");
+    if (paper) tally.style.top = `${Math.round(paper.getBoundingClientRect().bottom)}px`;
+    // The seal lands first; the tally slides up from under the field a beat
+    // later, so it never covers the ranks it is reporting on.
+    if (!skipped && !reducedMotion.matches) {
+      pending.push(window.setTimeout(
+        () => tally && tally.classList.add("is-in"), P.SEAL_TO_TALLY_MS
+      ));
+    } else {
+      tally.classList.add("is-in");
+    }
     tally.innerHTML =
       `<dl><div><dt>${translate("stage.tallyGold")}</dt><dd data-target="${event.loot.gold}">0</dd></div>` +
       `<div><dt>${translate("stage.tallyRenown")}</dt><dd data-target="${event.loot.renown}">0</dd></div></dl>` +
@@ -579,7 +812,8 @@ export function createBattleStage(host, options = {}) {
     } else {
       numbers.forEach((node, index) => {
         const target = Number(node.dataset.target);
-        const start = performance.now() + index * 350;
+        // Counting starts with the slide-in, not while the panel is still down.
+        const start = performance.now() + P.SEAL_TO_TALLY_MS + index * 350;
         const step = (now) => {
           if (!root) return;
           const progress = Math.min(1, (now - start) / 500);

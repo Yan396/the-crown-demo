@@ -2309,14 +2309,61 @@ body.battle-stage-open #town-sheet {
   transform: scaleX(-1);
 }
 
+/* --mx/--my are the melee-band offsets: from contact onward each token drifts
+   off its parade position so the two lines interleave instead of staying two
+   tidy rows. They default to 0, so deployment is unaffected. */
 .stage-token {
   position: absolute;
   width: 38px;
   height: 46px;
   color: var(--ink);
-  transform: translate(var(--tx), var(--ty)) scale(var(--tscale));
+  transform:
+    translate(calc(var(--tx) + var(--mx, 0px)), calc(var(--ty) + var(--my, 0px)))
+    scale(var(--tscale));
+  transition: transform 620ms cubic-bezier(0.3, 0.7, 0.2, 1);
   will-change: transform, opacity;
   animation: token-idle var(--sway, 2s) ease-in-out infinite alternate;
+}
+
+/* -- phase choreography ----------------------------------------------------- */
+/* The camera is one continuous push: wide on deployment, tight on the rout. */
+.stage-world {
+  transition: transform 900ms cubic-bezier(0.4, 0.6, 0.2, 1);
+}
+
+/* Phase 1: both lines arrive, then dip together once. */
+.battle-stage.is-set .stage-token {
+  animation: token-set 420ms cubic-bezier(0.3, 0.8, 0.3, 1) both;
+}
+
+@keyframes token-set {
+  0% { translate: 0 0; }
+  45% { translate: 0 4px; }
+  100% { translate: 0 0; }
+}
+
+/* Phase 3: the last stride before contact tightens up. */
+.battle-stage.is-lead .stage-token {
+  animation-duration: calc(var(--sway, 2s) * 0.4);
+}
+
+/* Phase 4: half a step back between rounds, then press in again. */
+.battle-stage.is-breathing .stage-ranks-player { translate: -7px 0; }
+.battle-stage.is-breathing .stage-ranks-enemy { translate: 7px 0; }
+
+.stage-ranks {
+  transition: translate 380ms ease-in-out;
+}
+
+/* A neighbour flinches away from a gap before stepping across to fill it. */
+.stage-token.is-recoiling {
+  animation: token-recoil 260ms ease-out both;
+}
+
+@keyframes token-recoil {
+  0% { translate: 0 0; }
+  50% { translate: 0 -3px; }
+  100% { translate: 0 0; }
 }
 
 /* -- silhouette variants ---------------------------------------------------- */
@@ -2427,12 +2474,15 @@ body.battle-stage-open #town-sheet {
 
 /* Entrance: both armies walk in from their own side, steps out of phase via
    the per-token idle duration already assigned. */
+/* The march now fills the whole deployment phase, and back ranks arrive later
+   than front ranks (--lag), so the advance has depth instead of moving as one
+   flat sheet. */
 .battle-stage.is-entering .stage-ranks-player .stage-token {
-  animation: token-march-l 600ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: token-march-l 1600ms cubic-bezier(0.2, 0.8, 0.2, 1) var(--lag, 0ms) both;
 }
 
 .battle-stage.is-entering .stage-ranks-enemy .stage-token {
-  animation: token-march-r 600ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: token-march-r 1600ms cubic-bezier(0.2, 0.8, 0.2, 1) var(--lag, 0ms) both;
 }
 
 @keyframes token-march-l {
@@ -2703,17 +2753,30 @@ body.battle-stage-open #town-sheet {
   display: none !important;
 }
 
+/* The tally slides up from under the field instead of landing on top of it:
+   the ranks it is reporting on stay visible above it. */
+/* `top` is set from the paper's measured bottom edge. Centring uses `transform`
+   and the slide uses the standalone `translate` property, so the two never
+   overwrite each other. */
 .stage-tally {
-  position: absolute;
-  bottom: 12%;
+  position: fixed;
   left: 50%;
   display: grid;
   justify-items: center;
   gap: 14px;
   padding: 18px 26px;
   background: var(--paper);
+  /* Explicit: outside .stage-paper this would otherwise inherit the light
+     on-lacquer colour and the numbers would vanish into the panel. */
+  color: var(--ink);
   transform: translateX(-50%);
-  box-shadow: 0 4px 18px rgba(28, 25, 22, 0.3);
+  translate: 0 110%;
+  transition: translate 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  box-shadow: 0 -4px 18px rgba(28, 25, 22, 0.3);
+}
+
+.stage-tally.is-in {
+  translate: 0 10px;
 }
 
 .stage-tally dl {
@@ -2752,6 +2815,8 @@ body.battle-stage-open #town-sheet {
 @media (prefers-reduced-motion: reduce) {
   .battle-stage,
   .stage-token,
+  .stage-ranks,
+  .stage-tally,
   .fig-pose,
   .wall-archer,
   .stage-world {
@@ -2768,6 +2833,5 @@ body.battle-stage-open #seal-layer {
   padding-top: 20vh;
 }
 
-body.battle-stage-open .stage-tally {
-  bottom: 6%;
-}
+/* The tally is positioned from the paper's measured edge now, so it needs no
+   viewport-relative nudging. */
