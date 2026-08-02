@@ -636,7 +636,7 @@ export function createUi(callbacks) {
     refs.contextTooltip.setAttribute("aria-label", t("aria.tooltip"));
     refs.ending.setAttribute("aria-label", t("aria.ending"));
     refs.brandTitle.textContent = t("brand.title");
-    refs.brandSubtitle.textContent = t("brand.subtitle");
+    refs.brandSubtitle.textContent = t(CONFIG.DEMO ? "brand.subtitle" : "brand.subtitleFull");
     refs.goldLabel.textContent = t("hud.gold");
     refs.troopLabel.textContent = t("hud.troops");
     refs.fiefLabel.textContent = t("hud.fiefs");

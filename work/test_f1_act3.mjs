@@ -13,6 +13,7 @@ import { createInitialState, loadState, saveState } from "../outputs/js/state.js
 import { buildRoads } from "../outputs/js/roads.js";
 import {
   acceptMercenaryContract,
+  declareWar,
   fiefGarrisonWage,
   getTavernContracts,
   initializeLivingWorld,
@@ -135,6 +136,7 @@ test("a real siege sends one messenger, then loss and allied recapture use exist
   beginAct3Promise(state);
   submitPromise(state, 2);
   initializeLivingWorld(state);
+  declareWar(state, "north", "south");
   const town = state.towns.find((entry) => entry.id === transition.townId);
   state.player.pos = { x: CONFIG.WORLD_SIZE - 1, y: CONFIG.WORLD_SIZE - 1 };
   state.player.prevPos = { ...state.player.pos };

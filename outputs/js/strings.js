@@ -34,7 +34,8 @@ export const STRINGS = Object.freeze({
     }),
     brand: Object.freeze({
       title: "王冠",
-      subtitle: "朋友试玩版"
+      subtitle: "朋友试玩版",
+      subtitleFull: "完整版"
     }),
     story: Object.freeze({
       opening: "边军解散,你带着最后 5 个弟兄流落河湾。传闻:乱世将至,王座虚悬。"
@@ -420,7 +421,8 @@ export const STRINGS = Object.freeze({
     }),
     brand: Object.freeze({
       title: "The Crown",
-      subtitle: "Friend-test demo"
+      subtitle: "Friend-test demo",
+      subtitleFull: "Full edition"
     }),
     story: Object.freeze({
       opening: "The border army is disbanded. You drift into Riverbend with your last five companions. War is coming, and the throne stands empty."
