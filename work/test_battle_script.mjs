@@ -455,13 +455,13 @@ function replayReference() {
   return state;
 }
 
-test("reference replay and full autoplay keep their frozen outputs", () => {
+test("reference replay and full autoplay keep the gameplay-depth frozen outputs", () => {
   const replay = replayReference();
-  assert.equal(replay.bandits.length, 8);
+  assert.equal(replay.bandits.length, 7);
   assert.deepEqual(replay.rng, {
     algorithm: "mulberry32-v1",
-    value: 2091085640,
-    draws: 510
+    value: 3106568492,
+    draws: 466
   });
 
   const autoplay = simulateAutoplay(CONFIG.SEED, { maxActiveSeconds: 1800 });
@@ -480,22 +480,22 @@ test("reference replay and full autoplay keep their frozen outputs", () => {
     bandits: autoplay.state.bandits.length,
     rng: autoplay.state.rng
   }, {
-    firstBattleSeconds: 4,
-    firstEventSeconds: 150,
-    act2Seconds: 660.5,
-    endingSeconds: 1228.5,
-    battleScriptsChecked: 15,
-    stateBattleScriptsChecked: 15,
-    gold: 674,
-    troops: 5,
-    renown: 111,
-    battles: 15,
-    wins: 14,
-    bandits: 7,
+    firstBattleSeconds: 6.5,
+    firstEventSeconds: 112,
+    act2Seconds: 653.5,
+    endingSeconds: 1637.5,
+    battleScriptsChecked: 19,
+    stateBattleScriptsChecked: 19,
+    gold: 494,
+    troops: 1,
+    renown: 115,
+    battles: 19,
+    wins: 17,
+    bandits: 5,
     rng: {
       algorithm: "mulberry32-v1",
-      value: 71429418,
-      draws: 1740
+      value: 152939306,
+      draws: 3276
     }
   });
 });

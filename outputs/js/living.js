@@ -106,7 +106,10 @@ function chooseSpawnPosition(state, town) {
 
 export function spawnScaledBandit(state, options = {}) {
   const elite = Boolean(options.elite);
-  if (!elite && state.bandits.length >= CONFIG.MAX_BANDITS) return null;
+  const maximum = Number.isFinite(options.maximum)
+    ? Math.max(CONFIG.MAX_BANDITS, Math.floor(options.maximum))
+    : CONFIG.MAX_BANDITS;
+  if (!elite && state.bandits.length >= maximum) return null;
   if (elite && state.bandits.some((bandit) => bandit.elite || bandit.isElite)) return null;
 
   const preferredTown = options.townId ? getTown(state, options.townId) : null;

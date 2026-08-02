@@ -15,8 +15,10 @@ import { createMapRenderer } from "./map.js";
 import { stampSeal } from "./seal.js";
 import {
   acceptMercenaryContract,
+  buyTownBattleBuff,
   chooseRoadEvent,
   recruitMilitia,
+  replenishVeteran,
   setAutoplay,
   verifyRoadEventChoiceEffects,
   worldTick
@@ -47,6 +49,7 @@ const requestedSeed = seedParameter === null ? Number.NaN : Number(seedParameter
 const autoplaySeed = Number.isFinite(requestedSeed) ? requestedSeed >>> 0 : CONFIG.SEED;
 const qaFreshEnabled = !autoplayEnabled && query.get("qa") === "1" && query.get("fresh") === "1";
 const qaRecruitRecoveryEnabled = qaFreshEnabled && query.get("recruitRecovery") === "1";
+const qaAct2TownEnabled = qaFreshEnabled && query.get("act2Town") === "1";
 
 let state = autoplayEnabled
   ? createInitialState(autoplaySeed, { startedAt: new Date(0).toISOString() })
@@ -60,6 +63,16 @@ if (qaRecruitRecoveryEnabled) {
   state.player.troops = [{ type: "militia", count: 3, xp: 0 }];
   const recoveryTown = state.towns.find((town) => town.id === CONFIG.START_TOWN_ID);
   if (recoveryTown) recoveryTown.recruitPool = 0;
+}
+if (qaAct2TownEnabled) {
+  state.player.act = 2;
+  state.player.renown = CONFIG.ACT2_RENOWN;
+  state.player.gold = 500;
+  state.player.troops = [
+    { type: "militia", count: 5, xp: 0 },
+    { type: "veteran", count: 1, xp: 3 }
+  ];
+  state.casual.openingBattlesPrepared = CONFIG.STARTER_BATTLE_COUNT;
 }
 startTelemetrySession(state);
 
@@ -268,15 +281,61 @@ ui = createUi({
     showNextTooltip();
     sync();
   },
-  onAcceptContract() {
-    const result = acceptMercenaryContract(state);
+  onReplenishVeteran() {
+    const town = activeTown(state);
+    const from = town ? renderer.worldToScreen(town.pos) : null;
+    const result = replenishVeteran(state);
     if (result.ok) {
+      updateSessionPeaks(state);
       persist(true);
-      ui.showToast("toast.contractAccepted", { factionId: result.contract.factionId });
+      ui.playRecruitFx(from, renderer.worldToScreen(state.player.pos));
+      ui.showToast("toast.veteranReplenished");
+    } else if (result.reason === "noVeterans") {
+      ui.showToast("toast.noVeterans");
+    } else if (result.reason === "gold") {
+      ui.showToast("toast.goldInsufficient");
+    } else if (result.reason === "pool") {
+      ui.showToast("toast.recruitEmpty");
     } else if (result.reason === "paused") {
       ui.showToast("toast.paused");
     } else if (result.reason === "battle") {
       ui.showToast("toast.battleLocked");
+    }
+    checkLowGoldTooltip(state);
+    showNextTooltip();
+    sync();
+  },
+  onBuyBattleBuff() {
+    const result = buyTownBattleBuff(state);
+    if (result.ok) {
+      persist(true);
+      ui.showToast("toast.buffPurchased", {
+        bonus: Math.round(CONFIG.TAVERN_ATTACK_BUFF_BONUS * 100)
+      });
+    } else if (result.reason === "active") {
+      ui.showToast("toast.buffActive");
+    } else if (result.reason === "gold") {
+      ui.showToast("toast.goldInsufficient");
+    } else if (result.reason === "paused") {
+      ui.showToast("toast.paused");
+    } else if (result.reason === "battle") {
+      ui.showToast("toast.battleLocked");
+    }
+    checkLowGoldTooltip(state);
+    showNextTooltip();
+    sync();
+  },
+  onSelectContract(contractId) {
+    const result = acceptMercenaryContract(state, activeTown(state)?.id || null, contractId);
+    if (result.ok) {
+      persist(true);
+      ui.showToast("toast.contractAccepted");
+    } else if (result.reason === "paused") {
+      ui.showToast("toast.paused");
+    } else if (result.reason === "battle") {
+      ui.showToast("toast.battleLocked");
+    } else {
+      ui.showToast("toast.contractUnavailable");
     }
     sync();
   },
@@ -384,6 +443,9 @@ function runLogicStep() {
   handleBattleResult(result.battleResult, { transition: Boolean(transition) });
   if (transition?.type === "ending" && !autoplayEnabled) stampSeal(ui.text("ending.seal"));
   if (transition?.type === "act2") recordAutoplayMilestone("act2Seconds", activeSeconds);
+  if (transition?.type === "act2" && autoplayEnabled) {
+    state.autoplay.nextHuntTick = state.tick + CONFIG.AUTOPLAY_ACT2_RECOVERY_TICKS;
+  }
   if (transition?.type === "ending") recordAutoplayMilestone("endingSeconds", activeSeconds);
   while (resolveAutoplayModal()) {
     // Resolve the Act 2 mirror question before the next simulated tick.
