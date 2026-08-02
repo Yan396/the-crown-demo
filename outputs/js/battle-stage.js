@@ -180,6 +180,43 @@ export function survivorsOf(side) {
   return side.tokens.reduce((sum, token) => sum + token.capacity, 0);
 }
 
+/**
+ * Per-token damage budgets, derived from the script alone.
+ *
+ * IMPORTANT: this engine has no hitpoint pool. TROOP_TYPES carries atk/def/
+ * cost/wage and nothing else, and troops are lost by COUNT -- there is no
+ * `hp`/`hpMax` on a token, a troop stack or the lieutenant to read. So a bar
+ * cannot display "current HP"; it has to be derived.
+ *
+ * What the script does carry is every strike's `dmgShown` and `kill` against a
+ * named token. Because the whole event array is known before the first frame,
+ * each token's budget can be totalled up front: the damage it will have taken
+ * by the time the blow that empties it lands. The bar then drains on the
+ * engine's own numbers and reaches exactly zero on the killing blow, instead
+ * of on an invented scale.
+ *
+ * Read-only: nothing here is written back, and the engine stays the single
+ * source of truth for who dies and when.
+ */
+export function damageBudgets(events) {
+  const budgets = new Map();
+  const running = new Map();
+  events.forEach((event) => {
+    if (event.type !== "strike" || !event.to) return;
+    const key = `${event.to.side}:${event.to.idx}`;
+    const taken = (running.get(key) || 0) + Math.max(0, Number(event.dmgShown) || 0);
+    running.set(key, taken);
+    // A token can be hit after an earlier kill when it stands for several men;
+    // the budget tracks the latest total, so the bar empties on the last one.
+    if (event.kill) budgets.set(key, taken);
+  });
+  // Survivors never empty: their budget is everything they will absorb.
+  running.forEach((taken, key) => {
+    if (!budgets.has(key)) budgets.set(key, taken);
+  });
+  return budgets;
+}
+
 /* ---- ink figure as a DOM token ------------------------------------------- */
 
 // Filled calligraphic silhouettes, not line figures: every part is a tapering
@@ -403,6 +440,7 @@ export function createBattleStage(host, options = {}) {
 
   function spawnSide(sideKey) {
     const side = script.sides[sideKey];
+    const budgets = damageBudgets(script.events);
     const rankHost = root.querySelector(`.stage-ranks-${sideKey}`);
     const shown = side.tokens.length;
     // Each side gets ~42% of the stage width. Choose the rank depth that fits
@@ -441,6 +479,15 @@ export function createBattleStage(host, options = {}) {
         ? `stage-token unit-${token.troopType || "militia"} is-lieutenant`
         : `stage-token unit-${token.troopType || "militia"}`;
       node.innerHTML = figureSvg(isLieutenant ? "lieutenant" : token.troopType);
+      // Every token carries a bar; CSS keeps them hidden outside v1.1.
+      const bar = document.createElement("b");
+      bar.className = "stage-hp";
+      bar.innerHTML = '<i></i>';
+      node.appendChild(bar);
+      token.hpNode = bar.firstChild;
+      token.hpBar = bar;
+      token.damageTaken = 0;
+      token.damageBudget = budgets.get(`${sideKey}:${token.idx}`) || 0;
       const scatter = layout ? FORMATION_SHAPE.JITTER_SCALE : 1;
       const jx = (roll() - 0.5) * 14 * scatter;
       const jy = (roll() - 0.5) * 10 * scatter;
@@ -607,6 +654,32 @@ export function createBattleStage(host, options = {}) {
     });
   }
 
+  // Read-only projection of the engine's own damage numbers onto a bar. Never
+  // writes back: capacity, kills and survivors stay the engine's to decide.
+  function syncHealthBar(token) {
+    if (!token?.hpNode) return;
+    const budget = token.damageBudget;
+    // Dead is dead regardless of the arithmetic: capacity is the authority.
+    const ratio = token.capacity <= 0
+      ? 0
+      : budget > 0
+        ? Math.max(0, Math.min(1, 1 - token.damageTaken / budget))
+        : 1;
+    token.hpNode.style.transform = `scaleX(${ratio.toFixed(3)})`;
+    token.hpBar.classList.toggle("is-low", ratio > 0 && ratio < P.HP_LOW_RATIO);
+  }
+
+  function flashHealthBar(token) {
+    if (!token?.hpBar) return;
+    token.hpBar.classList.remove("is-flash");
+    void token.hpBar.offsetWidth;
+    token.hpBar.classList.add("is-flash");
+    // The bar leaves with its token: the melt/flee animation carries it away.
+    pending.push(window.setTimeout(() => {
+      if (token.hpBar) token.hpBar.hidden = true;
+    }, P.HP_FLASH_MS));
+  }
+
   function syncCounts() {
     if (!countNodes.player) return;
     countNodes.player.textContent = String(survivorsOf(script.sides.player));
@@ -753,12 +826,15 @@ export function createBattleStage(host, options = {}) {
     const point = stagePoint(target.node);
     burst(point.x, point.y - 16);
     damageNumber(point.x, point.y, event.dmgShown, event.kill);
+    target.damageTaken += Math.max(0, Number(event.dmgShown) || 0);
 
     if (event.kill) {
       const emptied = applyKill(event);
       paintStain(point.x, point.y, true);
       if (emptied) {
         // The body hangs a beat before it melts, and the line closes over it.
+        syncHealthBar(target);
+        flashHealthBar(target);
         pending.push(window.setTimeout(() => {
           if (target.node) target.node.classList.add("is-dead");
         }, P.KILL_FALL_MS));
@@ -775,6 +851,7 @@ export function createBattleStage(host, options = {}) {
       void target.node.offsetWidth;
       target.node.classList.add("is-reeling");
     }
+    syncHealthBar(target);
     syncCounts();
   }
 
@@ -1009,6 +1086,11 @@ export function createBattleStage(host, options = {}) {
     };
     names[0].textContent = script.sides.player.label;
     names[1].textContent = script.sides.enemy.label;
+    // `formations` is emitted for every v1.1 battle and never for v1.0, so it
+    // is the variant marker the script already carries. The health bars are
+    // built either way but CSS keeps them hidden without this class, so a v1.0
+    // battle can never show one.
+    root.classList.toggle("is-v11", Boolean(script.formations));
     if (script.terrain === "town") {
       root.querySelector(".stage-wall").hidden = false;
       spawnWallArchers();
