@@ -104,6 +104,12 @@ export function createUi(callbacks) {
     recruit: element("recruit-button"),
     recruitLabel: element("recruit-label"),
     recruitCost: element("recruit-cost"),
+    recruitArcher: element("recruit-archer-button"),
+    recruitArcherLabel: element("recruit-archer-label"),
+    recruitArcherCost: element("recruit-archer-cost"),
+    recruitCavalry: element("recruit-cavalry-button"),
+    recruitCavalryLabel: element("recruit-cavalry-label"),
+    recruitCavalryCost: element("recruit-cavalry-cost"),
     veteran: element("veteran-button"),
     veteranLabel: element("veteran-label"),
     veteranCost: element("veteran-cost"),
@@ -176,6 +182,10 @@ export function createUi(callbacks) {
     formationWedge: element("formation-wedge"),
     formationLine: element("formation-line"),
     formationCircle: element("formation-circle"),
+    battleCommandModal: element("battle-command-modal"),
+    battleCommandKicker: element("battle-command-kicker"),
+    battleCommandCopy: element("battle-command-copy"),
+    battleCommandButtons: [...document.querySelectorAll("[data-battle-command]")],
     fiefThreatModal: element("fief-threat-modal"),
     fiefThreatKicker: element("fief-threat-kicker"),
     fiefThreatTitle: element("fief-threat-title"),
@@ -462,6 +472,15 @@ export function createUi(callbacks) {
     });
   }
 
+  function syncBattleCommandModal(state) {
+    refs.battleCommandModal.hidden = !Boolean(
+      state.features?.f3 &&
+      state.demo?.modal === "battleCommand" &&
+      state.battle?.commands &&
+      !state.battle.commands.resolved
+    );
+  }
+
   function contractSummary(contract) {
     if (!contract?.active) return "";
     if (contract.type === "escort") {
@@ -693,6 +712,8 @@ export function createUi(callbacks) {
     refs.retreatBattle.setAttribute("aria-label", t("aria.retreat"));
     refs.townKicker.textContent = t("townPanel.entered");
     refs.recruitLabel.textContent = t("townPanel.recruit");
+    refs.recruitArcherLabel.textContent = t("townPanel.recruitArcher");
+    refs.recruitCavalryLabel.textContent = t("townPanel.recruitCavalry");
     refs.veteranLabel.textContent = t("townPanel.replenish");
     refs.battleBuffLabel.textContent = t("townPanel.battleBuff");
     refs.tavernLabel.textContent = t("townPanel.tavern");
@@ -709,6 +730,11 @@ export function createUi(callbacks) {
     refs.formationWedge.textContent = t("formation.wedge");
     refs.formationLine.textContent = t("formation.line");
     refs.formationCircle.textContent = t("formation.circle");
+    refs.battleCommandKicker.textContent = t("battleCommand.kicker");
+    refs.battleCommandCopy.textContent = t("battleCommand.copy");
+    refs.battleCommandButtons.forEach((button) => {
+      button.textContent = t(`battleCommand.${button.dataset.battleCommand}`);
+    });
     refs.settingsTitle.textContent = t("settings.title");
     refs.settingsClose.setAttribute("aria-label", t("aria.closeSettings"));
     refs.languageLabel.textContent = t("settings.language");
@@ -1044,6 +1070,37 @@ export function createUi(callbacks) {
         : recruitsEmpty
           ? t("townPanel.recruitEmpty")
           : t("townPanel.recruitCost", { cost: militiaPrice.cost });
+      const f3 = state.features?.f3 === true;
+      const syncArmRecruit = (button, costNode, arm) => {
+        button.hidden = !f3;
+        if (!f3) return;
+        const empty = (town.recruitPools?.[arm] || 0) <= 0
+          && troops >= CONFIG.PLAYER_RECOVERY_RECRUIT_FLOOR;
+        button.disabled = capped || state.player.gold < militiaPrice.cost || empty;
+        costNode.textContent = capped
+          ? t("townPanel.recruitCapped", { cap })
+          : empty
+            ? t("townPanel.recruitEmpty")
+            : t("townPanel.armRecruitCost", {
+              count: town.recruitPools?.[arm] || 0,
+              cost: militiaPrice.cost
+            });
+      };
+      syncArmRecruit(refs.recruitArcher, refs.recruitArcherCost, "archer");
+      syncArmRecruit(refs.recruitCavalry, refs.recruitCavalryCost, "cavalry");
+      if (f3) {
+        const empty = (town.recruitPools?.spear || 0) <= 0
+          && troops >= CONFIG.PLAYER_RECOVERY_RECRUIT_FLOOR;
+        refs.recruit.disabled = capped || state.player.gold < militiaPrice.cost || empty;
+        refs.recruitCost.textContent = capped
+          ? t("townPanel.recruitCapped", { cap })
+          : empty
+            ? t("townPanel.recruitEmpty")
+            : t("townPanel.armRecruitCost", {
+              count: town.recruitPools?.spear || 0,
+              cost: militiaPrice.cost
+            });
+      }
       const veteranAvailable = state.player.troops.some((stack) => stack.type === "veteran" && stack.count > 0);
       refs.veteran.hidden = state.player.act < 2;
       refs.veteran.disabled = capped || !veteranAvailable || town.recruitPool <= 0 || state.player.gold < veteranPrice.cost;
@@ -1108,6 +1165,7 @@ export function createUi(callbacks) {
     syncFiefThreat(state);
     syncRoadEvent(state);
     syncFormationModal(state);
+    syncBattleCommandModal(state);
     renderEnding(state);
     updateNumberBudget();
   }
@@ -1301,7 +1359,9 @@ export function createUi(callbacks) {
   });
   refs.languageZh.addEventListener("click", () => callbacks.onLanguageChange("zh"));
   refs.languageEn.addEventListener("click", () => callbacks.onLanguageChange("en"));
-  refs.recruit.addEventListener("click", () => callbacks.onRecruit());
+  refs.recruit.addEventListener("click", () => callbacks.onRecruit("spear"));
+  refs.recruitArcher.addEventListener("click", () => callbacks.onRecruit("archer"));
+  refs.recruitCavalry.addEventListener("click", () => callbacks.onRecruit("cavalry"));
   refs.veteran.addEventListener("click", () => callbacks.onReplenishVeteran());
   refs.battleBuff.addEventListener("click", () => callbacks.onBuyBattleBuff());
   refs.tavern.addEventListener("click", () => {
@@ -1380,6 +1440,9 @@ export function createUi(callbacks) {
   refs.roadEventChoiceB.addEventListener("click", () => callbacks.onRoadEventChoice(1));
   [refs.formationWedge, refs.formationLine, refs.formationCircle].forEach((button) => {
     button.addEventListener("click", () => callbacks.onChooseFormation(button.dataset.formation));
+  });
+  refs.battleCommandButtons.forEach((button) => {
+    button.addEventListener("click", () => callbacks.onChooseBattleCommand(button.dataset.battleCommand));
   });
   refs.shareResult.addEventListener("click", () => callbacks.onShare());
   refs.replay.addEventListener("click", () => callbacks.onNewSeed(true));

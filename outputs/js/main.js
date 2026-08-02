@@ -1,5 +1,6 @@
 import {
   attemptFlee,
+  chooseBattleCommand,
   choosePlayerFormation,
   counterFormation,
   skipBattle
@@ -87,7 +88,8 @@ let state = autoplayEnabled
     startedAt: new Date(0).toISOString(),
     v11: v11Enabled,
     fullVersion,
-    f2: fullVersion
+    f2: fullVersion,
+    f3: fullVersion
   })
   : qaFreshEnabled
     ? createInitialState(autoplaySeed, {
@@ -95,11 +97,17 @@ let state = autoplayEnabled
       startedAt: new Date(0).toISOString(),
       v11: v11Enabled,
       fullVersion,
-      f2: fullVersion
+      f2: fullVersion,
+      f3: fullVersion
     })
-    : loadState(undefined, { v11: v11Enabled, fullVersion, f2: fullVersion });
+    : loadState(undefined, { v11: v11Enabled, fullVersion, f2: fullVersion, f3: fullVersion });
 const loadedExistingState = Boolean(state);
-if (!state) state = createInitialState(CONFIG.SEED, { v11: v11Enabled, fullVersion, f2: fullVersion });
+if (!state) state = createInitialState(CONFIG.SEED, {
+  v11: v11Enabled,
+  fullVersion,
+  f2: fullVersion,
+  f3: fullVersion
+});
 if (qaRecruitRecoveryEnabled) {
   state.player.gold = 164;
   state.player.troops = [{ type: "militia", count: 3, xp: 0 }];
@@ -353,6 +361,10 @@ function resolveAutoplayModal() {
     choosePlayerFormation(state, counterFormation(report));
     return true;
   }
+  if (state.demo.modal === "battleCommand") {
+    chooseBattleCommand(state, CONFIG.F3_AUTOPLAY_COMMAND);
+    return true;
+  }
   return false;
 }
 
@@ -405,10 +417,10 @@ ui = createUi({
     persist(true);
     sync();
   },
-  onRecruit() {
+  onRecruit(arm = "spear") {
     const town = activeTown(state);
     const from = town ? renderer.worldToScreen(town.pos) : null;
-    const result = recruitMilitia(state);
+    const result = recruitMilitia(state, arm);
     if (result.ok) {
       updateSessionPeaks(state);
       persist(true);
@@ -512,6 +524,14 @@ ui = createUi({
   },
   onChooseFormation(formation) {
     const result = choosePlayerFormation(state, formation);
+    if (!result.ok) return;
+    lastFrameAt = performance.now();
+    logicAccumulator = 0;
+    persist(true);
+    sync();
+  },
+  onChooseBattleCommand(command) {
+    const result = chooseBattleCommand(state, command);
     if (!result.ok) return;
     lastFrameAt = performance.now();
     logicAccumulator = 0;
@@ -630,7 +650,8 @@ ui = createUi({
       startedAt: new Date().toISOString(),
       v11: v11Enabled,
       fullVersion,
-      f2: fullVersion
+      f2: fullVersion,
+      f3: fullVersion
     });
     replaceState(next);
   }

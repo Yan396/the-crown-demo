@@ -1,4 +1,4 @@
-import { CONFIG, CONFIG_V11, FORMATION_IDS, TROOP_TYPES } from "./data.js";
+import { ARM_IDS, CONFIG, CONFIG_V11, FORMATION_IDS, TROOP_TYPES } from "./data.js";
 import { STRINGS } from "./strings.js";
 import {
   areBanditBattlesBlocked,
@@ -29,6 +29,7 @@ import {
   distance,
   ensurePartyHp,
   getAverageDefense,
+  getArmShares,
   getLord,
   getPartyStrength,
   getTroopCount,
@@ -59,7 +60,14 @@ function weightedFormation(rng, weights) {
   return FORMATION_IDS[FORMATION_IDS.length - 1];
 }
 
-function enemyFormation(rng, enemyKind, enemy) {
+function enemyFormation(state, rng, enemyKind, enemy) {
+  if (state.features?.f3) {
+    const shares = getArmShares(enemy);
+    const highest = ARM_IDS.slice().sort((first, second) => (
+      shares[second] - shares[first] || first.localeCompare(second)
+    ))[0];
+    return highest === "cavalry" ? "wedge" : highest === "archer" ? "line" : "circle";
+  }
   if (enemyKind !== "lord") {
     return FORMATION_IDS[randomInt(rng, 0, FORMATION_IDS.length)];
   }
@@ -78,7 +86,7 @@ function prepareFormations(state, enemyKind, enemy, playerStart, enemyStart, bat
   // from state.rng: adding the v1.1 decision must not reshuffle bandit spawns,
   // loot, diplomacy, or the combat rolls that follow it.
   const rng = createRng(presentationSeed(state.seed, `${battleId}:formation`));
-  const actualEnemy = enemyFormation(rng, enemyKind, enemy);
+  const actualEnemy = enemyFormation(state, rng, enemyKind, enemy);
   const eligible = (
     playerStart >= CONFIG.V11_FORMATION_MIN_SIDE_TROOPS &&
     enemyStart >= CONFIG.V11_FORMATION_MIN_SIDE_TROOPS
@@ -132,6 +140,46 @@ function formationModifiers(formations) {
   return neutral;
 }
 
+export function armMatchupModifier(attacker, defender) {
+  const attackShares = getArmShares(attacker);
+  const defenseShares = getArmShares(defender);
+  let delta = 0;
+  ARM_IDS.forEach((attackArm) => {
+    ARM_IDS.forEach((defenseArm) => {
+      delta += attackShares[attackArm] * defenseShares[defenseArm]
+        * (CONFIG.F3_ARM_MATRIX[attackArm]?.[defenseArm] || 0);
+    });
+  });
+  return Math.max(0.5, 1 + delta);
+}
+
+function applyF3BattleModifiers(state, battle, enemy, base) {
+  if (!state.features?.f3) return base;
+  const result = {
+    player: { ...base.player },
+    enemy: { ...base.enemy },
+    winner: base.winner
+  };
+  const playerShares = getArmShares(state.player);
+  const enemyShares = getArmShares(enemy);
+  result.player.attack *= armMatchupModifier(state.player, enemy);
+  result.enemy.attack *= armMatchupModifier(enemy, state.player);
+  const synergy = CONFIG.F3_FORMATION_SYNERGY;
+  const applies = (formation, shares, terrain) => (
+    (formation === "wedge" && shares.cavalry > Math.max(shares.spear, shares.archer)) ||
+    (formation === "line" && terrain === "field" && shares.archer >= CONFIG.F3_ARCHER_VOLLEY_SHARE) ||
+    (formation === "circle" && shares.spear > Math.max(shares.archer, shares.cavalry))
+  );
+  if (applies(battle.formations?.player, playerShares, battle.terrain)) result.player.attack *= 1 + synergy;
+  if (applies(battle.formations?.enemy, enemyShares, battle.terrain)) result.enemy.attack *= 1 + synergy;
+  const command = CONFIG.F3_COMMANDS[battle.commands?.player];
+  if (command) {
+    result.player.attack *= command.attack;
+    result.player.defense *= command.defense;
+  }
+  return result;
+}
+
 export function choosePlayerFormation(state, formation) {
   const battle = state?.battle;
   if (!isV11State(state)) return { ok: false, reason: "variant" };
@@ -143,9 +191,14 @@ export function choosePlayerFormation(state, formation) {
   battle.formations.resolved = true;
   battle.formationModifiers = formationModifiers(battle.formations);
   if (state.demo?.modal === "formation") {
-    state.demo.modal = null;
-    state.demo.pauseReason = null;
-    state.paused = Boolean(battle.formations.resumePaused);
+    if (state.features?.f3 && !battle.commands?.resolved) {
+      state.demo.modal = "battleCommand";
+      state.demo.pauseReason = "battleCommand";
+    } else {
+      state.demo.modal = null;
+      state.demo.pauseReason = null;
+      state.paused = Boolean(battle.formations.resumePaused);
+    }
   }
   addEvent(state, "log.formationChosen", {
     playerFormation: formation,
@@ -159,6 +212,27 @@ export function choosePlayerFormation(state, formation) {
     reportedEnemy: battle.formations.reportedEnemy,
     advantage: battle.formationModifiers.winner
   };
+}
+
+export function chooseBattleCommand(state, command) {
+  const battle = state?.battle;
+  if (!state.features?.f3) return { ok: false, reason: "variant" };
+  if (!battle?.commands || battle.commands.resolved) return { ok: false, reason: "unavailable" };
+  if (!Object.hasOwn(CONFIG.F3_COMMANDS, command)) return { ok: false, reason: "command" };
+  battle.commands.player = command;
+  battle.commands.resolved = true;
+  const enemy = getBattleEnemy(state, battle);
+  battle.formationModifiers = applyF3BattleModifiers(
+    state,
+    battle,
+    enemy || { troops: [] },
+    formationModifiers(battle.formations)
+  );
+  state.demo.modal = null;
+  state.demo.pauseReason = null;
+  state.paused = Boolean(battle.commands.resumePaused);
+  addEvent(state, "log.battleCommand", { command }, "round");
+  return { ok: true, command };
 }
 
 export function lieutenantResistance(state) {
@@ -270,7 +344,8 @@ function cloneRoster(party) {
     .filter((stack) => stack && Number.isFinite(stack.count) && stack.count > 0)
     .map((stack) => ({
       type: stack.type,
-      count: Math.max(0, Math.floor(stack.count))
+      count: Math.max(0, Math.floor(stack.count)),
+      ...(ARM_IDS.includes(stack.arm) ? { arm: stack.arm } : {})
     }));
 }
 
@@ -383,6 +458,17 @@ function troopTypeAt(roster, soldierIndex, fallback) {
   return roster[roster.length - 1]?.type || fallback;
 }
 
+function troopArmAt(roster, soldierIndex) {
+  let cursor = Math.max(0, soldierIndex);
+  for (const stack of roster) {
+    if (cursor < stack.count) return ARM_IDS.includes(stack.arm) ? stack.arm : "spear";
+    cursor -= stack.count;
+  }
+  return ARM_IDS.includes(roster[roster.length - 1]?.arm)
+    ? roster[roster.length - 1].arm
+    : "spear";
+}
+
 function buildTokenBuckets(roster, startTroops, fallbackType) {
   const total = Math.max(0, Math.floor(startTroops || 0));
   if (total <= 0) return { tokens: [], buckets: [] };
@@ -394,7 +480,9 @@ function buildTokenBuckets(roster, startTroops, fallbackType) {
     const offset = idx * tokenWeight;
     const capacity = Math.min(tokenWeight, total - offset);
     const troopType = troopTypeAt(roster, offset, fallbackType);
-    tokens.push({ idx, troopType });
+    tokens.push({ idx, troopType, ...(roster.some((stack) => ARM_IDS.includes(stack.arm))
+      ? { arm: troopArmAt(roster, offset) }
+      : {}) });
     buckets.push({
       idx,
       capacity,
@@ -604,6 +692,24 @@ export function buildBattleScript(state, battle, result, winner) {
   const rng = createRng(presentationSeed(state.seed, battle.battleId));
   const events = [{ t: 0, type: "battle_start" }];
 
+  if (state.features?.f3 && battle.commands?.player) {
+    events.push({ t: 80, type: "command", side: "player", command: battle.commands.player });
+  }
+
+  if (
+    state.features?.f3 &&
+    battle.terrain === "field" &&
+    getArmShares({ troops: playerRoster }).archer >= CONFIG.F3_ARCHER_VOLLEY_SHARE
+  ) {
+    const archerTokens = playerSide.tokens.filter((token) => token.arm === "archer").length;
+    events.push({
+      t: SCRIPT_TIMING.volley,
+      type: "archer_volley",
+      side: "player",
+      arrows: Math.max(1, archerTokens * CONFIG.F3_ARCHER_VOLLEY_ARROWS_PER_TOKEN)
+    });
+  }
+
   if (battle.terrain === "town") {
     events.push({
       t: SCRIPT_TIMING.volley,
@@ -723,6 +829,7 @@ export function buildBattleScript(state, battle, result, winner) {
     // survivor accounting is untouched.
     if (state.player.lieutenant?.id === "chen_mang") script.lieutenant = "player";
   }
+  if (state.features?.f3) script.command = battle.commands?.player || CONFIG.F3_AUTOPLAY_COMMAND;
   return script;
 }
 
@@ -983,13 +1090,19 @@ export function resolveBattleRound(state) {
   }
   ensureBattleCapture(state, battle, bandit);
   if (battle.formations?.eligible && !battle.formations.resolved) return null;
+  if (state.features?.f3 && battle.commands && !battle.commands.resolved) return null;
 
   if (battle.round >= CONFIG.MAX_BATTLE_ROUNDS) {
     const winner = getPartyStrength(state.player) >= getPartyStrength(bandit) ? "player" : "bandit";
     return finishBattle(state, winner, bandit);
   }
 
-  const formation = battle.formationModifiers || formationModifiers(battle.formations);
+  const formation = battle.formationModifiers || applyF3BattleModifiers(
+    state,
+    battle,
+    bandit,
+    formationModifiers(battle.formations)
+  );
   const playerAttack = getPartyStrength(state.player)
     * (battle.playerAttackMultiplier || 1)
     * formation.player.attack;
@@ -1106,6 +1219,11 @@ export function startBattle(state, bandit, options = {}) {
     banditStart,
     battleId
   );
+  const commands = state.features?.f3 ? {
+    player: null,
+    resolved: false,
+    resumePaused: Boolean(state.paused)
+  } : null;
   state.battle = {
     banditId: bandit.id,
     enemyKind,
@@ -1138,12 +1256,17 @@ export function startBattle(state, bandit, options = {}) {
         : null,
     playerAttackMultiplier,
     formations,
+    commands,
     formationModifiers: formationModifiers(formations)
   };
   if (formations?.eligible) {
     formations.resumePaused = Boolean(state.paused);
     state.demo.modal = "formation";
     state.demo.pauseReason = "formation";
+    state.paused = true;
+  } else if (commands) {
+    state.demo.modal = "battleCommand";
+    state.demo.pauseReason = "battleCommand";
     state.paused = true;
   }
   state.battleScript = null;
@@ -1214,6 +1337,9 @@ export function checkForHostileLordEncounter(state) {
 export function skipBattle(state) {
   if (state.battle?.formations?.eligible && !state.battle.formations.resolved) {
     return { type: "blocked", reason: "formation" };
+  }
+  if (state.features?.f3 && state.battle?.commands && !state.battle.commands.resolved) {
+    return { type: "blocked", reason: "battleCommand" };
   }
   let result = null;
   let safety = CONFIG.MAX_BATTLE_ROUNDS;
@@ -1367,6 +1493,23 @@ export function resolveAiBattle(state, first, second, options = {}) {
   let firstCasualties = 0;
   let secondCasualties = 0;
   let winner = null;
+  const aiFormation = (party) => {
+    const shares = getArmShares(party);
+    const arm = ARM_IDS.slice().sort((a, b) => shares[b] - shares[a] || a.localeCompare(b))[0];
+    return arm === "cavalry" ? "wedge" : arm === "archer" ? "line" : "circle";
+  };
+  const firstFormation = state.features?.f3 ? aiFormation(first) : null;
+  const secondFormation = state.features?.f3 ? aiFormation(second) : null;
+  const aiAttack = (attacker, defender, formation) => {
+    if (!state.features?.f3) return getPartyStrength(attacker);
+    const shares = getArmShares(attacker);
+    const synergy = (
+      (formation === "wedge" && shares.cavalry > Math.max(shares.spear, shares.archer)) ||
+      (formation === "line" && shares.archer >= CONFIG.F3_ARCHER_VOLLEY_SHARE) ||
+      (formation === "circle" && shares.spear > Math.max(shares.archer, shares.cavalry))
+    ) ? 1 + CONFIG.F3_FORMATION_SYNERGY : 1;
+    return getPartyStrength(attacker) * armMatchupModifier(attacker, defender) * synergy;
+  };
 
   for (let round = 0; round < CONFIG.MAX_BATTLE_ROUNDS && !winner; round += 1) {
     const firstMultiplier = CONFIG.BATTLE_DAMAGE_MIN + nextFloat(state.rng) * (
@@ -1376,13 +1519,13 @@ export function resolveAiBattle(state, first, second, options = {}) {
       CONFIG.BATTLE_DAMAGE_MAX - CONFIG.BATTLE_DAMAGE_MIN
     );
     const lossToSecond = calculateCasualties(
-      getPartyStrength(first),
+      aiAttack(first, second, firstFormation),
       second,
       firstMultiplier,
       terrainMultiplier(state, first)
     );
     const lossToFirst = calculateCasualties(
-      getPartyStrength(second),
+      aiAttack(second, first, secondFormation),
       first,
       secondMultiplier,
       terrainMultiplier(state, second)
@@ -1415,6 +1558,7 @@ export function resolveAiBattle(state, first, second, options = {}) {
     loserKind,
     firstCasualties,
     secondCasualties,
-    stolen
+    stolen,
+    ...(state.features?.f3 ? { formations: { first: firstFormation, second: secondFormation } } : {})
   };
 }

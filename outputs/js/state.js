@@ -1,6 +1,7 @@
 import {
   CONFIG,
   CONFIG_V11,
+  ARM_IDS,
   FACTION_DATA,
   LORD_DATA,
   LORD_START_FRACTIONS,
@@ -50,6 +51,29 @@ export function getPartyStrength(party) {
   }, 0);
 }
 
+export function troopArm(stack, fallback = "spear") {
+  return ARM_IDS.includes(stack?.arm) ? stack.arm : fallback;
+}
+
+export function getArmCounts(party) {
+  const counts = Object.fromEntries(ARM_IDS.map((arm) => [arm, 0]));
+  for (const stack of party?.troops || party?.garrison || []) {
+    counts[troopArm(stack)] += Math.max(0, Number(stack.count) || 0);
+  }
+  return counts;
+}
+
+export function getArmShares(party) {
+  const counts = getArmCounts(party);
+  const total = Math.max(1, Object.values(counts).reduce((sum, value) => sum + value, 0));
+  return Object.fromEntries(ARM_IDS.map((arm) => [arm, counts[arm] / total]));
+}
+
+export function dominantArm(party) {
+  const counts = getArmCounts(party);
+  return ARM_IDS.slice().sort((first, second) => counts[second] - counts[first] || first.localeCompare(second))[0];
+}
+
 export function changePlayerRenown(state, amount) {
   const requested = Number(amount) || 0;
   if (!requested) return 0;
@@ -88,10 +112,12 @@ export function getAverageDefense(party) {
   return defense / total;
 }
 
-export function incrementTroop(party, type, amount = 1) {
-  let stack = party.troops.find((entry) => entry.type === type);
+export function incrementTroop(party, type, amount = 1, arm = null) {
+  let stack = party.troops.find((entry) => (
+    entry.type === type && (arm === null || troopArm(entry) === arm)
+  ));
   if (!stack) {
-    stack = { type, count: 0, xp: 0 };
+    stack = { type, count: 0, xp: 0, ...(arm === null ? {} : { arm }) };
     party.troops.push(stack);
   }
   stack.count = Math.max(0, stack.count + Math.floor(amount));
@@ -176,11 +202,11 @@ export function awardSurvivorXp(party) {
   party.troops.forEach((stack) => {
     if (stack.count > 0) stack.xp += CONFIG.SURVIVOR_XP_PER_WIN;
   });
-  const militia = party.troops.find((stack) => stack.type === "militia" && stack.xp >= 3);
-  if (militia?.count > 0) {
+  const ready = party.troops.filter((stack) => stack.type === "militia" && stack.xp >= 3);
+  for (const militia of ready) {
     const promoted = militia.count;
     party.troops = party.troops.filter((stack) => stack !== militia);
-    incrementTroop(party, "veteran", promoted);
+    incrementTroop(party, "veteran", promoted, ARM_IDS.includes(militia.arm) ? militia.arm : null);
   }
 }
 
@@ -259,7 +285,7 @@ export function spawnBandit(state, options = {}) {
     pos: position,
     prevPos: copyPosition(position),
     moveTarget: null,
-    troops: [{ type: "bandit", count, xp: 0 }],
+    troops: [{ type: "bandit", count, xp: 0, ...(state.features?.f3 ? { arm: "spear" } : {}) }],
     gold: count * CONFIG.BANDIT_GOLD_PER_TROOP
   }, elite);
   state.nextBanditId += 1;
@@ -288,7 +314,7 @@ export function repairEliteBandits(state) {
       pos: position,
       prevPos: copyPosition(position),
       moveTarget: copyPosition(town.pos),
-      troops: [{ type: "bandit", count, xp: 0 }],
+      troops: [{ type: "bandit", count, xp: 0, ...(state.features?.f3 ? { arm: "spear" } : {}) }],
       gold: count * CONFIG.BANDIT_GOLD_PER_TROOP
     }, true);
     state.nextBanditId += 1;
@@ -327,7 +353,22 @@ function createFactions() {
   }));
 }
 
-function createTowns() {
+export function recruitPoolsForFaction(factionId) {
+  const mix = CONFIG.F3_REGION_RECRUIT_MIX[factionId] || CONFIG.F3_REGION_RECRUIT_MIX.south;
+  const total = CONFIG.TOWN_START_RECRUIT_POOL;
+  const pools = { spear: 0, archer: 0, cavalry: 0 };
+  let assigned = 0;
+  ARM_IDS.forEach((arm, index) => {
+    const count = index === ARM_IDS.length - 1
+      ? total - assigned
+      : Math.floor(total * mix[arm]);
+    pools[arm] = count;
+    assigned += count;
+  });
+  return pools;
+}
+
+function createTowns(f3 = false) {
   return TOWN_DATA.map((entry) => ({
     id: entry.id,
     nameKey: entry.nameKey,
@@ -335,8 +376,14 @@ function createTowns() {
     factionId: entry.factionId,
     originalFactionId: entry.factionId,
     prosperity: CONFIG.TOWN_START_PROSPERITY,
-    garrison: [{ type: "militia", count: CONFIG.TOWN_START_GARRISON, xp: 0 }],
+    garrison: [{
+      type: "militia",
+      count: CONFIG.TOWN_START_GARRISON,
+      xp: 0,
+      ...(f3 ? { arm: "spear" } : {})
+    }],
     recruitPool: CONFIG.TOWN_START_RECRUIT_POOL,
+    ...(f3 ? { recruitPools: recruitPoolsForFaction(entry.factionId) } : {}),
     underSiege: false,
     siegeAttackerId: null,
     siegeDays: 0
@@ -366,7 +413,18 @@ function createLords(state) {
         patrolTownIds: [firstTown.id, secondTown.id],
         patrolIndex,
         roadWaypoint: null,
-        troops: [{ type: "militia", count: CONFIG.LORD_STARTING_MILITIA, xp: 0 }],
+        troops: [{
+          type: "militia",
+          count: CONFIG.LORD_STARTING_MILITIA,
+          xp: 0,
+          ...(state.features.f3 ? {
+            arm: ARM_IDS.slice().sort((first, second) => (
+              CONFIG.F3_REGION_RECRUIT_MIX[faction.id][second] -
+              CONFIG.F3_REGION_RECRUIT_MIX[faction.id][first] ||
+              first.localeCompare(second)
+            ))[0]
+          } : {})
+        }],
         troopCap: CONFIG.LORD_TROOP_CAP,
         gold: CONFIG.LORD_STARTING_GOLD,
         aiState: "patrol",
@@ -460,7 +518,7 @@ export function createInitialState(seed = CONFIG.SEED, options = {}) {
   const demo = createDemoState({ ...options, fullVersion, f2 });
   const state = {
     saveVersion: CONFIG.SAVE_VERSION,
-    features: { v11: Boolean(options.v11), full: fullVersion, f2 },
+    features: { v11: Boolean(options.v11), full: fullVersion, f2, f3: options.f3 === true },
     seed: normalizedSeed,
     rng: createRng(normalizedSeed),
     tick: 0,
@@ -485,7 +543,7 @@ export function createInitialState(seed = CONFIG.SEED, options = {}) {
       encounterCooldownUntil: 0
     },
     factions: createFactions(),
-    towns: createTowns(),
+    towns: createTowns(options.f3 === true),
     lords: [],
     bandits: [],
     eventLog: [],
@@ -532,6 +590,7 @@ function isPosition(value) {
 function isTroopArray(value) {
   return Array.isArray(value) && value.every((stack) => (
     stack && Object.hasOwn(TROOP_TYPES, stack.type)
+    && (stack.arm === undefined || ARM_IDS.includes(stack.arm))
     && Number.isInteger(stack.count) && stack.count >= 0
     && Number.isInteger(stack.xp) && stack.xp >= 0
   ));
@@ -559,9 +618,10 @@ function isScriptSide(value) {
   const tokenWeight = value.startTroops > 0 ? Math.ceil(value.startTroops / 24) : 1;
   const expectedTokens = value.startTroops > 0 ? Math.ceil(value.startTroops / tokenWeight) : 0;
   return value.tokens.length === expectedTokens && value.tokens.every((token, index) => (
-    hasExactKeys(token, ["idx", "troopType"]) &&
+    (hasExactKeys(token, ["idx", "troopType"]) || hasExactKeys(token, ["idx", "troopType", "arm"])) &&
     token.idx === index &&
-    Object.hasOwn(TROOP_TYPES, token.troopType)
+    Object.hasOwn(TROOP_TYPES, token.troopType) &&
+    (token.arm === undefined || ARM_IDS.includes(token.arm))
   ));
 }
 
@@ -577,16 +637,11 @@ function isScriptReference(value, sides) {
 
 export function isBattleScript(value) {
   const baseKeys = ["battleId", "terrain", "sides", "events"];
-  const v11Keys = [...baseKeys, "formations"];
-  // v1.1 may additionally name the side its lieutenant rides with. Optional,
-  // because he is only present once hired.
-  const v11LieutenantKeys = [...v11Keys, "lieutenant"];
-  if (
-    !hasExactKeys(value, baseKeys) &&
-    !hasExactKeys(value, v11Keys) &&
-    !hasExactKeys(value, v11LieutenantKeys)
-  ) return false;
+  const allowedKeys = [...baseKeys, "formations", "lieutenant", "command"];
+  if (!value || !baseKeys.every((key) => Object.hasOwn(value, key))) return false;
+  if (Object.keys(value).some((key) => !allowedKeys.includes(key))) return false;
   if (Object.hasOwn(value, "lieutenant") && value.lieutenant !== "player") return false;
+  if (Object.hasOwn(value, "command") && !Object.hasOwn(CONFIG.F3_COMMANDS, value.command)) return false;
   if (
     Object.hasOwn(value, "formations") &&
     (
@@ -631,6 +686,22 @@ export function isBattleScript(value) {
         event.arrows <= 0 ||
         event.t >= firstRoundTime
       ) return false;
+      continue;
+    }
+    if (event.type === "archer_volley") {
+      if (!hasExactKeys(event, ["t", "type", "side", "arrows"])) return false;
+      if (
+        value.terrain !== "field" ||
+        !["player", "enemy"].includes(event.side) ||
+        !Number.isSafeInteger(event.arrows) || event.arrows <= 0 ||
+        event.t >= firstRoundTime
+      ) return false;
+      continue;
+    }
+    if (event.type === "command") {
+      if (!hasExactKeys(event, ["t", "type", "side", "command"])) return false;
+      if (event.side !== "player" || !Object.hasOwn(CONFIG.F3_COMMANDS, event.command)) return false;
+      if (event.t >= firstRoundTime) return false;
       continue;
     }
     if (event.type === "round_start") {
@@ -731,7 +802,8 @@ export function isValidState(value) {
     !value.features ||
     typeof value.features.v11 !== "boolean" ||
     typeof value.features.full !== "boolean" ||
-    typeof value.features.f2 !== "boolean"
+    typeof value.features.f2 !== "boolean" ||
+    typeof value.features.f3 !== "boolean"
   ) return false;
   if (!value.settings || !SUPPORTED_LANGUAGES.includes(value.settings.language)) return false;
   if (!Number.isSafeInteger(value.lastSavedTick) || value.lastSavedTick < -1) return false;
@@ -815,7 +887,8 @@ function migrateState(state) {
   state.features = {
     v11: state.features?.v11 === true,
     full: state.features?.full === true,
-    f2: state.features?.f2 === true
+    f2: state.features?.f2 === true,
+    f3: state.features?.f3 === true
   };
   state.player.act = state.player.act >= 4 ? 4 : state.player.act >= 3 ? 3 : state.player.act >= 2 ? 2 : 1;
   state.player.promises = (state.promises || state.player.promises || [])
@@ -914,6 +987,16 @@ function migrateState(state) {
     town.garrison = isTroopArray(town.garrison) && town.garrison.length
       ? town.garrison
       : [{ type: "militia", count: CONFIG.TOWN_START_GARRISON, xp: 0 }];
+    if (state.features.f3) {
+      town.recruitPools = ARM_IDS.every((arm) => Number.isFinite(town.recruitPools?.[arm]))
+        ? Object.fromEntries(ARM_IDS.map((arm) => [arm, Math.max(0, Math.floor(town.recruitPools[arm]))]))
+        : recruitPoolsForFaction(town.factionId);
+      town.recruitPool = Object.values(town.recruitPools).reduce((sum, value) => sum + value, 0);
+      town.garrison.forEach((stack) => { stack.arm ||= "spear"; });
+    } else {
+      delete town.recruitPools;
+      town.garrison.forEach((stack) => { delete stack.arm; });
+    }
     if (typeof town.underSiege !== "boolean") town.underSiege = false;
     town.siegeAttackerId ||= null;
     town.siegeDays ||= 0;
@@ -922,6 +1005,18 @@ function migrateState(state) {
     lord.troopCap ||= CONFIG.LORD_TROOP_CAP;
     lord.roadWaypoint ??= null;
     lord.defeatedUntil ||= 0;
+    if (state.features.f3) {
+      const mix = CONFIG.F3_REGION_RECRUIT_MIX[lord.factionId] || CONFIG.F3_REGION_RECRUIT_MIX.south;
+      const arm = ARM_IDS.slice().sort((first, second) => mix[second] - mix[first] || first.localeCompare(second))[0];
+      lord.troops.forEach((stack) => { stack.arm ||= arm; });
+    } else {
+      lord.troops.forEach((stack) => { delete stack.arm; });
+    }
+  });
+  const playerArm = CONFIG.F3_ORIGIN_ARM[state.player.origin] || "spear";
+  state.player.troops.forEach((stack) => {
+    if (state.features.f3) stack.arm ||= playerArm;
+    else delete stack.arm;
   });
   state.bandits.forEach((bandit) => {
     if (!isPosition(bandit.prevPos)) bandit.prevPos = copyPosition(bandit.pos);
@@ -972,11 +1067,12 @@ export function loadState(storage, options = {}) {
     const v11 = options.v11 === true;
     const raw = target.getItem(v11 ? CONFIG.V11_SAVE_KEY : CONFIG.SAVE_KEY);
     if (!raw) return null;
-    const parsed = migrateState(JSON.parse(raw));
-    if (parsed) {
-      parsed.features.full = options.fullVersion === true;
-      parsed.features.f2 = options.f2 === true;
-    }
+    const source = JSON.parse(raw);
+    source.features ||= {};
+    source.features.full = options.fullVersion === true;
+    source.features.f2 = options.f2 === true;
+    source.features.f3 = options.f3 === true;
+    const parsed = migrateState(source);
     if (!parsed || isV11State(parsed) !== v11 || !isValidState(parsed)) return null;
     return prepareLoadedState(parsed);
   } catch {
@@ -1003,7 +1099,8 @@ export function createReplayState(previousState, options = {}) {
     startedAt: options.startedAt || null,
     v11: isV11State(previousState),
     fullVersion: previousState.features?.full === true,
-    f2: previousState.features?.f2 === true
+    f2: previousState.features?.f2 === true,
+    f3: previousState.features?.f3 === true
   });
 }
 

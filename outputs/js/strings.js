@@ -126,6 +126,13 @@ export const STRINGS = Object.freeze({
         circle: "结成环阵"
       })
     }),
+    battleCommand: Object.freeze({
+      kicker: "战前 · 军令",
+      copy: "一令既出，全军照此而战。",
+      charge: "全线压上",
+      hold: "稳住阵线",
+      focus: "集火敌将"
+    }),
     report: Object.freeze({
       march: "行军战报",
       battle: "交战记录",
@@ -141,7 +148,10 @@ export const STRINGS = Object.freeze({
       territory: "{faction}领地",
       territoryHostile: "交恶 · 招募 +{percent}%",
       territoryWar: "战区 · 招募 +{percent}%",
-      recruit: "招募民兵",
+      recruit: "枪 · 招募",
+      recruitArcher: "弓 · 招募",
+      recruitCavalry: "骑 · 招募",
+      armRecruitCost: "余 {count} · {cost} 金",
       recruitCost: "花费 {cost} 金币",
       recruitCapped: "兵力已达本幕上限 {cap}",
       recruitEmpty: "暂无兵源",
@@ -265,6 +275,7 @@ export const STRINGS = Object.freeze({
       warBandits: "{faction}战区溃兵为匪，{town}附近匪患增加。",
       lordEncounter: "遭遇{faction}追兵：我方 {playerCount} 人，敌方 {enemyCount} 人。",
       formationChosen: "我军列{playerFormation}，敌军列{enemyFormation}。",
+      battleCommand: "军令：{command}。",
       lieutenantHired: "在{town}招揽陈莽为部将，花费 {cost} 金币。",
       lieutenantBattle: "陈莽提刀随军出战。",
       lieutenantLost: "全军溃散，陈莽离开了队伍。",
@@ -566,6 +577,13 @@ export const STRINGS = Object.freeze({
         circle: "closing into a ring"
       })
     }),
+    battleCommand: Object.freeze({
+      kicker: "Before battle · Order",
+      copy: "One order; the whole line follows it.",
+      charge: "Press the whole line",
+      hold: "Hold the line",
+      focus: "Focus the enemy lord"
+    }),
     report: Object.freeze({
       march: "Campaign Report",
       battle: "Battle Record",
@@ -581,7 +599,10 @@ export const STRINGS = Object.freeze({
       territory: "{faction} territory",
       territoryHostile: "Hostile · recruiting +{percent}%",
       territoryWar: "War zone · recruiting +{percent}%",
-      recruit: "Recruit Militia",
+      recruit: "Spear · Recruit",
+      recruitArcher: "Bow · Recruit",
+      recruitCavalry: "Horse · Recruit",
+      armRecruitCost: "{count} left · {cost} gold",
       recruitCost: "Costs {cost} gold",
       recruitCapped: "Act troop cap reached: {cap}",
       recruitEmpty: "No recruits available",
@@ -705,6 +726,7 @@ export const STRINGS = Object.freeze({
       warBandits: "Deserters in the {faction} war zone turned bandit near {town}.",
       lordEncounter: "Met {faction} pursuers: {playerCount} troops against {enemyCount}.",
       formationChosen: "You formed {playerFormation}; the enemy formed {enemyFormation}.",
+      battleCommand: "Battle order: {command}.",
       lieutenantHired: "Hired Chen Mang as lieutenant in {town} for {cost} gold.",
       lieutenantBattle: "Chen Mang draws his blade and joins the line.",
       lieutenantLost: "The company was wiped out, and Chen Mang left.",

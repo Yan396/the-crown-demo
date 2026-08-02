@@ -9,6 +9,7 @@ import {
 import {
   checkForEncounter,
   checkForHostileLordEncounter,
+  chooseBattleCommand,
   choosePlayerFormation,
   counterFormation,
   resolveAiBattle,
@@ -23,7 +24,7 @@ import {
   getActiveRoadEvent,
   processDailyRoadEvent as rollDailyRoadEvent
 } from "./casual.js";
-import { CASUAL_EVENTS, CONFIG, LIEUTENANT_EVENTS, TROOP_TYPES } from "./data.js";
+import { ARM_IDS, CASUAL_EVENTS, CONFIG, LIEUTENANT_EVENTS, TROOP_TYPES } from "./data.js";
 import {
   advanceActIfNeeded,
   advanceOnboarding,
@@ -58,13 +59,15 @@ import {
   copyPosition,
   createInitialState,
   distance,
+  dominantArm,
   getFaction,
   getPartyStrength,
   getTown,
   getTroopCount,
   incrementTroop,
   isV11State,
-  nearestTown
+  nearestTown,
+  recruitPoolsForFaction
 } from "./state.js";
 
 function snapshotPreviousPositions(state) {
@@ -108,13 +111,19 @@ function normalizeFactionState(state) {
 function normalizeTownState(state) {
   state.towns.forEach((town) => {
     if (!Array.isArray(town.garrison) || !town.garrison.length) {
-      town.garrison = [{ type: "militia", count: CONFIG.TOWN_START_GARRISON, xp: 0 }];
+      town.garrison = [{ type: "militia", count: CONFIG.TOWN_START_GARRISON, xp: 0, ...(state.features?.f3 ? { arm: "spear" } : {}) }];
     }
     town.recruitPool = clamp(
       Number.isFinite(town.recruitPool) ? town.recruitPool : CONFIG.TOWN_START_RECRUIT_POOL,
       0,
       CONFIG.TOWN_RECRUIT_POOL_CAP
     );
+    if (state.features?.f3) {
+      town.recruitPools = ARM_IDS.every((arm) => Number.isFinite(town.recruitPools?.[arm]))
+        ? Object.fromEntries(ARM_IDS.map((arm) => [arm, Math.max(0, Math.floor(town.recruitPools[arm]))]))
+        : recruitPoolsForFaction(town.factionId);
+      town.recruitPool = Object.values(town.recruitPools).reduce((sum, amount) => sum + amount, 0);
+    }
     town.prosperity = clamp(
       Number.isFinite(town.prosperity) ? town.prosperity : CONFIG.TOWN_START_PROSPERITY,
       CONFIG.TOWN_MIN_PROSPERITY,
@@ -369,10 +378,15 @@ function transferTroops(source, target, amount) {
     remaining -= quantity;
     moved += quantity;
     let destination = targetStacks.find((entry) => (
-      entry.type === stack.type && entry.xp === stack.xp
+      entry.type === stack.type && entry.xp === stack.xp && entry.arm === stack.arm
     ));
     if (!destination) {
-      destination = { type: stack.type, count: 0, xp: stack.xp };
+      destination = {
+        type: stack.type,
+        count: 0,
+        xp: stack.xp,
+        ...(stack.arm ? { arm: stack.arm } : {})
+      };
       targetStacks.push(destination);
     }
     destination.count += quantity;
@@ -462,10 +476,32 @@ function processDailyEconomy(state) {
       CONFIG.TOWN_MAX_PROSPERITY
     );
     if (recruitDay) {
-      town.recruitPool = Math.min(
-        CONFIG.TOWN_RECRUIT_POOL_CAP,
-        town.recruitPool + CONFIG.TOWN_RECRUIT_GAIN
-      );
+      if (state.features?.f3) {
+        const room = Math.max(0, CONFIG.TOWN_RECRUIT_POOL_CAP - town.recruitPool);
+        const gain = Math.min(room, CONFIG.TOWN_RECRUIT_GAIN);
+        const mix = CONFIG.F3_REGION_RECRUIT_MIX[town.factionId]
+          || CONFIG.F3_REGION_RECRUIT_MIX.south;
+        const ranked = ARM_IDS.map((arm) => ({
+          arm,
+          exact: gain * (mix[arm] || 0),
+          amount: Math.floor(gain * (mix[arm] || 0))
+        }));
+        let left = gain - ranked.reduce((sum, entry) => sum + entry.amount, 0);
+        ranked.sort((first, second) => (
+          (second.exact - second.amount) - (first.exact - first.amount)
+          || first.arm.localeCompare(second.arm)
+        ));
+        for (let index = 0; index < ranked.length && left > 0; index += 1, left -= 1) {
+          ranked[index].amount += 1;
+        }
+        ranked.forEach(({ arm, amount }) => { town.recruitPools[arm] += amount; });
+        town.recruitPool = Object.values(town.recruitPools).reduce((sum, amount) => sum + amount, 0);
+      } else {
+        town.recruitPool = Math.min(
+          CONFIG.TOWN_RECRUIT_POOL_CAP,
+          town.recruitPool + CONFIG.TOWN_RECRUIT_GAIN
+        );
+      }
     }
   });
 
@@ -691,7 +727,7 @@ function captureTown(state, town, attacker) {
     CONFIG.TOWN_MIN_PROSPERITY,
     CONFIG.TOWN_MAX_PROSPERITY
   );
-  town.garrison = [{ type: "militia", count: CONFIG.TOWN_CAPTURE_GARRISON, xp: 0 }];
+  town.garrison = [{ type: "militia", count: CONFIG.TOWN_CAPTURE_GARRISON, xp: 0, ...(state.features?.f3 ? { arm: "spear" } : {}) }];
   resetSiege(state, town, false);
   state.mechanics.townsCaptured += 1;
   addEvent(state, "log.townCaptured", {
@@ -1143,7 +1179,20 @@ function autoplayDecision(state) {
   );
   if (canRecruitHere) {
     state.player.moveTarget = null;
-    if (state.tick % CONFIG.AUTOPLAY_REEVALUATE_TICKS === 0) recruitMilitia(state);
+    if (state.tick % CONFIG.AUTOPLAY_REEVALUATE_TICKS === 0) {
+      let recruitArm = "spear";
+      if (state.features?.f3) {
+        const scouted = state.bandits.find((bandit) => bandit.id === state.autoplay.targetBanditId)
+          || nearestBandit(state, true);
+        const enemyArm = dominantArm(scouted || { troops: [] });
+        recruitArm = enemyArm === "spear" ? "archer" : enemyArm === "archer" ? "cavalry" : "spear";
+        if ((town.recruitPools?.[recruitArm] || 0) <= 0) {
+          recruitArm = ARM_IDS.find((arm) => (town.recruitPools?.[arm] || 0) > 0) || "spear";
+        }
+        state.autoplay.counterArmChosen = recruitArm;
+      }
+      recruitMilitia(state, recruitArm);
+    }
     return;
   }
 
@@ -1360,12 +1409,13 @@ export function worldTick(state) {
   };
 }
 
-export function recruitMilitia(state) {
+export function recruitMilitia(state, requestedArm = "spear") {
   if (state.telemetry) state.telemetry.recruitClicks = (state.telemetry.recruitClicks || 0) + 1;
   if (state.paused) return { ok: false, reason: "paused" };
   if (state.battle) return { ok: false, reason: "battle" };
   const town = activeTown(state);
   if (!town) return { ok: false, reason: "outsideTown" };
+  const arm = state.features?.f3 && ARM_IDS.includes(requestedArm) ? requestedArm : null;
   const troops = getTroopCount(state.player);
   const cap = state.player.act >= 3
     ? CONFIG.ACT3_TROOP_CAP
@@ -1373,17 +1423,23 @@ export function recruitMilitia(state) {
       ? CONFIG.ACT2_TROOP_CAP
       : CONFIG.ACT1_TROOP_CAP;
   if (troops >= cap) return { ok: false, reason: "cap", cap };
-  const recoveryRecruit = town.recruitPool <= 0 && troops < CONFIG.PLAYER_RECOVERY_RECRUIT_FLOOR;
-  if (town.recruitPool <= 0 && !recoveryRecruit) return { ok: false, reason: "pool" };
+  const armPool = arm ? Math.max(0, town.recruitPools?.[arm] || 0) : town.recruitPool;
+  const recoveryRecruit = armPool <= 0 && troops < CONFIG.PLAYER_RECOVERY_RECRUIT_FLOOR;
+  if (armPool <= 0 && !recoveryRecruit) {
+    return { ok: false, reason: "pool", ...(arm ? { arm } : {}) };
+  }
   const price = townRecruitPrice(state, town, CONFIG.RECRUIT_COST);
   if (state.player.gold < price.cost) return { ok: false, reason: "gold", cost: price.cost };
 
   state.player.gold -= price.cost;
-  if (!recoveryRecruit) town.recruitPool -= 1;
-  incrementTroop(state.player, "militia", 1);
+  if (!recoveryRecruit) {
+    town.recruitPool -= 1;
+    if (arm) town.recruitPools[arm] -= 1;
+  }
+  incrementTroop(state.player, "militia", 1, arm);
   state.stats.peakTroops = Math.max(state.stats.peakTroops || 0, getTroopCount(state.player));
   addEvent(state, "log.recruit", { townId: town.id, cost: price.cost });
-  return { ok: true, townId: town.id, cap, recruitPool: town.recruitPool, cost: price.cost, price };
+  return { ok: true, townId: town.id, cap, recruitPool: town.recruitPool, arm, cost: price.cost, price };
 }
 
 export function townRecruitPrice(state, townOrId = null, baseCost = CONFIG.RECRUIT_COST) {
@@ -1717,6 +1773,10 @@ function resolveAutoplayModal(state) {
     choosePlayerFormation(state, counterFormation(report));
     return true;
   }
+  if (state.demo.modal === "battleCommand") {
+    chooseBattleCommand(state, CONFIG.F3_AUTOPLAY_COMMAND);
+    return true;
+  }
   return false;
 }
 
@@ -1731,7 +1791,8 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
     startedAt: new Date(0).toISOString(),
     v11,
     fullVersion,
-    f2: options.phase2 === true
+    f2: options.phase2 === true || options.phase3 === true,
+    f3: options.phase3 === true
   });
   setAutoplay(state, true, {
     fullVersion,

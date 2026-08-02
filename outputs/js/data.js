@@ -196,6 +196,27 @@ export const CONFIG = Object.freeze({
     border: Object.freeze({ gold: 0, renown: 5, roadSpeed: 1 }),
     wanderer: Object.freeze({ gold: 0, renown: 0, roadSpeed: 1.05 })
   }),
+  F3_ARM_MATRIX: Object.freeze({
+    spear: Object.freeze({ spear: 0, archer: -0.2, cavalry: 0.2 }),
+    archer: Object.freeze({ spear: 0.2, archer: 0, cavalry: -0.2 }),
+    cavalry: Object.freeze({ spear: -0.2, archer: 0.2, cavalry: 0 })
+  }),
+  F3_REGION_RECRUIT_MIX: Object.freeze({
+    north: Object.freeze({ spear: 0.2, archer: 0.25, cavalry: 0.55 }),
+    south: Object.freeze({ spear: 0.55, archer: 0.25, cavalry: 0.2 }),
+    east: Object.freeze({ spear: 0.2, archer: 0.55, cavalry: 0.25 })
+  }),
+  F3_ORIGIN_ARM: Object.freeze({ hunter: "archer", border: "spear", wanderer: "cavalry" }),
+  F3_FORMATION_SYNERGY: 0.1,
+  F3_ARCHER_VOLLEY_SHARE: 0.3,
+  F3_ARCHER_VOLLEY_ARROWS_PER_TOKEN: 2,
+  F3_COMMANDS: Object.freeze({
+    charge: Object.freeze({ attack: 1.1, defense: 0.9 }),
+    hold: Object.freeze({ attack: 1, defense: 1.1 }),
+    focus: Object.freeze({ attack: 1.05, defense: 1 })
+  }),
+  F3_AUTOPLAY_COMMAND: "hold",
+  F3_BALANCE_MAX_WIN_SPREAD: 0.15,
   STARTING_GOLD: 100,
   STARTING_MILITIA: 5,
   PLAYER_RECOVERY_RECRUIT_FLOOR: 5,
@@ -307,6 +328,8 @@ export const TROOP_TYPES = Object.freeze({
   veteran: Object.freeze({ atk: 5, def: 6, cost: 0, wage: 3 }),
   bandit: Object.freeze({ atk: 3, def: 2, cost: 0, wage: 0 })
 });
+
+export const ARM_IDS = Object.freeze(["spear", "archer", "cavalry"]);
 
 export const FORMATION_IDS = Object.freeze(["wedge", "line", "circle"]);
 

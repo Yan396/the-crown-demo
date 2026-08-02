@@ -823,6 +823,8 @@ body.battle-active #stats .promise-marker:not(.exceeded) {
 }
 
 #recruit-button,
+#recruit-archer-button,
+#recruit-cavalry-button,
 #veteran-button,
 #battle-buff-button,
 #tavern-button {
@@ -847,6 +849,8 @@ body.battle-active #stats .promise-marker:not(.exceeded) {
 }
 
 #recruit-button span,
+#recruit-archer-button span,
+#recruit-cavalry-button span,
 #veteran-button span,
 #battle-buff-button span,
 #tavern-button span {

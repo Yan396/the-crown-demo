@@ -180,6 +180,14 @@
             <strong id="recruit-label"></strong>
             <span id="recruit-cost"></span>
           </button>
+          <button id="recruit-archer-button" type="button" hidden>
+            <strong id="recruit-archer-label"></strong>
+            <span id="recruit-archer-cost"></span>
+          </button>
+          <button id="recruit-cavalry-button" type="button" hidden>
+            <strong id="recruit-cavalry-label"></strong>
+            <span id="recruit-cavalry-cost"></span>
+          </button>
           <button id="veteran-button" type="button">
             <strong id="veteran-label"></strong>
             <span id="veteran-cost"></span>
@@ -328,6 +336,18 @@
           <button id="formation-wedge" class="formation-choice" data-formation="wedge" type="button"></button>
           <button id="formation-line" class="formation-choice" data-formation="line" type="button"></button>
           <button id="formation-circle" class="formation-choice" data-formation="circle" type="button"></button>
+        </div>
+      </article>
+    </section>
+
+    <section id="battle-command-modal" class="modal-layer formation-layer" hidden>
+      <article class="formation-card paper-sheet" role="dialog" aria-modal="true">
+        <small id="battle-command-kicker"></small>
+        <p id="battle-command-copy"></p>
+        <div class="formation-choices">
+          <button class="formation-choice" data-battle-command="charge" type="button"></button>
+          <button class="formation-choice" data-battle-command="hold" type="button"></button>
+          <button class="formation-choice" data-battle-command="focus" type="button"></button>
         </div>
       </article>
     </section>

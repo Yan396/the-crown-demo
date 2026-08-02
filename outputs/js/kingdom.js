@@ -37,6 +37,10 @@ export function selectOrigin(state, originId) {
   if (!bonus) return { ok: false };
   state.kingdom.origin = originId;
   state.player.origin = originId;
+  if (state.features?.f3) {
+    const arm = CONFIG.F3_ORIGIN_ARM[originId];
+    state.player.troops.forEach((stack) => { stack.arm = arm; });
+  }
   state.player.gold += bonus.gold;
   state.player.renown += bonus.renown;
   state.demo.modal = "onboarding";
@@ -340,7 +344,7 @@ export function processKingdomDay(state) {
     result.warning = warnRebellion(state, kingDay);
   }
   if (kingDay > 0 && kingDay % interval === 0) result.rebellion = resolveRebellion(state);
-  if (kingDay >= state.kingdom.nextDecisionDay && !state.demo.modal) {
+  if (kingDay >= state.kingdom.nextDecisionDay && !state.demo.modal && !state.battle) {
     state.demo.modal = "kingdomEdict";
     state.demo.pauseReason = "kingdomEdict";
     state.paused = true;
