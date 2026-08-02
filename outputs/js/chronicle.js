@@ -6,7 +6,12 @@ const PRIORITY = Object.freeze({
   troopsCrossing: 95,
   firstContract: 90,
   goldCrossing: 85,
+  fiefGranted: 84,
+  fiefThreat: 83,
+  fiefLost: 98,
+  fiefRecaptured: 97,
   biggestBattle: 80,
+  act3: 75,
   act2: 70,
   ending: 60,
   start: 50
@@ -44,6 +49,26 @@ function lineFor(language, entry) {
       return t("ending.chronicleTroopsCrossing", { day, goal: entry.statedGoal });
     case "goldCrossing":
       return t("ending.chronicleGoldCrossing", { day, goal: entry.statedGoal });
+    case "fiefGranted":
+      return t("ending.chronicleFiefGranted", {
+        day,
+        town: localizedName(language, "towns", entry.townId, t("ending.chronicleUnknownPlace"))
+      });
+    case "fiefThreat":
+      return t("ending.chronicleFiefThreat", {
+        day,
+        town: localizedName(language, "towns", entry.townId, t("ending.chronicleUnknownPlace"))
+      });
+    case "fiefLost":
+      return t("ending.chronicleFiefLost", {
+        day,
+        town: localizedName(language, "towns", entry.townId, t("ending.chronicleUnknownPlace"))
+      });
+    case "fiefRecaptured":
+      return t("ending.chronicleFiefRecaptured", {
+        day,
+        town: localizedName(language, "towns", entry.townId, t("ending.chronicleUnknownPlace"))
+      });
     case "biggestBattle":
       return t("ending.chronicleBiggestBattle", {
         day,
@@ -52,6 +77,8 @@ function lineFor(language, entry) {
       });
     case "act2":
       return t("ending.chronicleAct2", { day });
+    case "act3":
+      return t("ending.chronicleAct3", { day });
     case "ending":
       return t("ending.chronicleEnding", { day });
     case "start":
@@ -69,8 +96,13 @@ export function buildChronicleEntries(telemetry, language = "zh") {
     candidate("firstContract", chronicle.firstContract),
     candidate("troopsCrossing", crossings.troops),
     candidate("goldCrossing", crossings.gold),
+    candidate("fiefGranted", chronicle.fiefGranted),
+    candidate("fiefThreat", chronicle.fiefThreat),
+    candidate("fiefLost", chronicle.fiefLost),
+    candidate("fiefRecaptured", chronicle.fiefRecaptured),
     candidate("biggestBattle", chronicle.biggestBattle),
     candidate("act2", chronicle.act2),
+    candidate("act3", chronicle.act3),
     candidate("ending", chronicle.ending),
     telemetry?.actTimestamps?.act1 ? candidate("start", { tick: 0, day: 1 }) : null
   ].filter(Boolean);

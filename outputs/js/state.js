@@ -359,6 +359,7 @@ function createDemoState(options = {}) {
     pauseReason: skipOnboarding ? null : "onboarding",
     ended: false,
     act2Tick: null,
+    act3Tick: null,
     endingTick: null,
     firstBattleTick: null,
     lastTownId: null,

@@ -221,11 +221,14 @@ export function finalizeTelemetry(state, endedAt = nowIso()) {
   state.telemetry.actTimestamps.ending ||= endedAt;
   const troopPromise = state.player.promises.find((entry) => entry.act === 1);
   const goldPromise = state.player.promises.find((entry) => entry.act === 2);
+  const fiefPromise = state.player.promises.find((entry) => entry.act === 3);
   state.telemetry.promiseValues.troops = troopPromise?.statedGoal ?? null;
   state.telemetry.promiseValues.gold = goldPromise?.statedGoal ?? null;
+  state.telemetry.promiseValues.fiefs = fiefPromise?.statedGoal ?? null;
   state.telemetry.promiseFinalActuals.troops = troopPromise?.actualAtActEnd ?? null;
   state.telemetry.promiseFinalActuals.gold = goldPromise?.actualAtActEnd ?? null;
-  for (const promise of [troopPromise, goldPromise]) {
+  state.telemetry.promiseFinalActuals.fiefs = fiefPromise?.actualAtActEnd ?? state.player.fiefs.length;
+  for (const promise of [troopPromise, goldPromise, fiefPromise]) {
     if (!promise?.exceeded) continue;
     recordPromiseCrossing(state, promise.kind, {
       tick: promise.exceededAtTick,
