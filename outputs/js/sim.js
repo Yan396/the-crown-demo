@@ -28,6 +28,8 @@ import {
   advanceActIfNeeded,
   advanceOnboarding,
   beginAct2Promise,
+  beginAct3Promise,
+  dismissFiefThreat,
   submitPromise
 } from "./demo.js";
 import {
@@ -155,7 +157,55 @@ function declareWarInternal(state, first, second, relation) {
     secondFactionId: second.id,
     relation
   }, "danger");
+  musterFiefThreat(state, first, second);
   return true;
+}
+
+function musterFiefThreat(state, first, second) {
+  if (state.player.act < 3 || !state.player.fiefs.length || !state.player.factionId) return null;
+  const enemyFactionId = first.id === state.player.factionId
+    ? second.id
+    : second.id === state.player.factionId
+      ? first.id
+      : null;
+  if (!enemyFactionId) return null;
+  const town = heldFiefTowns(state).sort((a, b) => a.id.localeCompare(b.id))[0];
+  const marching = state.lords.find((candidate) => (
+    candidate.factionId === enemyFactionId &&
+    candidate.aiState === "attack" &&
+    candidate.targetKind === "town" &&
+    candidate.targetId === town?.id
+  ));
+  if (marching) return marching;
+  const lord = state.lords
+    .filter((candidate) => candidate.factionId === enemyFactionId)
+    .sort((a, b) => getTroopCount(b) - getTroopCount(a) || a.id.localeCompare(b.id))[0];
+  if (!town || !lord) return null;
+  const missing = Math.max(0, CONFIG.FIEF_THREAT_LORD_MIN_TROOPS - getTroopCount(lord));
+  if (missing) incrementTroop(lord, "militia", missing);
+  lord.aiState = "attack";
+  lord.targetKind = "town";
+  lord.targetId = town.id;
+  lord.moveTarget = copyPosition(town.pos);
+  lord.aiStateSinceTick = state.tick;
+  addEvent(state, "log.fiefArmyMusters", {
+    townId: town.id,
+    factionId: enemyFactionId,
+    lordId: lord.id,
+    count: getTroopCount(lord)
+  }, "danger");
+  return lord;
+}
+
+function musterExistingFiefWar(state) {
+  if (state.player.act < 3 || !state.player.fiefs.length || !state.player.factionId) return null;
+  const patron = getFaction(state, state.player.factionId);
+  if (!patron) return null;
+  for (const enemyId of patron.atWarWith.slice().sort()) {
+    const lord = musterFiefThreat(state, patron, getFaction(state, enemyId));
+    if (lord) return lord;
+  }
+  return null;
 }
 
 export function initializeLivingWorld(state) {
@@ -178,7 +228,7 @@ export function initializeLivingWorld(state) {
     applyCasualSpawnBalance(state, starter);
   }
 
-  if (CONFIG.DEMO && !state.living.demoWarSeeded) {
+  if (CONFIG.DEMO && !state.autoplay?.fullVersion && !state.living.demoWarSeeded) {
     state.living.demoWarSeeded = true;
     const [firstId, secondId] = CONFIG.DEMO_INITIAL_WAR_FACTIONS;
     declareWarInternal(
@@ -233,9 +283,17 @@ function updateDiplomacy(state) {
     const relation = (Number(first.relations[second.id]) || 0) + drift;
     setRelation(first, second, relation);
     if (!first.atWarWith.includes(second.id)) {
+      const touchesPlayerFief = state.player.act >= 3 && state.player.fiefs.length > 0 &&
+        [first.id, second.id].includes(state.player.factionId);
+      const declarationChance = touchesPlayerFief
+        ? CONFIG.FIEF_HOSTILITY_ROLL
+        : CONFIG.WAR_DECLARATION_CHANCE;
+      const declarationThreshold = touchesPlayerFief
+        ? CONFIG.FIEF_WAR_RELATION_TRIGGER
+        : CONFIG.WAR_RELATION_THRESHOLD;
       if (
-        relation < CONFIG.WAR_RELATION_THRESHOLD &&
-        nextFloat(state.rng) < CONFIG.WAR_DECLARATION_CHANCE
+        relation < declarationThreshold &&
+        nextFloat(state.rng) < declarationChance
       ) {
         declareWarInternal(state, first, second, relation);
       }
@@ -254,13 +312,79 @@ function updateDiplomacy(state) {
       makePeace(state, first.id, second.id);
     }
   });
+  musterExistingFiefWar(state);
   handleFactionEliminations(state);
 }
 
 function dailyWage(party) {
-  return party.troops.reduce((total, stack) => {
+  return (party.troops || party.garrison || []).reduce((total, stack) => {
     return total + (TROOP_TYPES[stack.type]?.wage || 0) * stack.count;
   }, 0);
+}
+
+export function heldFiefTowns(state) {
+  return state.player.fiefs
+    .map((townId) => getTown(state, townId))
+    .filter(Boolean);
+}
+
+export function fiefGarrisonWage(state) {
+  return heldFiefTowns(state).reduce((total, town) => total + dailyWage(town), 0);
+}
+
+function garrisonCount(town) {
+  return (town.garrison || []).reduce((total, stack) => total + stack.count, 0);
+}
+
+function transferTroops(source, target, amount) {
+  const sourceKey = Array.isArray(source.troops) ? "troops" : "garrison";
+  const targetKey = Array.isArray(target.troops) ? "troops" : "garrison";
+  const sourceStacks = source[sourceKey] || [];
+  const targetStacks = target[targetKey] || [];
+  let remaining = Math.max(0, Math.floor(amount));
+  let moved = 0;
+  for (const stack of sourceStacks.slice()) {
+    if (remaining <= 0) break;
+    const quantity = Math.min(stack.count, remaining);
+    if (quantity <= 0) continue;
+    stack.count -= quantity;
+    remaining -= quantity;
+    moved += quantity;
+    let destination = targetStacks.find((entry) => (
+      entry.type === stack.type && entry.xp === stack.xp
+    ));
+    if (!destination) {
+      destination = { type: stack.type, count: 0, xp: stack.xp };
+      targetStacks.push(destination);
+    }
+    destination.count += quantity;
+  }
+  source[sourceKey] = sourceStacks.filter((stack) => stack.count > 0);
+  target[targetKey] = targetStacks.filter((stack) => stack.count > 0);
+  return moved;
+}
+
+export function setFiefGarrison(state, townId, desiredCount) {
+  if (state.paused) return { ok: false, reason: "paused" };
+  if (state.battle) return { ok: false, reason: "battle" };
+  const town = getTown(state, townId);
+  if (!town || !state.player.fiefs.includes(town.id)) {
+    return { ok: false, reason: "notFief" };
+  }
+  if (activeTown(state)?.id !== town.id) return { ok: false, reason: "outsideTown" };
+  const fieldBefore = getTroopCount(state.player);
+  const garrisonBefore = garrisonCount(town);
+  const maximum = Math.max(0, fieldBefore + garrisonBefore - CONFIG.FIEF_MIN_FIELD_TROOPS);
+  const desired = clamp(Math.floor(Number(desiredCount) || 0), 0, maximum);
+  if (desired > garrisonBefore) {
+    transferTroops(state.player, town, desired - garrisonBefore);
+  } else if (desired < garrisonBefore) {
+    transferTroops(town, state.player, garrisonBefore - desired);
+  }
+  const field = getTroopCount(state.player);
+  const garrison = garrisonCount(town);
+  addEvent(state, "log.garrisonSet", { townId: town.id, field, garrison });
+  return { ok: true, townId: town.id, field, garrison, maximum };
 }
 
 function payWage(party) {
@@ -278,9 +402,29 @@ function processDailyEconomy(state) {
   state.player.gold += fiefTax;
   state.stats.goldEarned += fiefTax;
   const wagesStarted = state.stats.days > CONFIG.WAGE_GRACE_DAYS;
+  const fieldWage = dailyWage(state.player);
+  const garrisonWage = fiefGarrisonWage(state);
+  const totalPlayerWage = fieldWage + garrisonWage;
   const playerWage = wagesStarted
-    ? payWage(state.player)
-    : { due: dailyWage(state.player), paid: 0, unpaid: 0, deferred: true };
+    ? (() => {
+      const paid = Math.min(Math.max(0, state.player.gold || 0), totalPlayerWage);
+      state.player.gold = Math.max(0, (state.player.gold || 0) - paid);
+      return {
+        due: totalPlayerWage,
+        paid,
+        unpaid: totalPlayerWage - paid,
+        field: fieldWage,
+        garrison: garrisonWage
+      };
+    })()
+    : {
+      due: totalPlayerWage,
+      paid: 0,
+      unpaid: 0,
+      field: fieldWage,
+      garrison: garrisonWage,
+      deferred: true
+    };
   state.stats.wagesPaid += playerWage.paid;
 
   let lordWagesPaid = 0;
@@ -343,6 +487,59 @@ function processDailyContract(state) {
   state.mechanics.contractBattles += 1;
   addEvent(state, "log.escortComplete", { reward }, "win");
   return { type: "escort", complete: true, reward, daysRemaining: 0 };
+}
+
+function completeFiefContract(state, contract) {
+  const reward = Math.max(0, Number(contract.reward) || 0);
+  state.player.gold += reward;
+  state.stats.goldEarned += reward;
+  state.stats.contractGold += reward;
+  contract.goldEarned = (contract.goldEarned || 0) + reward;
+  contract.active = false;
+  const factionId = contract.factionId || state.player.factionId;
+  if (factionId) {
+    state.player.relations[factionId] = clamp(
+      (Number(state.player.relations[factionId]) || 0) + CONFIG.FIEF_CONTRACT_RELATION,
+      CONFIG.ROAD_EVENT_RELATION_MIN,
+      CONFIG.ROAD_EVENT_RELATION_MAX
+    );
+  }
+  state.mechanics.contractBattles += 1;
+  addEvent(state, contract.type === "reinforce" ? "log.reinforceComplete" : "log.patrolComplete", {
+    townId: contract.targetTownId,
+    reward,
+    relation: CONFIG.FIEF_CONTRACT_RELATION
+  }, "win");
+  return { type: contract.type, complete: true, reward, townId: contract.targetTownId };
+}
+
+export function processFiefContract(state) {
+  const contract = state.player.contract;
+  if (!contract?.active || !["reinforce", "patrol"].includes(contract.type)) return null;
+  const town = getTown(state, contract.targetTownId);
+  if (!town || !state.player.fiefs.includes(town.id)) {
+    contract.active = false;
+    addEvent(state, "log.fiefContractEnded", { townId: contract.targetTownId }, "loss");
+    return { type: contract.type, complete: false, failed: true };
+  }
+  if (contract.type === "reinforce") {
+    const garrison = garrisonCount(town);
+    if (garrison >= contract.targetGarrison) return completeFiefContract(state, contract);
+    return { type: "reinforce", complete: false, garrison, target: contract.targetGarrison };
+  }
+  const roads = buildRoads(state.seed);
+  const onOwnRoad = isOnRoad(roads, state.player.pos.x, state.player.pos.y) &&
+    distance(state.player.pos, town.pos) <= contract.patrolRadius;
+  if (onOwnRoad) contract.progressTicks = (contract.progressTicks || 0) + 1;
+  if ((contract.progressTicks || 0) >= contract.requiredTicks) {
+    return completeFiefContract(state, contract);
+  }
+  return {
+    type: "patrol",
+    complete: false,
+    progressTicks: contract.progressTicks || 0,
+    requiredTicks: contract.requiredTicks
+  };
 }
 
 function warZoneTowns(state) {
@@ -468,6 +665,8 @@ function handleFactionEliminations(state) {
 
 function captureTown(state, town, attacker) {
   const oldFactionId = town.factionId;
+  const heldFief = state.player.fiefs.includes(town.id);
+  const originalGrant = state.telemetry?.chronicle?.fiefGranted;
   town.factionId = attacker.factionId;
   town.prosperity = clamp(
     town.prosperity - CONFIG.TOWN_CAPTURE_PROSPERITY_LOSS,
@@ -484,7 +683,71 @@ function captureTown(state, town, attacker) {
     factionId: attacker.factionId,
     lordId: attacker.id
   }, "danger");
+  if (heldFief && attacker.factionId !== state.player.factionId) {
+    state.player.fiefs = state.player.fiefs.filter((townId) => townId !== town.id);
+    state.player.renown = Math.max(0, state.player.renown - CONFIG.FIEF_LOSS_RENOWN);
+    if (state.player.factionId) {
+      state.player.relations[state.player.factionId] = clamp(
+        (Number(state.player.relations[state.player.factionId]) || 0) - CONFIG.FIEF_LOSS_RELATION,
+        CONFIG.ROAD_EVENT_RELATION_MIN,
+        CONFIG.ROAD_EVENT_RELATION_MAX
+      );
+    }
+    state.telemetry.chronicle.fiefLost ||= {
+      tick: state.tick,
+      day: Math.floor(state.tick / CONFIG.TICKS_PER_DAY) + 1,
+      activeSeconds: Number(state.telemetry.totalActiveSeconds) || 0,
+      townId: town.id,
+      attackerFactionId: attacker.factionId
+    };
+    if (state.player.contract?.targetTownId === town.id) state.player.contract.active = false;
+    addEvent(state, "log.fiefLost", {
+      townId: town.id,
+      renown: CONFIG.FIEF_LOSS_RENOWN,
+      relation: CONFIG.FIEF_LOSS_RELATION
+    }, "loss");
+  } else if (
+    !heldFief &&
+    originalGrant?.townId === town.id &&
+    originalGrant.factionId === attacker.factionId
+  ) {
+    state.player.fiefs.push(town.id);
+    state.telemetry.chronicle.fiefRecaptured ||= {
+      tick: state.tick,
+      day: Math.floor(state.tick / CONFIG.TICKS_PER_DAY) + 1,
+      activeSeconds: Number(state.telemetry.totalActiveSeconds) || 0,
+      townId: town.id,
+      factionId: attacker.factionId
+    };
+    addEvent(state, "log.fiefRecaptured", { townId: town.id }, "win");
+  }
   handleFactionEliminations(state);
+}
+
+function queueFiefThreat(state, town, attacker) {
+  if (!state.player.fiefs.includes(town.id) || state.demo.modal) return false;
+  const key = `${town.id}:${town.siege?.startedTick ?? state.tick}`;
+  if (state.demo.fiefThreatKey === key) return false;
+  const threat = {
+    townId: town.id,
+    attackerLordId: attacker.id,
+    garrison: garrisonCount(town),
+    enemy: getTroopCount(attacker),
+    startedTick: town.siege?.startedTick ?? state.tick
+  };
+  state.demo.fiefThreatKey = key;
+  state.demo.fiefThreat = threat;
+  state.demo.modal = "fiefThreat";
+  state.demo.pauseReason = "fiefThreat";
+  state.paused = true;
+  state.telemetry.chronicle.fiefThreat ||= {
+    tick: state.tick,
+    day: Math.floor(state.tick / CONFIG.TICKS_PER_DAY) + 1,
+    activeSeconds: Number(state.telemetry.totalActiveSeconds) || 0,
+    ...threat
+  };
+  addEvent(state, "log.fiefThreat", threat, "danger");
+  return true;
 }
 
 function validSiegeCandidates(state, town) {
@@ -508,7 +771,7 @@ function validSiegeCandidates(state, town) {
     .sort((first, second) => getPartyStrength(second) - getPartyStrength(first) || first.id.localeCompare(second.id));
 }
 
-function updateSieges(state) {
+export function updateSieges(state) {
   state.towns.forEach((town) => {
     const candidates = validSiegeCandidates(state, town);
     let attacker = town.siegeAttackerId
@@ -539,6 +802,7 @@ function updateSieges(state) {
         attackerLordId: attacker.id,
         attackerFactionId: attacker.factionId
       }, "danger");
+      queueFiefThreat(state, town, attacker);
     } else if (!town.underSiege || town.siegeAttackerId !== attacker.id) {
       // An allied lord can take command without erasing the faction's
       // uninterrupted adjacent siege progress.
@@ -787,9 +1051,33 @@ function autoplayDecision(state) {
     );
   }
   const town = activeTown(state);
-  const troopCap = state.player.act >= 2 ? CONFIG.ACT2_TROOP_CAP : CONFIG.ACT1_TROOP_CAP;
+  const troopCap = state.player.act >= 3
+    ? CONFIG.ACT3_TROOP_CAP
+    : state.player.act >= 2
+      ? CONFIG.ACT2_TROOP_CAP
+      : CONFIG.ACT1_TROOP_CAP;
   const troops = getTroopCount(state.player);
   const contract = activeContract(state);
+  const fullVersion = state.autoplay.fullVersion === true;
+
+  if (fullVersion && state.player.act >= 3 && state.player.fiefs.length) {
+    const fief = heldFiefTowns(state).sort((first, second) => first.id.localeCompare(second.id))[0];
+    if (fief && garrisonCount(fief) < CONFIG.FIEF_REINFORCE_TARGET) {
+      if (town?.id === fief.id && troops > CONFIG.FIEF_MIN_FIELD_TROOPS) {
+        setFiefGarrison(
+          state,
+          fief.id,
+          Math.min(
+            CONFIG.FIEF_REINFORCE_TARGET,
+            troops + garrisonCount(fief) - CONFIG.FIEF_MIN_FIELD_TROOPS
+          )
+        );
+      } else {
+        state.player.moveTarget = copyPosition(fief.pos);
+      }
+      return;
+    }
+  }
 
   if (
     isV11State(state) &&
@@ -809,9 +1097,17 @@ function autoplayDecision(state) {
   }
 
   if (state.player.act >= 2 && !contract) {
-    if (town) acceptMercenaryContract(state, town.id, "risky");
+    if (town && (!fullVersion || town.factionId === state.autoplay.patronFactionId)) {
+      acceptMercenaryContract(state, town.id, "risky");
+    }
     else {
-      const destination = nearestTown(state, state.player.pos);
+      const destination = nearestTown(
+        state,
+        state.player.pos,
+        fullVersion
+          ? (entry) => entry.factionId === state.autoplay.patronFactionId
+          : () => true
+      ) || nearestTown(state, state.player.pos);
       state.player.moveTarget = copyPosition(destination.pos);
       return;
     }
@@ -853,13 +1149,15 @@ function autoplayDecision(state) {
   state.autoplay.targetBanditId = target?.id || null;
 }
 
-export function setAutoplay(state, enabled = true) {
+export function setAutoplay(state, enabled = true, options = {}) {
   state.autoplay ||= {
     enabled: false,
     nextHuntTick: 0,
     targetBanditId: null
   };
   state.autoplay.enabled = Boolean(enabled);
+  state.autoplay.fullVersion = options.fullVersion === true;
+  state.autoplay.patronFactionId ||= options.patronFactionId || "north";
   if (!state.autoplay.enabled) {
     state.autoplay.targetBanditId = null;
     state.player.moveTarget = null;
@@ -913,6 +1211,7 @@ export function worldTick(state) {
   if (!state.battle) {
     movePartyToward(state.player, movementSpeed(state, state.player, CONFIG.PLAYER_SPEED));
   }
+  const fiefContractResult = processFiefContract(state);
   surfaceTownPriceEffects(state);
   const engagedLordId = state.battle?.enemyKind === "lord" ? state.battle.banditId : null;
   state.lords.forEach((lord) => {
@@ -1020,6 +1319,7 @@ export function worldTick(state) {
     aiBattleResults,
     dailyEconomyResult,
     dailyContractResult,
+    fiefContractResult,
     spawnBalance,
     warSpawnResult,
     roadEventResult,
@@ -1222,7 +1522,32 @@ export function getTavernContracts(state, townId = null) {
       reward: CONFIG.CONTRACT_WAR_REWARD,
       renownReward: CONFIG.CONTRACT_WAR_RENOWN,
       relationPenalty: CONFIG.CONTRACT_WAR_RELATION_PENALTY
+        * (state.player.act >= 3 ? CONFIG.FIEF_WAR_RELATION_MULTIPLIER : 1)
     });
+  }
+  if (state.player.act >= 3 && state.player.fiefs.length) {
+    const fief = heldFiefTowns(state).sort((first, second) => first.id.localeCompare(second.id))[0];
+    if (fief) {
+      offers.push({
+        id: `reinforce:${fief.id}`,
+        type: "reinforce",
+        factionId: state.player.factionId || fief.factionId,
+        townId: town.id,
+        targetTownId: fief.id,
+        targetGarrison: CONFIG.FIEF_REINFORCE_TARGET,
+        reward: CONFIG.FIEF_REINFORCE_REWARD
+      });
+      offers.push({
+        id: `patrol:${fief.id}`,
+        type: "patrol",
+        factionId: state.player.factionId || fief.factionId,
+        townId: town.id,
+        targetTownId: fief.id,
+        requiredTicks: CONFIG.FIEF_PATROL_REQUIRED_TICKS,
+        patrolRadius: CONFIG.FIEF_PATROL_RADIUS,
+        reward: CONFIG.FIEF_PATROL_REWARD
+      });
+    }
   }
   return offers;
 }
@@ -1272,6 +1597,18 @@ export function acceptMercenaryContract(state, townId = null, contractId = null)
       targetFactionId: offer.targetFactionId,
       relation: offer.relationPenalty
     }, "danger");
+  } else if (offer.type === "reinforce") {
+    addEvent(state, "log.reinforceAccepted", {
+      townId: offer.targetTownId,
+      target: offer.targetGarrison,
+      reward: offer.reward
+    }, "world");
+  } else if (offer.type === "patrol") {
+    state.player.contract.progressTicks = 0;
+    addEvent(state, "log.patrolAccepted", {
+      townId: offer.targetTownId,
+      reward: offer.reward
+    }, "world");
   }
   state.mechanics.contractsAccepted += 1;
   recordChronicleMilestone(state, "firstContract", {
@@ -1308,6 +1645,18 @@ function resolveAutoplayModal(state) {
     submitPromise(state, CONFIG.AUTOPLAY_GOLD_PROMISE, deterministicTimestamp(state));
     return true;
   }
+  if (state.demo.modal === "act3Transition") {
+    beginAct3Promise(state);
+    return true;
+  }
+  if (state.demo.modal === "fiefPromise") {
+    submitPromise(state, CONFIG.AUTOPLAY_FIEF_PROMISE, deterministicTimestamp(state));
+    return true;
+  }
+  if (state.demo.modal === "fiefThreat") {
+    dismissFiefThreat(state);
+    return true;
+  }
   if (state.demo.modal === "formation") {
     const report = state.battle?.formations?.reportedEnemy || "line";
     choosePlayerFormation(state, counterFormation(report));
@@ -1317,7 +1666,8 @@ function resolveAutoplayModal(state) {
 }
 
 export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
-  const v11 = options.v11 === true;
+  const fullVersion = options.fullVersion === true;
+  const v11 = fullVersion || options.v11 === true;
   const roadEventEffectAudit = verifyRoadEventChoiceEffects({ v11 });
   if (!roadEventEffectAudit.ok) {
     throw new Error(`Autoplay road-event effect mismatch: ${JSON.stringify(roadEventEffectAudit.failures)}`);
@@ -1326,20 +1676,27 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
     startedAt: new Date(0).toISOString(),
     v11
   });
+  setAutoplay(state, true, {
+    fullVersion,
+    patronFactionId: options.patronFactionId || "north"
+  });
   initializeLivingWorld(state);
-  setAutoplay(state, true);
   while (resolveAutoplayModal(state)) {
     // Onboarding and promise steps consume no active simulation time.
   }
 
   const maximumActiveSeconds = Math.max(
     0,
-    Number(options.maxActiveSeconds) || CONFIG.AUTOPLAY_MAX_ACTIVE_SECONDS
+    Number(options.maxActiveSeconds) || (fullVersion
+      ? CONFIG.AUTOPLAY_FULL_MAX_ACTIVE_SECONDS
+      : CONFIG.AUTOPLAY_MAX_ACTIVE_SECONDS)
   );
   let firstBattleSeconds = null;
   let firstEventSeconds = null;
   let act2Seconds = null;
   let endingSeconds = null;
+  let act3Seconds = null;
+  let fiefThreatSeconds = null;
   let act2BattleCount = null;
   let endingBattleCount = null;
   let resolvedBattleRounds = 0;
@@ -1349,7 +1706,11 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
   let act2BattleRoundCounts = null;
   let battleScriptsChecked = 0;
 
-  while (state.telemetry.totalActiveSeconds < maximumActiveSeconds && !state.demo.ended) {
+  while (
+    state.telemetry.totalActiveSeconds < maximumActiveSeconds &&
+    !state.demo.ended &&
+    (!fullVersion || fiefThreatSeconds === null)
+  ) {
     const burst = Math.max(1, CONFIG.AUTOPLAY_MULTIPLIER);
     for (let index = 0; index < burst && !state.demo.ended; index += 1) {
       const result = worldTick(state);
@@ -1369,7 +1730,9 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
       if (firstEventSeconds === null && result.roadEventResult?.triggered) {
         firstEventSeconds = activeSeconds;
       }
-      const transition = advanceActIfNeeded(state, deterministicTimestamp(state));
+      const transition = advanceActIfNeeded(state, deterministicTimestamp(state), {
+        demoBuild: !fullVersion
+      });
       if (transition?.type === "act2") {
         state.autoplay.nextHuntTick = state.tick + CONFIG.AUTOPLAY_ACT2_RECOVERY_TICKS;
         if (act2Seconds === null) act2Seconds = activeSeconds;
@@ -1382,6 +1745,10 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
         endingBattleCount = state.stats.battles;
         endingBattleRounds = resolvedBattleRounds;
       }
+      if (transition?.type === "act3" && act3Seconds === null) act3Seconds = activeSeconds;
+      if (state.telemetry.chronicle.fiefThreat && fiefThreatSeconds === null) {
+        fiefThreatSeconds = state.telemetry.chronicle.fiefThreat.activeSeconds;
+      }
       while (resolveAutoplayModal(state)) {
         // Resolve the Act 2 promise before advancing more ticks.
       }
@@ -1390,18 +1757,23 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
   }
 
   if (state.demo.ended && endingSeconds === null) endingSeconds = state.telemetry.totalActiveSeconds;
-  if (state.demo.ended && battleScriptsChecked !== state.stats.battles) {
+  if ((state.demo.ended || fullVersion) && battleScriptsChecked !== state.stats.battles) {
     throw new Error(
       `Autoplay battleScript coverage mismatch: checked ${battleScriptsChecked}, battles ${state.stats.battles}`
     );
   }
   return {
     state,
-    variant: v11 ? "1.1" : "1.0",
+    variant: fullVersion ? "full" : v11 ? "1.1" : "1.0",
     firstBattleSeconds,
     firstEventSeconds,
     act2Seconds,
     endingSeconds,
+    act3Seconds,
+    fiefThreatSeconds,
+    fiefThreatDelaySeconds: act3Seconds === null || fiefThreatSeconds === null
+      ? null
+      : fiefThreatSeconds - act3Seconds,
     act2BattleCount,
     endingBattleCount: endingBattleCount ?? (state.demo.ended ? state.stats.battles : null),
     act2BattleRounds,
@@ -1417,7 +1789,10 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
       act2Min: CONFIG.AUTOPLAY_ACT2_TARGET_MIN_SECONDS,
       act2Max: CONFIG.AUTOPLAY_ACT2_TARGET_MAX_SECONDS,
       endingMin: CONFIG.AUTOPLAY_END_TARGET_MIN_SECONDS,
-      endingMax: CONFIG.AUTOPLAY_END_TARGET_MAX_SECONDS
+      endingMax: CONFIG.AUTOPLAY_END_TARGET_MAX_SECONDS,
+      act3Min: CONFIG.AUTOPLAY_ACT3_TARGET_MIN_SECONDS,
+      act3Max: CONFIG.AUTOPLAY_ACT3_TARGET_MAX_SECONDS,
+      fiefThreatMax: CONFIG.AUTOPLAY_FIEF_THREAT_MAX_SECONDS
     }
   };
 }

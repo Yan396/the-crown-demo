@@ -3,7 +3,7 @@ import { getBattleEnemy } from "./battle.js";
 import { CONFIG, CONFIG_V11, LIEUTENANT_EVENTS, ROAD_EVENTS } from "./data.js";
 import { buildChronicleEntries } from "./chronicle.js";
 import { actTroopCap, getDailyWage } from "./demo.js";
-import { getTavernContracts, townRecruitPrice } from "./sim.js";
+import { fiefGarrisonWage, getTavernContracts, townRecruitPrice } from "./sim.js";
 import {
   activeTown,
   getFaction,
@@ -67,6 +67,10 @@ export function createUi(callbacks) {
     troopLabel: element("troop-label"),
     troops: element("troop-value"),
     troopPromise: element("troop-promise"),
+    fiefStat: element("fief-stat"),
+    fiefLabel: element("fief-label"),
+    fiefs: element("fief-value"),
+    fiefPromise: element("fief-promise"),
     renownLabel: element("renown-label"),
     renown: element("renown-value"),
     dayLabel: element("day-label"),
@@ -109,6 +113,10 @@ export function createUi(callbacks) {
     tavern: element("tavern-button"),
     tavernLabel: element("tavern-label"),
     tavernDetail: element("tavern-detail"),
+    fiefGarrison: element("fief-garrison"),
+    garrisonTitle: element("garrison-title"),
+    garrisonCounts: element("garrison-counts"),
+    garrisonSlider: element("garrison-slider"),
     settingsScrim: element("settings-scrim"),
     settingsSheet: element("settings-sheet"),
     settingsTitle: element("settings-title"),
@@ -141,6 +149,9 @@ export function createUi(callbacks) {
     promiseMin: element("promise-min"),
     promiseMax: element("promise-max"),
     promiseConfirm: element("promise-confirm"),
+    fiefPromiseOptions: element("fief-promise-options"),
+    fiefPromiseButtons: [...document.querySelectorAll("[data-fief-promise]")],
+    fiefPromiseAll: element("fief-promise-all"),
     contextTooltip: element("context-tooltip"),
     roadEventModal: element("road-event-modal"),
     roadEventKicker: element("road-event-kicker"),
@@ -154,6 +165,11 @@ export function createUi(callbacks) {
     formationWedge: element("formation-wedge"),
     formationLine: element("formation-line"),
     formationCircle: element("formation-circle"),
+    fiefThreatModal: element("fief-threat-modal"),
+    fiefThreatKicker: element("fief-threat-kicker"),
+    fiefThreatTitle: element("fief-threat-title"),
+    fiefThreatDetail: element("fief-threat-detail"),
+    fiefThreatDismiss: element("fief-threat-dismiss"),
     contractModal: element("contract-modal"),
     contractKicker: element("contract-kicker"),
     contractTitle: element("contract-title"),
@@ -166,6 +182,12 @@ export function createUi(callbacks) {
     contractWar: element("contract-offer-war"),
     contractWarTitle: element("contract-war-title"),
     contractWarDetail: element("contract-war-detail"),
+    contractReinforce: element("contract-offer-reinforce"),
+    contractReinforceTitle: element("contract-reinforce-title"),
+    contractReinforceDetail: element("contract-reinforce-detail"),
+    contractPatrol: element("contract-offer-patrol"),
+    contractPatrolTitle: element("contract-patrol-title"),
+    contractPatrolDetail: element("contract-patrol-detail"),
     lieutenantOffer: element("lieutenant-offer"),
     lieutenantOfferTitle: element("lieutenant-offer-title"),
     lieutenantOfferDetail: element("lieutenant-offer-detail"),
@@ -197,6 +219,7 @@ export function createUi(callbacks) {
   let activeToast = null;
   let tooltipTimer = null;
   let promiseMode = null;
+  let fiefPromiseValue = CONFIG.PROMISE_FIEFS_DEFAULT;
   let numberBudgetFrame = 0;
   let victoryFxTimer = 0;
   let roadEventFxTimer = 0;
@@ -230,6 +253,11 @@ export function createUi(callbacks) {
   function translatedFaction(id) {
     const faction = currentState ? getFaction(currentState, id) : null;
     return faction ? t(faction.nameKey) : id;
+  }
+
+  function translatedTown(id) {
+    const town = currentState ? getTown(currentState, id) : null;
+    return town ? t(town.nameKey) : id;
   }
 
   function translatedLord(id) {
@@ -422,6 +450,15 @@ export function createUi(callbacks) {
         target: translatedFaction(contract.targetFactionId)
       });
     }
+    if (contract.type === "reinforce") {
+      return t("contracts.activeReinforce", {
+        town: translatedTown(contract.targetTownId),
+        target: contract.targetGarrison
+      });
+    }
+    if (contract.type === "patrol") {
+      return t("contracts.activePatrol", { town: translatedTown(contract.targetTownId) });
+    }
     return t("contracts.activeRisky");
   }
 
@@ -441,9 +478,13 @@ export function createUi(callbacks) {
     const escort = offers.find((offer) => offer.type === "escort");
     const risky = offers.find((offer) => offer.type === "risky");
     const war = offers.find((offer) => offer.type === "war");
+    const reinforce = offers.find((offer) => offer.type === "reinforce");
+    const patrol = offers.find((offer) => offer.type === "patrol");
     refs.contractEscort.hidden = !escort;
     refs.contractRisky.hidden = !risky;
     refs.contractWar.hidden = !war;
+    refs.contractReinforce.hidden = !reinforce;
+    refs.contractPatrol.hidden = !patrol;
     refs.lieutenantOffer.hidden = !lieutenantAvailable;
     refs.lieutenantOffer.disabled = state.player.gold < CONFIG.V11_LIEUTENANT_COST;
     refs.lieutenantOfferDetail.textContent = t("lieutenant.offerDetail", {
@@ -477,12 +518,35 @@ export function createUi(callbacks) {
         penalty: war.relationPenalty
       });
     }
+    if (reinforce) {
+      refs.contractReinforce.dataset.contractId = reinforce.id;
+      refs.contractReinforceDetail.textContent = t("contracts.reinforceDetail", {
+        town: translatedTown(reinforce.targetTownId),
+        target: reinforce.targetGarrison,
+        reward: reinforce.reward
+      });
+    }
+    if (patrol) {
+      refs.contractPatrol.dataset.contractId = patrol.id;
+      refs.contractPatrolDetail.textContent = t("contracts.patrolDetail", {
+        town: translatedTown(patrol.targetTownId),
+        reward: patrol.reward
+      });
+    }
   }
 
   function syncRenownGate(state) {
     const renown = Math.max(0, state.player.renown);
-    const gate = state.player.act >= 2 ? CONFIG.DEMO_END_RENOWN : CONFIG.ACT2_RENOWN;
-    const key = state.player.act >= 2 ? "hud.renownGateAct2" : "hud.renownGateAct1";
+    const gate = state.player.act < 2
+      ? CONFIG.ACT2_RENOWN
+      : state.player.act < 3
+        ? (CONFIG.DEMO ? CONFIG.DEMO_END_RENOWN : CONFIG.ACT3_RENOWN)
+        : CONFIG.ACT3_RENOWN;
+    const key = state.player.act < 2
+      ? "hud.renownGateAct1"
+      : state.player.act < 3
+        ? (CONFIG.DEMO ? "hud.renownGateAct2" : "hud.renownGateFief")
+        : "hud.renownGateHolding";
     refs.renownGate.hidden = state.demo.ended;
     refs.renownGateFill.style.width = `${Math.min(100, (renown / gate) * 100)}%`;
     refs.renownGateLabel.textContent = t(key, { renown: Math.min(renown, gate) });
@@ -535,11 +599,14 @@ export function createUi(callbacks) {
   function syncMirrorHud(state) {
     const troopPromise = state.player.promises.find((entry) => entry.act === 1);
     const goldPromise = state.player.promises.find((entry) => entry.act === 2);
+    const fiefPromise = state.player.promises.find((entry) => entry.act === 3);
     syncPromiseMarker(refs.troopPromise, troopPromise, getTroopCount(state.player), "hud.troopOvershoot");
     syncPromiseMarker(refs.goldPromise, goldPromise, state.player.gold, "hud.goldOvershoot");
+    syncPromiseMarker(refs.fiefPromise, fiefPromise, state.player.fiefs.length, "hud.fiefOvershoot");
     document.body.classList.toggle("has-troop-overshoot", Boolean(troopPromise?.exceeded));
     document.body.classList.toggle("has-gold-overshoot", Boolean(goldPromise?.exceeded));
     document.body.classList.toggle("has-gold-promise", Boolean(goldPromise));
+    document.body.classList.toggle("has-fief", state.player.act >= 3 || state.player.fiefs.length > 0);
   }
 
   function syncStaticStrings() {
@@ -559,6 +626,7 @@ export function createUi(callbacks) {
     refs.townSheet.setAttribute("aria-label", t("aria.town"));
     refs.contractModal.setAttribute("aria-label", t("aria.contracts"));
     refs.formationModal.setAttribute("aria-label", t("aria.formation"));
+    refs.fiefThreatModal.setAttribute("aria-label", t("aria.fiefThreat"));
     refs.contractClose.setAttribute("aria-label", t("aria.closeContracts"));
     refs.settingsSheet.setAttribute("aria-label", t("aria.settings"));
     refs.settingsScrim.setAttribute("aria-label", t("aria.closeSettings"));
@@ -568,9 +636,10 @@ export function createUi(callbacks) {
     refs.contextTooltip.setAttribute("aria-label", t("aria.tooltip"));
     refs.ending.setAttribute("aria-label", t("aria.ending"));
     refs.brandTitle.textContent = t("brand.title");
-    refs.brandSubtitle.textContent = t("brand.subtitle");
+    refs.brandSubtitle.textContent = t(CONFIG.DEMO ? "brand.subtitle" : "brand.subtitleFull");
     refs.goldLabel.textContent = t("hud.gold");
     refs.troopLabel.textContent = t("hud.troops");
+    refs.fiefLabel.textContent = t("hud.fiefs");
     refs.renownLabel.textContent = t("hud.renown");
     refs.dayLabel.textContent = t("hud.day");
     refs.settingsButton.setAttribute("aria-label", t("aria.openSettings"));
@@ -597,6 +666,8 @@ export function createUi(callbacks) {
     refs.contractTitle.textContent = t("contracts.title");
     refs.contractEscortTitle.textContent = t("contracts.escortTitle");
     refs.contractRiskyTitle.textContent = t("contracts.riskyTitle");
+    refs.contractReinforceTitle.textContent = t("contracts.reinforceTitle");
+    refs.contractPatrolTitle.textContent = t("contracts.patrolTitle");
     refs.contractClose.textContent = t("contracts.close");
     refs.lieutenantOfferTitle.textContent = t("lieutenant.offerTitle");
     refs.formationKicker.textContent = t("formation.kicker");
@@ -615,6 +686,10 @@ export function createUi(callbacks) {
     refs.titleNewSeed.textContent = t("onboarding.newSeed");
     refs.titleNewSeed.setAttribute("aria-label", t("aria.newSeed"));
     refs.promiseConfirm.textContent = t("promise.confirm");
+    refs.fiefPromiseAll.textContent = t("promise.allFiefs");
+    refs.garrisonTitle.textContent = t("fief.garrisonTitle");
+    refs.fiefThreatKicker.textContent = t("fief.messengerKicker");
+    refs.fiefThreatDismiss.textContent = t("fief.messengerDismiss");
     refs.roadEventKicker.textContent = t("roadEvent.kicker");
     refs.endingSeal.textContent = t("ending.seal");
     refs.mirrorTitle.textContent = t("ending.mirrorTitle");
@@ -644,25 +719,51 @@ export function createUi(callbacks) {
 
   function configurePromiseModal(state) {
     const mode = state.demo.modal;
-    const visible = mode === "troopPromise" || mode === "goldPromise";
+    const visible = mode === "troopPromise" || mode === "goldPromise" || mode === "fiefPromise";
     refs.promiseModal.hidden = !visible;
     if (!visible) {
       promiseMode = null;
       return;
     }
     const troops = mode === "troopPromise";
-    refs.promiseKicker.textContent = t(troops ? "promise.act1Kicker" : "promise.act2Kicker");
+    const fiefs = mode === "fiefPromise";
+    refs.promiseKicker.textContent = t(troops
+      ? "promise.act1Kicker"
+      : fiefs
+        ? "promise.fiefKicker"
+        : "promise.act2Kicker");
     const actOne = state.player.promises.find((entry) => entry.act === 1);
     refs.promiseQuestion.textContent = troops
       ? t("promise.troopsQuestion")
-      : t("promise.goldQuestion", {
+      : fiefs
+        ? t("promise.fiefQuestion")
+        : t("promise.goldQuestion", {
         said: actOne?.statedGoal ?? 0,
         actual: actOne?.actualAtActEnd ?? getTroopCount(state.player)
       });
     refs.promiseContext.hidden = false;
-    refs.promiseContext.textContent = t(troops ? "promise.act1Fiction" : "promise.act2Fiction");
+    const troopPromise = state.player.promises.find((entry) => entry.act === 1);
+    const goldPromise = state.player.promises.find((entry) => entry.act === 2);
+    refs.promiseContext.textContent = fiefs
+      ? t("promise.fiefFiction", {
+        troopsSaid: troopPromise?.statedGoal ?? 0,
+        troopsDid: troopPromise?.actualAtActEnd ?? getTroopCount(state.player),
+        goldSaid: goldPromise?.statedGoal ?? 0,
+        goldDid: goldPromise?.actualAtActEnd ?? state.player.gold
+      })
+      : t(troops ? "promise.act1Fiction" : "promise.act2Fiction");
+    refs.promiseValue.hidden = fiefs;
+    refs.promiseSlider.hidden = fiefs;
+    refs.promiseMin.parentElement.hidden = fiefs;
+    refs.fiefPromiseOptions.hidden = !fiefs;
     if (promiseMode !== mode) {
       promiseMode = mode;
+      if (fiefs) {
+        fiefPromiseValue = CONFIG.PROMISE_FIEFS_DEFAULT;
+        refs.fiefPromiseButtons.forEach((button) => {
+          button.setAttribute("aria-pressed", String(button.dataset.fiefPromise === String(fiefPromiseValue)));
+        });
+      }
       const minimum = troops ? CONFIG.PROMISE_TROOPS_MIN : CONFIG.PROMISE_GOLD_MIN;
       const maximum = troops ? CONFIG.PROMISE_TROOPS_MAX : CONFIG.PROMISE_GOLD_MAX;
       const step = troops ? CONFIG.PROMISE_TROOPS_STEP : CONFIG.PROMISE_GOLD_STEP;
@@ -675,6 +776,21 @@ export function createUi(callbacks) {
       refs.promiseMax.textContent = String(maximum);
       refs.promiseValue.textContent = String(fallback);
     }
+  }
+
+  function syncFiefThreat(state) {
+    const threat = state.demo?.fiefThreat || null;
+    const visible = state.demo?.modal === "fiefThreat" && Boolean(threat);
+    refs.fiefThreatModal.hidden = !visible;
+    if (!visible) return;
+    const town = getTown(state, threat.townId);
+    const townName = town ? t(town.nameKey) : "";
+    refs.fiefThreatTitle.textContent = t("fief.messengerTitle", { town: townName });
+    refs.fiefThreatDetail.textContent = t("fief.messengerDetail", {
+      town: townName,
+      garrison: threat.garrison,
+      enemy: threat.enemy
+    });
   }
 
   function appendEndingStat(label, value) {
@@ -744,11 +860,13 @@ export function createUi(callbacks) {
 
     setCounter(refs.gold, state.player.gold);
     setCounter(refs.troops, getTroopCount(state.player));
+    refs.fiefStat.hidden = state.player.act < 3 && state.player.fiefs.length === 0;
+    setCounter(refs.fiefs, state.player.fiefs.length);
     setCounter(refs.renown, state.player.renown);
     setCounter(refs.day, state.stats.days + 1);
     refs.wage.textContent = state.stats.days < CONFIG.WAGE_GRACE_DAYS
       ? t("hud.wageGrace", { day: CONFIG.WAGE_GRACE_DAYS })
-      : t("hud.wages", { wage: getDailyWage(state.player) });
+      : t("hud.wages", { wage: getDailyWage(state.player) + fiefGarrisonWage(state) });
     refs.lieutenantChip.hidden = !(isV11State(state) && state.player.lieutenant);
     refs.lieutenantChip.textContent = state.player.lieutenant
       ? t("lieutenant.hud")
@@ -847,6 +965,18 @@ export function createUi(callbacks) {
           })
           : t("townPanel.contractOffer");
       }
+      const heldFief = state.player.fiefs.includes(town.id);
+      refs.fiefGarrison.hidden = !heldFief;
+      if (heldFief) {
+        const garrison = town.garrison.reduce((sum, stack) => sum + stack.count, 0);
+        const total = troops + garrison;
+        refs.garrisonSlider.max = String(Math.max(0, total - CONFIG.FIEF_MIN_FIELD_TROOPS));
+        refs.garrisonSlider.value = String(garrison);
+        refs.garrisonCounts.textContent = t("fief.garrisonCounts", {
+          field: troops,
+          garrison
+        });
+      }
     }
     syncContractModal(state, town);
 
@@ -863,6 +993,7 @@ export function createUi(callbacks) {
       : t("settings.autosaveUnavailable");
     syncOnboarding(state);
     configurePromiseModal(state);
+    syncFiefThreat(state);
     syncRoadEvent(state);
     syncFormationModal(state);
     renderEnding(state);
@@ -1074,6 +1205,8 @@ export function createUi(callbacks) {
   refs.contractEscort.addEventListener("click", () => selectContract(refs.contractEscort));
   refs.contractRisky.addEventListener("click", () => selectContract(refs.contractRisky));
   refs.contractWar.addEventListener("click", () => selectContract(refs.contractWar));
+  refs.contractReinforce.addEventListener("click", () => selectContract(refs.contractReinforce));
+  refs.contractPatrol.addEventListener("click", () => selectContract(refs.contractPatrol));
   refs.lieutenantOffer.addEventListener("click", () => {
     contractsOpen = false;
     callbacks.onHireLieutenant();
@@ -1094,7 +1227,34 @@ export function createUi(callbacks) {
   refs.promiseSlider.addEventListener("input", () => {
     refs.promiseValue.textContent = refs.promiseSlider.value;
   });
-  refs.promiseConfirm.addEventListener("click", () => callbacks.onSubmitPromise(Number(refs.promiseSlider.value)));
+  refs.fiefPromiseButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      fiefPromiseValue = button.dataset.fiefPromise === "all"
+        ? "all"
+        : Number(button.dataset.fiefPromise);
+      refs.fiefPromiseButtons.forEach((candidate) => {
+        candidate.setAttribute("aria-pressed", String(candidate === button));
+      });
+    });
+  });
+  refs.promiseConfirm.addEventListener("click", () => callbacks.onSubmitPromise(
+    promiseMode === "fiefPromise" ? fiefPromiseValue : Number(refs.promiseSlider.value)
+  ));
+  refs.garrisonSlider.addEventListener("input", () => {
+    const town = currentState ? activeTown(currentState) : null;
+    if (!town) return;
+    const total = getTroopCount(currentState.player) + town.garrison.reduce((sum, stack) => sum + stack.count, 0);
+    const garrison = Number(refs.garrisonSlider.value) || 0;
+    refs.garrisonCounts.textContent = t("fief.garrisonCounts", {
+      field: total - garrison,
+      garrison
+    });
+  });
+  refs.garrisonSlider.addEventListener("change", () => {
+    const town = currentState ? activeTown(currentState) : null;
+    if (town) callbacks.onSetGarrison(town.id, Number(refs.garrisonSlider.value));
+  });
+  refs.fiefThreatDismiss.addEventListener("click", () => callbacks.onDismissFiefThreat());
   refs.contextTooltip.addEventListener("click", () => { refs.contextTooltip.hidden = true; });
   refs.roadEventChoiceA.addEventListener("click", () => callbacks.onRoadEventChoice(0));
   refs.roadEventChoiceB.addEventListener("click", () => callbacks.onRoadEventChoice(1));
@@ -1121,6 +1281,8 @@ export function createUi(callbacks) {
     refs.contractEscort,
     refs.contractRisky,
     refs.contractWar,
+    refs.contractReinforce,
+    refs.contractPatrol,
     refs.lieutenantOffer,
     refs.contractClose,
     refs.skipBattle,
@@ -1128,6 +1290,9 @@ export function createUi(callbacks) {
     refs.titleNewSeed,
     refs.promiseSlider,
     refs.promiseConfirm,
+    ...refs.fiefPromiseButtons,
+    refs.garrisonSlider,
+    refs.fiefThreatDismiss,
     refs.contextTooltip,
     refs.roadEventChoiceA,
     refs.roadEventChoiceB,

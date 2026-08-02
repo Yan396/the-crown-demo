@@ -13,6 +13,7 @@ export const STRINGS = Object.freeze({
       toggleReport: "展开或收起边闻",
       roadEvent: "路遇抉择",
       formation: "战前选择阵型",
+      fiefThreat: "采邑告急信使",
       town: "城镇招募",
       contracts: "酒馆合同选择",
       closeContracts: "关闭酒馆合同",
@@ -33,7 +34,8 @@ export const STRINGS = Object.freeze({
     }),
     brand: Object.freeze({
       title: "王冠",
-      subtitle: "朋友试玩版"
+      subtitle: "朋友试玩版",
+      subtitleFull: "完整版"
     }),
     story: Object.freeze({
       opening: "边军解散,你带着最后 5 个弟兄流落河湾。传闻:乱世将至,王座虚悬。"
@@ -41,15 +43,19 @@ export const STRINGS = Object.freeze({
     hud: Object.freeze({
       gold: "金币",
       troops: "兵力",
+      fiefs: "采邑",
       renown: "声望",
       day: "天数",
       wages: "-{wage}/日",
       wageGrace: "第3天起发军饷",
       renownGateAct1: "声望 {renown}/50 → 自由队长",
       renownGateAct2: "声望 {renown}/100 → 试玩终点",
+      renownGateFief: "声望 {renown}/200 → 受封采邑",
+      renownGateHolding: "拥有与恐惧 · 守住采邑",
       promiseCompact: "你说 {goal}",
       troopOvershoot: "▸ 你说 {goal}",
       goldOvershoot: "▸ 你说 {goal}",
+      fiefOvershoot: "▸ 你说 {goal}",
       pauseGlyph: "Ⅱ",
       resumeGlyph: "▶"
     }),
@@ -128,9 +134,15 @@ export const STRINGS = Object.freeze({
       riskyDetail: "+{reward} 金币 · 敌军 {ratio}× · 失败掉声望",
       warTitle: "替{faction}出征",
       warDetail: "+{reward} 金币并获声望 · {target}关系 −{penalty}",
+      reinforceTitle: "增援守军",
+      reinforceDetail: "把{town}守军补到 {target} · +{reward} 金币",
+      patrolTitle: "巡守采邑道路",
+      patrolDetail: "在{town}附近沿官道巡行 · +{reward} 金币",
       activeEscort: "护送商队（还需 {days} 天）",
       activeRisky: "剿灭大股匪帮",
-      activeWar: "替{faction}对{target}出征"
+      activeWar: "替{faction}对{target}出征",
+      activeReinforce: "增援{town}（守军目标 {target}）",
+      activePatrol: "巡守{town}道路"
     }),
     lieutenant: Object.freeze({
       hud: "陈莽 · 莽",
@@ -188,6 +200,18 @@ export const STRINGS = Object.freeze({
       eliteVictory: "击溃精锐匪队，战利品按三倍结算。",
       eliteSpawned: "一支精锐匪队在{town}附近现身。",
       act2: "声望传遍酒馆：你成为了自由队长。",
+      fiefAct: "君主授予你{town}：你从此有了必须守住的东西。",
+      fiefGranted: "{faction}君主以诏书授予你{town}。",
+      garrisonSet: "调整{town}守备：野战队 {field}，守军 {garrison}。",
+      fiefThreat: "烽火：{town}告急，守军 {garrison}，来敌约 {enemy}。",
+      fiefLost: "{town}陷落：声望 −{renown}，君主关系 −{relation}。",
+      fiefRecaptured: "{town}重归你手，税赋与守备恢复。",
+      reinforceAccepted: "接下{town}增援令：守军须达到 {target}。",
+      reinforceComplete: "{town}守军补足，获得 {reward} 金币，君主关系 +{relation}。",
+      patrolAccepted: "接下{town}巡防令，须亲自沿附近官道巡行。",
+      patrolComplete: "{town}道路巡防完成，获得 {reward} 金币，君主关系 +{relation}。",
+      fiefContractEnded: "采邑已不在手中，防御合同终止。",
+      fiefArmyMusters: "{faction}军向{town}集结，{lord}麾下约 {count} 人。",
       contractAccepted: "在{town}接受{faction}的雇佣合同。",
       contractPaid: "履行{faction}合同，获得 {reward} 金币。",
       contractEnded: "{faction}覆亡，雇佣合同随之终止。",
@@ -230,9 +254,11 @@ export const STRINGS = Object.freeze({
       playerSeal: "帥",
       playerTitleAct1: "流浪佣兵",
       playerTitleAct2: "自由队长",
+      playerTitleFief: "封邑领主",
       victorySeal: "大捷",
       defeatSeal: "败退",
-      act2Seal: "自由队长"
+      act2Seal: "自由队长",
+      fiefSeal: "受封"
     }),
     onboarding: Object.freeze({
       seal: "王",
@@ -249,9 +275,21 @@ export const STRINGS = Object.freeze({
       act2Kicker: "第二幕 · 自由队长",
       act1Fiction: "河湾的炊烟在身后散去,五双眼睛等你拿主意。",
       act2Fiction: "你的名字先于你进了酒馆,柜台后的眼睛开始重新估价。",
+      fiefKicker: "拥有与恐惧 · 受封",
+      fiefFiction: "你说 {troopsSaid} 人就够，后来带了 {troopsDid} 人；你说 {goldSaid} 金就够，后来攒到 {goldDid}。诏书已经摊开。",
+      fiefQuestion: "多少座城才够?",
+      allFiefs: "全部",
       troopsQuestion: "多少兵力会让你觉得安全?",
       goldQuestion: "上一幕你说 {said} 就够,你招到了 {actual}。这一幕,多少金币才够?",
       confirm: "我记住了"
+    }),
+    fief: Object.freeze({
+      garrisonTitle: "野战队与守军",
+      garrisonCounts: "野战 {field} · 守军 {garrison}",
+      messengerKicker: "烽火 · 信使",
+      messengerTitle: "{town}告急",
+      messengerDetail: "守军 {garrison}，来敌约 {enemy}。路仍要一程一程赶。",
+      messengerDismiss: "收下军报"
     }),
     tooltip: Object.freeze({
       town: "在这里招兵",
@@ -281,6 +319,11 @@ export const STRINGS = Object.freeze({
       chronicleFirstContract: "第{day}天,你在{town}受雇于{faction}。",
       chronicleTroopsCrossing: "第{day}天,你的兵力越过了你说的{goal}。",
       chronicleGoldCrossing: "第{day}天,你的金币越过了你说的{goal}。",
+      chronicleFiefGranted: "第{day}天,你受封{town}。",
+      chronicleFiefThreat: "第{day}天,{town}燃起烽火。",
+      chronicleFiefLost: "第{day}天,{town}陷落。",
+      chronicleFiefRecaptured: "第{day}天,{town}重归你手。",
+      chronicleFiefAct: "第{day}天,你第一次有了会失去的领地。",
       chronicleBiggestBattle: "第{day}天,你打了此行最大的一仗。",
       chronicleAct2: "第{day}天,你成为了自由队长。",
       chronicleEnding: "第{day}天,你的声望抵达试玩终点。",
@@ -357,6 +400,7 @@ export const STRINGS = Object.freeze({
       toggleReport: "Expand or collapse the road ticker",
       roadEvent: "Roadside choice",
       formation: "Choose a formation before battle",
+      fiefThreat: "Fief alarm messenger",
       town: "Town recruitment",
       contracts: "Tavern contract choices",
       closeContracts: "Close tavern contracts",
@@ -377,7 +421,8 @@ export const STRINGS = Object.freeze({
     }),
     brand: Object.freeze({
       title: "The Crown",
-      subtitle: "Friend-test demo"
+      subtitle: "Friend-test demo",
+      subtitleFull: "Full edition"
     }),
     story: Object.freeze({
       opening: "The border army is disbanded. You drift into Riverbend with your last five companions. War is coming, and the throne stands empty."
@@ -385,15 +430,19 @@ export const STRINGS = Object.freeze({
     hud: Object.freeze({
       gold: "Gold",
       troops: "Troops",
+      fiefs: "Fiefs",
       renown: "Renown",
       day: "Day",
       wages: "-{wage}/day",
       wageGrace: "Wages begin on Day 3",
       renownGateAct1: "Renown {renown}/50 → Free Captain",
       renownGateAct2: "Renown {renown}/100 → Demo End",
+      renownGateFief: "Renown {renown}/200 → Receive a Fief",
+      renownGateHolding: "Possession and Fear · Hold the Fief",
       promiseCompact: "You said {goal}",
       troopOvershoot: "▸ you said {goal}",
       goldOvershoot: "▸ you said {goal}",
+      fiefOvershoot: "▸ you said {goal}",
       pauseGlyph: "Ⅱ",
       resumeGlyph: "▶"
     }),
@@ -472,9 +521,15 @@ export const STRINGS = Object.freeze({
       riskyDetail: "+{reward} gold · enemy {ratio}× · failure costs renown",
       warTitle: "Fight for {faction}",
       warDetail: "+{reward} gold plus renown · {target} relation −{penalty}",
+      reinforceTitle: "Reinforce the Garrison",
+      reinforceDetail: "Raise {town}'s garrison to {target} · +{reward} gold",
+      patrolTitle: "Patrol the Fief Roads",
+      patrolDetail: "Ride the roads near {town} · +{reward} gold",
       activeEscort: "Caravan escort ({days} days left)",
       activeRisky: "Large bandit contract",
-      activeWar: "{faction} against {target}"
+      activeWar: "{faction} against {target}",
+      activeReinforce: "Reinforce {town} (target {target})",
+      activePatrol: "Patrol the roads of {town}"
     }),
     lieutenant: Object.freeze({
       hud: "Chen Mang · Rash",
@@ -532,6 +587,18 @@ export const STRINGS = Object.freeze({
       eliteVictory: "The elite bandit pack fell; loot was tripled.",
       eliteSpawned: "An elite bandit pack appeared near {town}.",
       act2: "Your name reached the taverns: you are now a Free Captain.",
+      fiefAct: "The ruler grants you {town}: you now have something that can be taken.",
+      fiefGranted: "The ruler of {faction} grants you {town} by edict.",
+      garrisonSet: "Reassigned {town}: {field} in the field, {garrison} in the garrison.",
+      fiefThreat: "Beacon: {town} is threatened; garrison {garrison}, enemy about {enemy}.",
+      fiefLost: "{town} fell: renown −{renown}, ruler relation −{relation}.",
+      fiefRecaptured: "{town} returned to your hands; tax and garrison authority resume.",
+      reinforceAccepted: "Accepted an order to raise {town}'s garrison to {target}.",
+      reinforceComplete: "The garrison of {town} is ready: +{reward} gold, ruler relation +{relation}.",
+      patrolAccepted: "Accepted a patrol order for the roads around {town}.",
+      patrolComplete: "The roads of {town} are patrolled: +{reward} gold, ruler relation +{relation}.",
+      fiefContractEnded: "The fief is no longer yours; its defensive contract ended.",
+      fiefArmyMusters: "A {faction} army musters for {town}; {lord} leads about {count} troops.",
       contractAccepted: "Accepted a {faction} mercenary contract in {town}.",
       contractPaid: "The {faction} contract paid {reward} gold.",
       contractEnded: "The fall of {faction} ended the mercenary contract.",
@@ -574,9 +641,11 @@ export const STRINGS = Object.freeze({
       playerSeal: "P",
       playerTitleAct1: "Wandering Mercenary",
       playerTitleAct2: "Free Captain",
+      playerTitleFief: "Landed Captain",
       victorySeal: "大捷",
       defeatSeal: "败退",
-      act2Seal: "CAPT"
+      act2Seal: "CAPT",
+      fiefSeal: "FIEF"
     }),
     onboarding: Object.freeze({
       seal: "C",
@@ -593,9 +662,21 @@ export const STRINGS = Object.freeze({
       act2Kicker: "Act II · Free Captain",
       act1Fiction: "Riverbend's smoke fades behind you; five pairs of eyes wait for your decision.",
       act2Fiction: "Your name reaches the tavern before you do, and the room quietly revises your price.",
+      fiefKicker: "Possession and Fear · Enfeoffment",
+      fiefFiction: "You said {troopsSaid} troops were enough, then led {troopsDid}; you said {goldSaid} gold was enough, then held {goldDid}. The edict lies open.",
+      fiefQuestion: "How many towns would be enough?",
+      allFiefs: "All",
       troopsQuestion: "How many troops would make you feel safe?",
       goldQuestion: "Last act you said {said} was enough, then recruited {actual}. How much gold is enough this time?",
       confirm: "Remember this"
+    }),
+    fief: Object.freeze({
+      garrisonTitle: "Field Party and Garrison",
+      garrisonCounts: "Field {field} · Garrison {garrison}",
+      messengerKicker: "Beacon · Messenger",
+      messengerTitle: "{town} is under threat",
+      messengerDetail: "Garrison {garrison}; approaching force about {enemy}. You still have to ride every mile.",
+      messengerDismiss: "Take the dispatch"
     }),
     tooltip: Object.freeze({
       town: "Recruit troops here",
@@ -625,6 +706,11 @@ export const STRINGS = Object.freeze({
       chronicleFirstContract: "Day {day}: at {town}, you took service with {faction}.",
       chronicleTroopsCrossing: "Day {day}: your troops crossed the line you set at {goal}.",
       chronicleGoldCrossing: "Day {day}: your gold crossed the line you set at {goal}.",
+      chronicleFiefGranted: "Day {day}: you were granted {town}.",
+      chronicleFiefThreat: "Day {day}: the beacons of {town} were lit.",
+      chronicleFiefLost: "Day {day}: {town} fell.",
+      chronicleFiefRecaptured: "Day {day}: {town} returned to your hands.",
+      chronicleFiefAct: "Day {day}: for the first time, you possessed something that could be lost.",
       chronicleBiggestBattle: "Day {day}: you fought the largest battle of the run.",
       chronicleAct2: "Day {day}: you became a Free Captain.",
       chronicleEnding: "Day {day}: your renown reached the demo's end.",

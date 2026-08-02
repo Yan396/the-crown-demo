@@ -1,4 +1,4 @@
-name: Deploy demo to GitHub Pages
+name: Deploy The Crown to GitHub Pages
 
 on:
   push:

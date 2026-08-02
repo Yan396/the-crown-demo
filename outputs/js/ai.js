@@ -150,7 +150,9 @@ export function reevaluateLordAi(state, lord) {
   const troopCount = getTroopCount(lord);
   const ownTown = nearestOwnTown(state, lord);
   const playerRelation = Number(state.player.relations?.[lord.factionId]) || 0;
-  const hostilePlayer = state.player.act >= 2 && playerRelation < 0 &&
+  const fiefWarHostility = state.player.act >= 3 && state.player.factionId &&
+    factionsAreHostile(state, lord.factionId, state.player.factionId);
+  const hostilePlayer = state.player.act >= 2 && (playerRelation < 0 || fiefWarHostility) &&
     (lord.playerPursuitCooldownUntil || 0) <= state.tick &&
     distance(lord.pos, state.player.pos) <= CONFIG.HOSTILE_LORD_PLAYER_SCAN_RADIUS;
 
@@ -208,7 +210,10 @@ export function reevaluateLordAi(state, lord) {
         // Faction-wide stable ordering concentrates an army on one objective
         // instead of spreading four lords across both enemy towns forever.
         const siegeTarget = eligibleSiegeTargets(state, lord)
-          .sort((first, second) => first.id.localeCompare(second.id))[0] || null;
+          .sort((first, second) => (
+            Number(state.player.fiefs.includes(second.id)) - Number(state.player.fiefs.includes(first.id)) ||
+            first.id.localeCompare(second.id)
+          ))[0] || null;
         const faction = getFaction(state, lord.factionId);
         if (siegeTarget && (CONFIG.DEMO || nextFloat(state.rng) < (faction?.aggression || 0))) {
           setLordIntent(lord, "attack", siegeTarget, "town");
