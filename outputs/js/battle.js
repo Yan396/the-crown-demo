@@ -19,19 +19,24 @@ import {
 import {
   addEvent,
   applyCasualties,
+  applyHpDamage,
   assignBanditMoveTarget,
+  averageHpPerSoldier,
   awardSurvivorXp,
   clamp,
   copyPosition,
   distance,
+  ensurePartyHp,
   getAverageDefense,
   getLord,
   getPartyStrength,
   getTroopCount,
   incrementTroop,
   isBattleScript,
+  hpPerSoldierFor,
   isV11State,
-  nearestTown
+  nearestTown,
+  partyHp
 } from "./state.js";
 
 const FORMATION_BEATS = Object.freeze({
@@ -159,6 +164,60 @@ export function lieutenantResistance(state) {
   const present = isV11State(state) && state?.player?.lieutenant?.id === "chen_mang";
   if (!present) return 1;
   return (1 + CONFIG_V11.LIEUTENANT_HP_BONUS) * (1 + CONFIG_V11.LIEUTENANT_DEFENSE_BONUS);
+}
+
+/*
+ * The unfloored casualty figure -- exactly the value calculateCasualties
+ * rounds down. v1.1 converts it into hitpoints instead of bodies, which is
+ * what lets a hit be non-lethal.
+ */
+function casualtyPotential(attackStrength, defender, multiplier, terrain = CONFIG.FIELD_TERRAIN) {
+  const defenders = getTroopCount(defender);
+  if (attackStrength <= 0 || defenders <= 0) return 0;
+  return (attackStrength * multiplier * terrain) / getAverageDefense(defender);
+}
+
+/**
+ * One v1.1 round, in hitpoints.
+ *
+ * Damage is converted at HP_DAMAGE_PER_CASUALTY soldiers' worth per resolved
+ * casualty, so v1.1 kills at roughly the v1.0 rate while allowing the damage
+ * in between to be visible. 陈莽 stands in front of the player's pool and
+ * soaks first, which is what makes his bar the one worth watching.
+ */
+function resolveHpRound(state, bandit, ctx) {
+  ensurePartyHp(state.player);
+  ensurePartyHp(bandit);
+  const battle = state.battle;
+
+  const toEnemy = casualtyPotential(
+    ctx.playerAttack, bandit, ctx.playerMultiplier / ctx.formation.enemy.defense
+  ) * averageHpPerSoldier(bandit) * CONFIG_V11.HP_DAMAGE_PER_CASUALTY;
+  const toPlayer = casualtyPotential(
+    ctx.banditAttack, state.player,
+    ctx.banditMultiplier / (ctx.formation.player.defense * ctx.playerResistance)
+  ) * averageHpPerSoldier(state.player) * CONFIG_V11.HP_DAMAGE_PER_CASUALTY;
+
+  let playerBound = toPlayer;
+  let lieutenantAbsorbed = 0;
+  if (Number.isFinite(battle.lieutenantHp) && battle.lieutenantHp > 0) {
+    lieutenantAbsorbed = Math.min(battle.lieutenantHp, playerBound);
+    battle.lieutenantHp -= lieutenantAbsorbed;
+    playerBound -= lieutenantAbsorbed;
+  }
+
+  const enemyDeaths = applyHpDamage(bandit, toEnemy);
+  const playerDeaths = applyHpDamage(state.player, playerBound);
+  return {
+    enemyDeaths,
+    playerDeaths,
+    enemyHpDealt: toEnemy,
+    playerHpDealt: toPlayer,
+    lieutenantAbsorbed,
+    lieutenantHp: Number.isFinite(battle.lieutenantHp) ? battle.lieutenantHp : null,
+    playerHpRemaining: partyHp(state.player),
+    enemyHpRemaining: partyHp(bandit)
+  };
 }
 
 function calculateCasualties(attackStrength, defender, multiplier, terrain = CONFIG.FIELD_TERRAIN) {
@@ -335,7 +394,12 @@ function buildTokenBuckets(roster, startTroops, fallbackType) {
     const capacity = Math.min(tokenWeight, total - offset);
     const troopType = troopTypeAt(roster, offset, fallbackType);
     tokens.push({ idx, troopType });
-    buckets.push({ idx, capacity, remaining: capacity });
+    buckets.push({
+      idx,
+      capacity,
+      remaining: capacity,
+      hpPerSoldier: hpPerSoldierFor(troopType)
+    });
   }
   return { tokens, buckets };
 }
@@ -458,6 +522,74 @@ function buildStrikeDrafts(rng, round, playerBuckets, enemyBuckets) {
   return shuffled(rng, drafts);
 }
 
+/*
+ * v1.1 strike shaping.
+ *
+ * The kill drafts are left exactly as v1.0 built them -- one per resolved
+ * casualty -- so the script still carries precisely the casualties the sim
+ * decided and validateBattleScript still balances. What v1.1 adds is the
+ * glancing blows in between, plus `hpAfter` on every strike so the stage can
+ * bind a bar to real numbers instead of estimating.
+ *
+ * Bucket hitpoints are walked in FINAL emission order, so hpAfter is
+ * monotonic as played.
+ */
+function addGlancingBlows(rng, round, playerBuckets, enemyBuckets, drafts) {
+  const sides = [
+    { from: "player", to: "enemy", buckets: enemyBuckets, attackers: playerBuckets,
+      hpDealt: round.enemyHpDealt || 0 },
+    { from: "enemy", to: "player", buckets: playerBuckets, attackers: enemyBuckets,
+      hpDealt: round.playerHpDealt || 0 }
+  ];
+  sides.forEach((side) => {
+    const live = side.buckets.filter((bucket) => bucket.hpPerSoldier > 0);
+    if (!live.length || side.hpDealt <= 0) return;
+    const perSoldier = live[0].hpPerSoldier;
+    const blowSize = Math.max(1, perSoldier * CONFIG_V11.HP_GLANCING_BLOW_FRACTION);
+    const blows = Math.max(1, Math.round(side.hpDealt / blowSize));
+    for (let index = 0; index < blows; index += 1) {
+      const from = chooseWeightedBucket(rng, side.attackers, false);
+      const to = live[randomInt(rng, 0, live.length)];
+      if (!from || !to) break;
+      drafts.push({
+        from: { side: side.from, idx: from.idx },
+        to: { side: side.to, idx: to.idx },
+        kill: false,
+        dmgShown: Math.max(1, Math.round(blowSize))
+      });
+    }
+  });
+  return drafts;
+}
+
+// Walk the emitted order and stamp each strike with the target's remaining
+// hitpoints. A kill drops the target one soldier; a glancing blow may not.
+function stampHpAfter(drafts, playerBuckets, enemyBuckets) {
+  const pools = { player: new Map(), enemy: new Map() };
+  [["player", playerBuckets], ["enemy", enemyBuckets]].forEach(([side, buckets]) => {
+    buckets.forEach((bucket) => {
+      pools[side].set(bucket.idx, {
+        hp: bucket.capacity * bucket.hpPerSoldier,
+        per: bucket.hpPerSoldier
+      });
+    });
+  });
+  drafts.forEach((draft) => {
+    const pool = pools[draft.to.side]?.get(draft.to.idx);
+    if (!pool) { draft.hpAfter = 0; return; }
+    const alive = Math.max(0, Math.ceil(pool.hp / pool.per));
+    if (draft.kill) {
+      pool.hp = Math.max(0, (alive - 1) * pool.per);
+    } else {
+      // Never let a glancing blow cross a head threshold.
+      const floorHp = Math.max(0, (alive - 1) * pool.per);
+      pool.hp = Math.max(floorHp + (alive > 0 ? 0.5 : 0), pool.hp - draft.dmgShown);
+    }
+    draft.hpAfter = Math.max(0, Math.round(pool.hp));
+  });
+  return drafts;
+}
+
 export function buildBattleScript(state, battle, result, winner) {
   const playerRoster = battle.playerStartRoster || reconstructRoster(
     state.player,
@@ -493,7 +625,13 @@ export function buildBattleScript(state, battle, result, winner) {
   rounds.forEach((round, roundIndex) => {
     const n = Math.max(1, Math.floor(round.n || roundIndex + 1));
     events.push({ t: roundTime, type: "round_start", n });
-    const drafts = buildStrikeDrafts(rng, round, playerSide.buckets, enemySide.buckets);
+    let drafts = buildStrikeDrafts(rng, round, playerSide.buckets, enemySide.buckets);
+    if (isV11State(state)) {
+      drafts = shuffled(rng, addGlancingBlows(
+        rng, round, playerSide.buckets, enemySide.buckets, drafts
+      ));
+      stampHpAfter(drafts, playerSide.buckets, enemySide.buckets);
+    }
     const waveCount = drafts.length >= 3 ? 3 : drafts.length >= 2 ? 2 : 1;
     drafts.forEach((draft, index) => {
       const beat = waveCount === 1 ? 0 : index % waveCount;
@@ -505,6 +643,7 @@ export function buildBattleScript(state, battle, result, winner) {
         to: draft.to,
         kill: draft.kill,
         dmgShown: draft.dmgShown,
+        ...(draft.hpAfter === undefined ? {} : { hpAfter: draft.hpAfter }),
         beat
       });
     });
@@ -876,8 +1015,26 @@ export function resolveBattleRound(state) {
     banditMultiplier / (formation.player.defense * playerResistance)
   );
 
-  const actualBanditLoss = applyCasualties(bandit, banditLoss);
-  const actualPlayerLoss = applyCasualties(state.player, playerLoss);
+  // v1.1 spends hitpoints; v1.0 removes whole soldiers. The two paths are
+  // exclusive and v1.0 never touches an hp field.
+  let actualBanditLoss;
+  let actualPlayerLoss;
+  let hpRound = null;
+  if (isV11State(state)) {
+    hpRound = resolveHpRound(state, bandit, {
+      playerAttack,
+      banditAttack,
+      playerMultiplier,
+      banditMultiplier,
+      formation,
+      playerResistance
+    });
+    actualBanditLoss = hpRound.enemyDeaths;
+    actualPlayerLoss = hpRound.playerDeaths;
+  } else {
+    actualBanditLoss = applyCasualties(bandit, banditLoss);
+    actualPlayerLoss = applyCasualties(state.player, playerLoss);
+  }
   battle.round += 1;
   battle.playerCasualties += actualPlayerLoss;
   battle.banditCasualties += actualBanditLoss;
@@ -890,7 +1047,14 @@ export function resolveBattleRound(state) {
     playerRemaining: getTroopCount(state.player),
     enemyRemaining: getTroopCount(bandit),
     playerStrengthRemaining: getPartyStrength(state.player),
-    enemyStrengthRemaining: getPartyStrength(bandit)
+    enemyStrengthRemaining: getPartyStrength(bandit),
+    ...(hpRound ? {
+      playerHpDealt: hpRound.playerHpDealt,
+      enemyHpDealt: hpRound.enemyHpDealt,
+      playerHpRemaining: hpRound.playerHpRemaining,
+      enemyHpRemaining: hpRound.enemyHpRemaining,
+      lieutenantHp: hpRound.lieutenantHp
+    } : {})
   });
   addEvent(state, "log.battleRound", {
     round: battle.round,
@@ -953,6 +1117,9 @@ export function startBattle(state, bandit, options = {}) {
     enemyStartRoster: cloneRoster(bandit),
     playerStartStrength: getPartyStrength(state.player),
     enemyStartStrength: getPartyStrength(bandit),
+    lieutenantHp: isV11State(state) && state.player.lieutenant?.id === "chen_mang"
+      ? CONFIG_V11.LIEUTENANT_HP
+      : null,
     startedAtTick: state.tick,
     nearTownId,
     elite,

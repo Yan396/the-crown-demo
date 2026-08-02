@@ -198,6 +198,20 @@ export function survivorsOf(side) {
  * Read-only: nothing here is written back, and the engine stays the single
  * source of truth for who dies and when.
  */
+export function hpCeilings(events) {
+  const ceilings = new Map();
+  events.forEach((event) => {
+    if (event.type !== "strike" || !event.to || !Number.isFinite(event.hpAfter)) return;
+    const key = `${event.to.side}:${event.to.idx}`;
+    // The first strike a token takes leaves it at its highest recorded hpAfter,
+    // so that value plus one blow is the closest honest read on its full pool.
+    if (!ceilings.has(key)) {
+      ceilings.set(key, event.hpAfter + Math.max(1, Number(event.dmgShown) || 1));
+    }
+  });
+  return ceilings;
+}
+
 export function damageBudgets(events) {
   const budgets = new Map();
   const running = new Map();
@@ -441,6 +455,7 @@ export function createBattleStage(host, options = {}) {
   function spawnSide(sideKey) {
     const side = script.sides[sideKey];
     const budgets = damageBudgets(script.events);
+    const hpMaxes = hpCeilings(script.events);
     const rankHost = root.querySelector(`.stage-ranks-${sideKey}`);
     const shown = side.tokens.length;
     // Each side gets ~42% of the stage width. Choose the rank depth that fits
@@ -488,6 +503,8 @@ export function createBattleStage(host, options = {}) {
       token.hpBar = bar;
       token.damageTaken = 0;
       token.damageBudget = budgets.get(`${sideKey}:${token.idx}`) || 0;
+      token.hpMax = hpMaxes.get(`${sideKey}:${token.idx}`) || 0;
+      token.hpCurrent = token.hpMax;
       const scatter = layout ? FORMATION_SHAPE.JITTER_SCALE : 1;
       const jx = (roll() - 0.5) * 14 * scatter;
       const jy = (roll() - 0.5) * 10 * scatter;
@@ -660,11 +677,15 @@ export function createBattleStage(host, options = {}) {
     if (!token?.hpNode) return;
     const budget = token.damageBudget;
     // Dead is dead regardless of the arithmetic: capacity is the authority.
+    // v1.1 scripts carry hpAfter, so the bar is the engine's own number. Older
+    // scripts fall back to the derived budget.
     const ratio = token.capacity <= 0
       ? 0
-      : budget > 0
-        ? Math.max(0, Math.min(1, 1 - token.damageTaken / budget))
-        : 1;
+      : token.hpMax > 0
+        ? Math.max(0, Math.min(1, token.hpCurrent / token.hpMax))
+        : budget > 0
+          ? Math.max(0, Math.min(1, 1 - token.damageTaken / budget))
+          : 1;
     token.hpNode.style.transform = `scaleX(${ratio.toFixed(3)})`;
     token.hpBar.classList.toggle("is-low", ratio > 0 && ratio < P.HP_LOW_RATIO);
   }
@@ -827,6 +848,7 @@ export function createBattleStage(host, options = {}) {
     burst(point.x, point.y - 16);
     damageNumber(point.x, point.y, event.dmgShown, event.kill);
     target.damageTaken += Math.max(0, Number(event.dmgShown) || 0);
+    if (Number.isFinite(event.hpAfter)) target.hpCurrent = Math.max(0, event.hpAfter);
 
     if (event.kill) {
       const emptied = applyKill(event);
