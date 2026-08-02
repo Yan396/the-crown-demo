@@ -57,6 +57,7 @@ export const CONFIG_PRESENTATION = Object.freeze({
   FLEE_VAR_MS: 700,
   VICTORY_HOLD_MS: 500,       // winners hold their weapons up before the seal
   SEAL_TO_TALLY_MS: 400,      // the tally must not land on top of the field
+  TALLY_VIEWPORT_MARGIN_PX: 8,
 
   /* -- shared -------------------------------------------------------------- */
   ARROW_FLIGHT_MS: 620,

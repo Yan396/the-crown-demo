@@ -872,7 +872,13 @@ export function createBattleStage(host, options = {}) {
     // Dock it to the paper's lower edge, measured rather than assumed, so it
     // rises into the empty space under the sheet at any viewport height.
     const paper = root.querySelector(".stage-paper");
-    if (paper) tally.style.top = `${Math.round(paper.getBoundingClientRect().bottom)}px`;
+    if (paper) {
+      // Clamp to the viewport: with a full-height battlefield the paper's lower
+      // edge can sit close enough to the bottom that the panel would slide off.
+      const below = paper.getBoundingClientRect().bottom;
+      const room = window.innerHeight - tally.offsetHeight - P.TALLY_VIEWPORT_MARGIN_PX;
+      tally.style.top = `${Math.round(Math.max(0, Math.min(below, room)))}px`;
+    }
     // The seal lands first; the tally slides up from under the field a beat
     // later, so it never covers the ranks it is reporting on.
     if (!skipped && !reducedMotion.matches) {
