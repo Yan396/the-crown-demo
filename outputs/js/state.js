@@ -380,6 +380,8 @@ export function createInitialState(seed = CONFIG.SEED, options = {}) {
     demo,
     ending: { complete: false, visible: false, tick: null },
     battle: null,
+    battleScript: null,
+    battlePlayback: { speed: 1, skip: false },
     nextBanditId: 1
   };
 
@@ -413,6 +415,159 @@ function isParty(value) {
     value && isPosition(value.pos) && isTroopArray(value.troops)
     && (value.moveTarget === null || isPosition(value.moveTarget))
   );
+}
+
+function hasExactKeys(value, expected) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const actual = Object.keys(value).sort();
+  const wanted = expected.slice().sort();
+  return actual.length === wanted.length && actual.every((key, index) => key === wanted[index]);
+}
+
+function isScriptSide(value) {
+  if (!hasExactKeys(value, ["label", "tokens", "startTroops"])) return false;
+  if (typeof value.label !== "string") return false;
+  if (!Number.isSafeInteger(value.startTroops) || value.startTroops < 0) return false;
+  if (!Array.isArray(value.tokens) || value.tokens.length > 24) return false;
+  const tokenWeight = value.startTroops > 0 ? Math.ceil(value.startTroops / 24) : 1;
+  const expectedTokens = value.startTroops > 0 ? Math.ceil(value.startTroops / tokenWeight) : 0;
+  return value.tokens.length === expectedTokens && value.tokens.every((token, index) => (
+    hasExactKeys(token, ["idx", "troopType"]) &&
+    token.idx === index &&
+    Object.hasOwn(TROOP_TYPES, token.troopType)
+  ));
+}
+
+function isScriptReference(value, sides) {
+  return Boolean(
+    hasExactKeys(value, ["side", "idx"]) &&
+    ["player", "enemy"].includes(value.side) &&
+    Number.isSafeInteger(value.idx) &&
+    value.idx >= 0 &&
+    value.idx < sides[value.side].tokens.length
+  );
+}
+
+export function isBattleScript(value) {
+  if (!hasExactKeys(value, ["battleId", "terrain", "sides", "events"])) return false;
+  if (typeof value.battleId !== "string" || !value.battleId.length) return false;
+  if (!["field", "town"].includes(value.terrain)) return false;
+  if (!hasExactKeys(value.sides, ["player", "enemy"])) return false;
+  if (!isScriptSide(value.sides.player) || !isScriptSide(value.sides.enemy)) return false;
+  if (!Array.isArray(value.events) || value.events.length < 2) return false;
+
+  let previousTime = -1;
+  let battleStarts = 0;
+  let battleEnds = 0;
+  let roundStarts = 0;
+  let firstRoundTime = Infinity;
+  const moraleSides = new Set();
+  const routSides = new Set();
+  const casualtyCounts = { player: 0, enemy: 0 };
+  const casualtiesByToken = { player: new Map(), enemy: new Map() };
+
+  for (let index = 0; index < value.events.length; index += 1) {
+    const event = value.events[index];
+    if (!event || !Number.isSafeInteger(event.t) || event.t < 0 || event.t < previousTime) {
+      return false;
+    }
+    previousTime = event.t;
+    if (event.type === "battle_start") {
+      if (!hasExactKeys(event, ["t", "type"]) || index !== 0) return false;
+      battleStarts += 1;
+      continue;
+    }
+    if (event.type === "volley") {
+      if (!hasExactKeys(event, ["t", "type", "side", "arrows"])) return false;
+      if (
+        value.terrain !== "town" ||
+        event.side !== "defender" ||
+        !Number.isSafeInteger(event.arrows) ||
+        event.arrows <= 0 ||
+        event.t >= firstRoundTime
+      ) return false;
+      continue;
+    }
+    if (event.type === "round_start") {
+      if (!hasExactKeys(event, ["t", "type", "n"])) return false;
+      if (!Number.isSafeInteger(event.n) || event.n <= 0) return false;
+      roundStarts += 1;
+      firstRoundTime = Math.min(firstRoundTime, event.t);
+      continue;
+    }
+    if (event.type === "strike") {
+      if (!hasExactKeys(event, ["t", "type", "from", "to", "kill", "dmgShown", "beat"])) {
+        return false;
+      }
+      if (roundStarts <= 0) return false;
+      if (!isScriptReference(event.from, value.sides) || !isScriptReference(event.to, value.sides)) {
+        return false;
+      }
+      if (event.from.side === event.to.side || typeof event.kill !== "boolean") return false;
+      if (!Number.isSafeInteger(event.dmgShown) || event.dmgShown < 0) return false;
+      if (![0, 1, 2].includes(event.beat)) return false;
+      if (event.kill) {
+        casualtyCounts[event.to.side] += 1;
+        const byToken = casualtiesByToken[event.to.side];
+        byToken.set(event.to.idx, (byToken.get(event.to.idx) || 0) + 1);
+      }
+      continue;
+    }
+    if (event.type === "morale") {
+      if (!hasExactKeys(event, ["t", "type", "side", "level"])) return false;
+      if (!["player", "enemy"].includes(event.side)) return false;
+      if (!["steady", "wavering"].includes(event.level) || moraleSides.has(event.side)) return false;
+      moraleSides.add(event.side);
+      continue;
+    }
+    if (event.type === "rout") {
+      if (!hasExactKeys(event, ["t", "type", "side"])) return false;
+      if (!["player", "enemy"].includes(event.side) || routSides.has(event.side)) return false;
+      routSides.add(event.side);
+      continue;
+    }
+    if (event.type === "battle_end") {
+      if (!hasExactKeys(event, ["t", "type", "winner", "loot", "survivors"])) return false;
+      if (index !== value.events.length - 1 || !["player", "enemy"].includes(event.winner)) {
+        return false;
+      }
+      if (!hasExactKeys(event.loot, ["gold", "renown"])) return false;
+      if (!hasExactKeys(event.survivors, ["player", "enemy"])) return false;
+      if (
+        !Number.isSafeInteger(event.loot.gold) || event.loot.gold < 0 ||
+        !Number.isSafeInteger(event.loot.renown) || event.loot.renown < 0
+      ) return false;
+      for (const side of ["player", "enemy"]) {
+        if (
+          !Number.isSafeInteger(event.survivors[side]) ||
+          event.survivors[side] < 0 ||
+          event.survivors[side] > value.sides[side].startTroops ||
+          casualtyCounts[side] !== value.sides[side].startTroops - event.survivors[side]
+        ) return false;
+      }
+      battleEnds += 1;
+      continue;
+    }
+    return false;
+  }
+
+  if (battleStarts !== 1 || battleEnds !== 1) return false;
+  for (const side of ["player", "enemy"]) {
+    const startTroops = value.sides[side].startTroops;
+    const tokenWeight = startTroops > 0 ? Math.ceil(startTroops / 24) : 1;
+    for (const [idx, casualties] of casualtiesByToken[side]) {
+      const capacity = Math.min(tokenWeight, startTroops - idx * tokenWeight);
+      if (casualties > capacity) return false;
+    }
+  }
+  return true;
+}
+
+function normalizeBattlePlayback(value) {
+  return {
+    speed: value?.speed === 2 ? 2 : 1,
+    skip: value?.skip === true
+  };
 }
 
 export function isValidState(value) {
@@ -453,6 +608,12 @@ export function isValidState(value) {
   ) return false;
   if (!Number.isSafeInteger(value.nextBanditId) || value.nextBanditId < 1) return false;
   if (value.battle !== null && (!value.battle || typeof value.battle.banditId !== "string")) return false;
+  if (value.battleScript !== null && !isBattleScript(value.battleScript)) return false;
+  if (
+    !value.battlePlayback ||
+    ![1, 2].includes(value.battlePlayback.speed) ||
+    typeof value.battlePlayback.skip !== "boolean"
+  ) return false;
   return true;
 }
 
@@ -526,6 +687,8 @@ function migrateState(state) {
     visible: Boolean(state.demo.ended),
     tick: state.demo.endingTick ?? null
   };
+  state.battleScript = isBattleScript(state.battleScript) ? state.battleScript : null;
+  state.battlePlayback = normalizeBattlePlayback(state.battlePlayback);
   if (legacy) {
     state.eventLog = (state.eventLog || []).slice().reverse();
     state.demo.modal = "onboarding";

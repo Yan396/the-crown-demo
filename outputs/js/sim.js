@@ -9,7 +9,9 @@ import {
 import {
   checkForEncounter,
   resolveAiBattle,
-  resolveBattleRound
+  resolveBattleRound,
+  skipBattle,
+  validateBattleScript
 } from "./battle.js";
 import {
   applyCasualSpawnBalance,
@@ -713,11 +715,45 @@ export function worldTick(state) {
   });
 
   let battleResult = null;
-  if (state.battle && state.tick >= state.battle.nextRoundTick) {
+  if (state.battle && state.battlePlayback?.skip) {
+    // `skip` is a one-shot resolution latch. The presentation that set it
+    // owns the decision not to play the resulting timeline; speed remains a
+    // persistent presentation preference.
+    battleResult = skipBattle(state);
+    state.battlePlayback.skip = false;
+  } else if (state.battle && state.tick >= state.battle.nextRoundTick) {
     battleResult = resolveBattleRound(state);
   }
   if (!battleAtTickStart && !state.battle) {
     battleResult = checkForEncounter(state) || battleResult;
+  }
+  let battleScriptCheck = null;
+  if (
+    battleResult &&
+    state.autoplay?.enabled &&
+    ["victory", "defeat", "fled"].includes(battleResult.type)
+  ) {
+    battleScriptCheck = validateBattleScript(state.battleScript, {
+      casualties: battleResult.resolvedCasualties,
+      survivors: battleResult.resolvedSurvivors
+    });
+    if (!battleScriptCheck.ok) {
+      throw new Error(`Autoplay battleScript mismatch: ${battleScriptCheck.errors.join(", ")}`);
+    }
+    state.autoplay.battleScriptsChecked = Math.max(
+      0,
+      Number(state.autoplay.battleScriptsChecked) || 0
+    ) + 1;
+    if (state.autoplay.battleScriptsChecked !== state.stats.battles) {
+      throw new Error(
+        `Autoplay battleScript coverage mismatch: checked ${state.autoplay.battleScriptsChecked}, battles ${state.stats.battles}`
+      );
+    }
+    if (typeof globalThis.document !== "undefined") {
+      console.info(
+        `[CROWN autoplay] battleScript ${state.autoplay.battleScriptsChecked}/${state.stats.battles}: ok`
+      );
+    }
   }
   if (battleResult && state.autoplay?.enabled) {
     const catchupActive = (
@@ -761,6 +797,7 @@ export function worldTick(state) {
     dailyEconomyResult,
     spawnBalance,
     roadEventResult,
+    battleScriptCheck,
     progression: progressionHook(state),
     events: eventsSince(state, previousNewestEvent)
   };
@@ -877,6 +914,7 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
   let firstEventSeconds = null;
   let act2Seconds = null;
   let endingSeconds = null;
+  let battleScriptsChecked = 0;
 
   while (state.telemetry.totalActiveSeconds < maximumActiveSeconds && !state.demo.ended) {
     const burst = Math.max(1, CONFIG.AUTOPLAY_MULTIPLIER);
@@ -887,6 +925,7 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
         continue;
       }
       const activeSeconds = state.telemetry.totalActiveSeconds;
+      if (result.battleScriptCheck?.ok) battleScriptsChecked += 1;
       if (firstBattleSeconds === null && state.stats.battles > 0) firstBattleSeconds = activeSeconds;
       if (firstEventSeconds === null && result.roadEventResult?.triggered) {
         firstEventSeconds = activeSeconds;
@@ -902,12 +941,18 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
   }
 
   if (state.demo.ended && endingSeconds === null) endingSeconds = state.telemetry.totalActiveSeconds;
+  if (state.demo.ended && battleScriptsChecked !== state.stats.battles) {
+    throw new Error(
+      `Autoplay battleScript coverage mismatch: checked ${battleScriptsChecked}, battles ${state.stats.battles}`
+    );
+  }
   return {
     state,
     firstBattleSeconds,
     firstEventSeconds,
     act2Seconds,
     endingSeconds,
+    battleScriptsChecked,
     activeSeconds: state.telemetry.totalActiveSeconds,
     targets: {
       firstBattleMax: CONFIG.AUTOPLAY_FIRST_BATTLE_TARGET_SECONDS,
