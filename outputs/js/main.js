@@ -49,7 +49,19 @@ import { createUi } from "./ui.js";
 
 const canvas = document.getElementById("map");
 const query = new URLSearchParams(window.location.search);
-const v11Enabled = query.get("v") === "1.1";
+// F1 act 1: v1.1 (formation RPS + 陈莽) stops being a URL experiment and
+// becomes the FULL build's baseline -- it is on unconditionally whenever this
+// is not the demo build.
+//
+// The demo build keeps the ?v=1.1 opt-in on purpose: the friend-test URLs and
+// the result codes coming back from them have to keep meaning what they meant
+// when they were handed out (GLOBAL RULE 5 treats that telemetry as tuning
+// input, so its baseline must not shift under it).
+//
+// DEMO stays true until Act 3 is playable; flipping it is the F1 ship gate,
+// not this commit, because main has to stay playable end to end (RULE 5).
+const fullVersion = !CONFIG.DEMO;
+const v11Enabled = fullVersion || query.get("v") === "1.1";
 const autoplayEnabled = query.get("autoplay") === "1";
 const holdAutoplayRoadEvents = autoplayEnabled && query.get("qa") === "1" && query.get("holdEvents") === "1";
 const holdAutoplayFormations = autoplayEnabled && query.get("qa") === "1" && query.get("holdFormations") === "1";
