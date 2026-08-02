@@ -8,7 +8,8 @@
  * moments is exactly what would make it stop meaning anything.
  */
 
-const reducedMotion = typeof window.matchMedia === "function"
+// Import-safe outside a browser; the suite smoke-imports every module in Node.
+const reducedMotion = typeof window !== "undefined" && typeof window.matchMedia === "function"
   ? window.matchMedia("(prefers-reduced-motion: reduce)")
   : { matches: false };
 

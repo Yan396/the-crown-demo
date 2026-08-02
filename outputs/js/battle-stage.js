@@ -20,7 +20,9 @@ import { stampSeal } from "./seal.js";
  * discarded on dispose().
  */
 
-const reducedMotion = typeof window.matchMedia === "function"
+// Module scope must stay import-safe outside a browser: the test suite imports
+// every production module in Node to smoke them.
+const reducedMotion = typeof window !== "undefined" && typeof window.matchMedia === "function"
   ? window.matchMedia("(prefers-reduced-motion: reduce)")
   : { matches: false };
 
