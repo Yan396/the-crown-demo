@@ -45,16 +45,19 @@ const holdAutoplayRoadEvents = autoplayEnabled && query.get("qa") === "1" && que
 const seedParameter = query.get("seed");
 const requestedSeed = seedParameter === null ? Number.NaN : Number(seedParameter);
 const autoplaySeed = Number.isFinite(requestedSeed) ? requestedSeed >>> 0 : CONFIG.SEED;
+const qaFreshEnabled = !autoplayEnabled && query.get("qa") === "1" && query.get("fresh") === "1";
 
 let state = autoplayEnabled
   ? createInitialState(autoplaySeed, { startedAt: new Date(0).toISOString() })
-  : loadState();
+  : qaFreshEnabled
+    ? createInitialState(autoplaySeed, { skipOnboarding: true, startedAt: new Date(0).toISOString() })
+    : loadState();
 const loadedExistingState = Boolean(state);
 if (!state) state = createInitialState(CONFIG.SEED);
 startTelemetrySession(state);
 
 const renderer = createMapRenderer(canvas);
-let saveAvailable = autoplayEnabled ? true : (loadedExistingState || saveState(state));
+let saveAvailable = autoplayEnabled || qaFreshEnabled ? true : (loadedExistingState || saveState(state));
 let logicAccumulator = 0;
 let lastFrameAt = performance.now();
 let activePointerId = null;
@@ -85,7 +88,7 @@ const perf = {
 window.__CROWN_PERF__ = perf;
 
 function persist(showFailure = false) {
-  if (autoplayEnabled) return true;
+  if (autoplayEnabled || qaFreshEnabled) return true;
   saveAvailable = saveState(state);
   if (!saveAvailable && showFailure) ui.showToast("toast.saveFailed");
   return saveAvailable;
@@ -487,7 +490,7 @@ canvas.addEventListener("pointercancel", finishPointer);
 window.addEventListener("resize", () => renderer.resize(state.player.pos));
 
 function saveQuitPoint(screen) {
-  if (autoplayEnabled) return;
+  if (autoplayEnabled || qaFreshEnabled) return;
   recordQuitPoint(state, screen);
   saveState(state);
 }

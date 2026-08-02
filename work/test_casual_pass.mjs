@@ -593,6 +593,8 @@ test("events: every tap emits exact feedback, a numeric report, and effectsAppli
   assert.match(ui, /refs\.recruit\.addEventListener\(["']click["'][^\n]*onRecruit/);
   assert.match(ui, /refs\.roadEventChoiceA\.addEventListener\(["']click["'][^\n]*onRoadEventChoice\(0\)/);
   assert.match(ui, /refs\.roadEventChoiceB\.addEventListener\(["']click["'][^\n]*onRoadEventChoice\(1\)/);
+  assert.match(main, /qaFreshEnabled[\s\S]{0,180}skipOnboarding:\s*true/);
+  assert.match(main, /autoplayEnabled\s*\|\|\s*qaFreshEnabled[\s\S]{0,80}return true/);
 });
 
 test("rubber band: two consecutive losses cap the next two encounters at 0.7x", () => {
