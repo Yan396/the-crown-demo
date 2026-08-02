@@ -1,4 +1,5 @@
 import { CONFIG } from "./data.js";
+import { STRINGS } from "./strings.js";
 import {
   areBanditBattlesBlocked,
   consumePlayerAttackMultiplier,
@@ -240,10 +241,12 @@ function ensureBattleCapture(state, battle, bandit) {
   return battle;
 }
 
+// The script contract keeps `label` a plain string, but the copy itself lives
+// in strings.js like every other display string -- no module outside strings.js
+// carries hardcoded copy.
 function sideLabels(state) {
-  return state.settings?.language === "en"
-    ? { player: "Player", enemy: "Bandits" }
-    : { player: "我军", enemy: "匪队" };
+  const stage = (STRINGS[state.settings?.language] || STRINGS.zh).stage;
+  return { player: stage.sidePlayer, enemy: stage.sideEnemy };
 }
 
 function buildStrikeDrafts(rng, round, playerBuckets, enemyBuckets) {
