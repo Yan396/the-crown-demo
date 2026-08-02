@@ -27,7 +27,7 @@ const DEMO_ONLY = new Set([
 const ALL = [
   "test_phase25", "test_casual_pass", "test_decode_acceptance", "test_final_roads",
   "test_battle_script", "test_stage_contract", "test_prompt_a", "test_gameplay_depth",
-  "test_v11", "test_v11_hp", "test_f1_act3"
+  "test_v11", "test_v11_hp", "test_battle_integrity", "test_f1_act3"
 ];
 
 const variant = process.argv[2] === "demo" ? "demo" : "full";

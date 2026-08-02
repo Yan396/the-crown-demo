@@ -138,18 +138,12 @@ export function spawnScaledBandit(state, options = {}) {
   return bandit;
 }
 
-function rescaleEliteIfNeeded(state, elite) {
-  if (state.battle) return;
-  const playerStrength = Math.max(TROOP_TYPES.militia.atk, getPartyStrength(state.player));
-  const eliteStrength = getPartyStrength(elite);
-  const minimumStrength = playerStrength * CONFIG.ELITE_BANDIT_STRENGTH_MIN;
-  const maximumStrength = playerStrength * CONFIG.ELITE_BANDIT_STRENGTH_MAX;
-  if (eliteStrength < minimumStrength || eliteStrength > maximumStrength) {
-    applyBanditProfile(state, elite, true, true);
-  }
-}
-
 export function ensureEliteBandit(state) {
+  state.mechanics ||= {};
+  state.mechanics.eliteRespawnReadyTick = Math.max(
+    0,
+    Number(state.mechanics.eliteRespawnReadyTick) || 0
+  );
   const elites = state.bandits
     .filter((bandit) => bandit.elite || bandit.isElite)
     .sort((first, second) => first.id.localeCompare(second.id));
@@ -159,6 +153,13 @@ export function ensureEliteBandit(state) {
   }
 
   let elite = elites[0] || null;
+  if (elite) {
+    // Elite strength belongs to the moment it spawned. Player growth must not
+    // silently rewrite an existing party on a later living-world tick.
+    state.mechanics.eliteRespawnReadyTick = 0;
+    return elite;
+  }
+  if (state.tick < state.mechanics.eliteRespawnReadyTick) return null;
   if (!elite) {
     // Keep the closest early-game target ordinary: the elite is promoted from
     // the bandit already farthest from the player.
@@ -182,8 +183,7 @@ export function ensureEliteBandit(state) {
       elite = spawnScaledBandit(state, { elite: true });
     }
   }
-
-  rescaleEliteIfNeeded(state, elite);
+  if (elite) state.mechanics.eliteRespawnReadyTick = 0;
   return elite;
 }
 
@@ -205,7 +205,11 @@ export function normalizeBandits(state) {
 export function removeBanditAndMaintainElite(state, banditId) {
   const removed = state.bandits.find((bandit) => bandit.id === banditId) || null;
   state.bandits = state.bandits.filter((bandit) => bandit.id !== banditId);
-  if (removed?.elite || removed?.isElite) spawnScaledBandit(state, { elite: true });
+  if (removed?.elite || removed?.isElite) {
+    state.mechanics ||= {};
+    state.mechanics.eliteRespawnReadyTick = state.tick
+      + CONFIG.ELITE_RESPAWN_COOLDOWN_DAYS * CONFIG.TICKS_PER_DAY;
+  }
   else ensureEliteBandit(state);
   return removed;
 }
@@ -217,6 +221,10 @@ export function ensureLivingState(state) {
   state.stats.wagesPaid = Math.max(0, Number(state.stats.wagesPaid) || 0);
   state.stats.contractGold = Math.max(0, Number(state.stats.contractGold) || 0);
   state.mechanics ||= {};
+  state.mechanics.eliteRespawnReadyTick = Math.max(
+    0,
+    Number(state.mechanics.eliteRespawnReadyTick) || 0
+  );
   [
     "contractsAccepted",
     "contractBattles",

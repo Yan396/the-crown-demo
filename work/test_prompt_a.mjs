@@ -215,7 +215,7 @@ test("ending DOM order, share payload, and decoder include the chronicle timelin
   assert.match(css, /\.ending-chronicle\s*\{[^}]*list-style:\s*none/s);
   assert.match(css, /\.ending-chronicle li\s*\{[^}]*min-height:\s*min\(36svh,\s*304px\)/s);
 
-  const result = simulateAutoplay(CONFIG.SEED, { multiplier: 20, maxActiveSeconds: 1800 });
+  const result = simulateAutoplay(CONFIG.SEED, { multiplier: 20, maxActiveSeconds: 1800, v11: true });
   assert.equal(result.state.demo.ended, true);
   const entries = buildChronicleEntries(result.state.telemetry, "zh");
   assert.ok(entries.length >= 3 && entries.length <= 5);

@@ -240,20 +240,11 @@ body.has-fief #stats {
   margin: 1px 0 0;
   background: none;
   color: var(--cinnabar-on-lacquer);
+  font-size: 7px;
 }
 
 #gold-promise.exceeded {
   top: calc(max(10px, env(safe-area-inset-top)) + 77px);
-}
-
-body.has-troop-overshoot #troop-value,
-body.has-gold-overshoot #gold-value {
-  visibility: hidden;
-}
-
-body.battle-active.has-troop-overshoot #troop-value,
-body.battle-active.has-gold-overshoot #gold-value {
-  visibility: visible;
 }
 
 /* Counter lands on its new value with a single small settle. */
@@ -680,7 +671,6 @@ body.battle-active #stats .stat {
 }
 
 body.battle-active #stats .stat-head,
-body.battle-active #stats .stat > strong,
 body.battle-active #stats .promise-marker:not(.exceeded) {
   display: none !important;
 }
@@ -2512,6 +2502,27 @@ body.contract-open #town-sheet {
   pointer-events: none !important;
 }
 
+.stage-speed {
+  position: fixed;
+  z-index: 6;
+  top: max(82px, calc(env(safe-area-inset-top) + 72px));
+  right: 18px;
+  min-width: 58px;
+  min-height: 34px;
+  border: 1px solid var(--rule-on-paper);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 3px 12px rgba(28, 25, 22, 0.28);
+  font: 700 11px/1 var(--font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+.stage-speed:active {
+  transform: scale(0.96);
+}
+
 @keyframes stage-fade {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -3042,7 +3053,7 @@ body.battle-stage-open #town-sheet {
 .stage-plates {
   display: flex;
   justify-content: space-between;
-  padding: 12px 16px 0;
+  padding: 12px 72px 0 16px;
 }
 
 .stage-plate b {
@@ -3097,6 +3108,10 @@ body.battle-stage-open #town-sheet {
 
 .battle-stage.is-fast .stage-token {
   animation-duration: calc(var(--sway) * 0.5);
+}
+
+.battle-stage.is-very-fast .stage-token {
+  animation-duration: calc(var(--sway) * 0.25);
 }
 
 .battle-stage.is-shaking .stage-paper {
