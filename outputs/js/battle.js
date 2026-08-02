@@ -571,6 +571,11 @@ export function buildBattleScript(state, battle, result, winner) {
       player: battle.formations?.player || "line",
       enemy: battle.formations?.enemy || "line"
     };
+    // Presentation marker only, and a top-level key like `formations` rather
+    // than a side field: a side's shape is fixed by the contract. It names the
+    // side he rides with; he is not a troop and holds no token capacity, so
+    // survivor accounting is untouched.
+    if (state.player.lieutenant?.id === "chen_mang") script.lieutenant = "player";
   }
   return script;
 }

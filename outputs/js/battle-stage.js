@@ -92,6 +92,7 @@ export function normalizeScript(raw) {
     sides,
     events: raw.events.slice().sort((first, second) => first.t - second.t)
   };
+  if (raw.lieutenant === "player") normalized.lieutenant = "player";
   if (raw.formations) {
     normalized.formations = {
       player: raw.formations.player || "line",
@@ -267,10 +268,44 @@ function banditFigure() {
   );
 }
 
+// 陈莽, the v1.1 lieutenant. He has to be findable in a crowd at a glance, so
+// every silhouette cue is pushed: tallest mass, a crested topknot breaking the
+// head outline, a cape falling behind the legs, a tall command banner, and a
+// guandao whose blade and shaft leave the body outline on both sides.
+//
+// Drawn in the same 32x34 box as everyone else but filling far more of it --
+// scaling a normal figure would just make a bigger militiaman, and the read
+// has to come from shape, not size alone.
+function lieutenantFigure() {
+  return (
+    // Command banner, tall and behind everything.
+    '<path d="M7.4 13 3.4 0.6 5.1 0.2 9.1 12.6Z"/>' +
+    '<path class="fig-accent" d="M4.1 1.1Q0.4 2.6 -1.8 0.9Q0 5.6 5.1 4.4Z"/>' +
+    // Cape: one heavy sweep from the shoulders past the knees.
+    '<path d="M8.4 9.6Q13 7.4 17.6 9.6L19.4 25.8Q13 28.6 6.4 25.8Z"/>' +
+    // Guandao held across the body, blade high and butt low.
+    '<g class="fig-melee">' +
+    '<path d="M5.6 30.4 25.8 3.4 27.6 4.8 7.4 31.8Z"/>' +
+    '<path d="M24.4 4.6Q30.4 1.2 30.8 -1.4Q32.4 3.6 27.2 8.2Z"/>' +
+    "</g>" +
+    // Head with a crested topknot.
+    '<circle cx="13" cy="5.2" r="3.5"/>' +
+    '<path d="M10.6 2.6Q13 -2.2 15.6 2.6Q13.4 1.2 10.6 2.6Z"/>' +
+    '<path d="M12.2 -0.6 13.9 -0.6 13.4 2.4 12.7 2.4Z"/>' +
+    // Torso: broader than a veteran, with a hard shoulder line.
+    '<path d="M7.6 9.8Q13 6.8 18.4 9.8L19.2 22.4Q13 25 6.8 22.4Z"/>' +
+    '<path d="M7.2 10.1Q13 6.6 18.8 10.1Q19.3 12.9 18.3 14Q13 11 7.7 14Q6.7 12.9 7.2 10.1Z"/>' +
+    '<path d="M9 22.8 7.4 32Q9 32.9 10.7 32L11.4 23.4Z"/>' +
+    '<path d="M14.6 23.4 16.4 32Q18.1 32.9 19.6 32L17.2 22.8Z"/>' +
+    '<path class="fig-accent" d="M8.2 18.6Q13 20.2 17.8 18.6L18.2 21Q13 22.6 7.8 21Z"/>'
+  );
+}
+
 const FIGURES = {
   militia: militiaFigure,
   veteran: veteranFigure,
-  bandit: banditFigure
+  bandit: banditFigure,
+  lieutenant: lieutenantFigure
 };
 
 function figureSvg(troopType) {
@@ -397,9 +432,15 @@ export function createBattleStage(host, options = {}) {
         row = placed.rank;
         column = index;
       }
+      // The lieutenant takes the leading position of his own side. He replaces
+      // no soldier: the token keeps its troopType and capacity, only the drawn
+      // figure changes, so survivor accounting is unaffected.
+      const isLieutenant = script.lieutenant === sideKey && index === 0;
       const node = document.createElement("i");
-      node.className = `stage-token unit-${token.troopType || "militia"}`;
-      node.innerHTML = figureSvg(token.troopType);
+      node.className = isLieutenant
+        ? `stage-token unit-${token.troopType || "militia"} is-lieutenant`
+        : `stage-token unit-${token.troopType || "militia"}`;
+      node.innerHTML = figureSvg(isLieutenant ? "lieutenant" : token.troopType);
       const scatter = layout ? FORMATION_SHAPE.JITTER_SCALE : 1;
       const jx = (roll() - 0.5) * 14 * scatter;
       const jy = (roll() - 0.5) * 10 * scatter;

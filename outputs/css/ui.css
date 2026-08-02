@@ -2572,6 +2572,15 @@ body.battle-stage-open #town-sheet {
 .stage-ranks-player .fig-accent { fill: var(--cinnabar); }
 .stage-ranks-enemy .fig-accent { display: none; }
 
+/* v1.1 lieutenant: a head taller than the line he leads, so he is findable in
+   a crowd before you read anything. Scaled from the feet so he still stands on
+   the rank line. */
+.stage-token.is-lieutenant {
+  width: 48px;
+  height: 58px;
+  z-index: 2;
+}
+
 /* -- wall archers ----------------------------------------------------------- */
 /* Terrain scenery for a town fight, not a unit: they stand on the wall, belong
    to neither roster, and no troop token is ever swapped for a bow. */
