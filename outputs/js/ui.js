@@ -1,6 +1,6 @@
 import { stampSeal } from "./seal.js";
 import { getBattleEnemy } from "./battle.js";
-import { CONFIG, ROAD_EVENTS } from "./data.js";
+import { CONFIG, LIEUTENANT_EVENTS, ROAD_EVENTS } from "./data.js";
 import { buildChronicleEntries } from "./chronicle.js";
 import { actTroopCap, getDailyWage } from "./demo.js";
 import { getTavernContracts, townRecruitPrice } from "./sim.js";
@@ -10,7 +10,8 @@ import {
   getLord,
   getPartyStrength,
   getTown,
-  getTroopCount
+  getTroopCount,
+  isV11State
 } from "./state.js";
 import { buildResultCode } from "./telemetry.js";
 import { lordName, translate } from "./strings.js";
@@ -19,6 +20,7 @@ const reducedMotion = typeof window.matchMedia === "function"
   ? window.matchMedia("(prefers-reduced-motion: reduce)")
   : { matches: false };
 const numberBudgetDiagnostics = new URLSearchParams(window.location.search).get("qa") === "1";
+const ALL_ROAD_EVENTS = [...ROAD_EVENTS, ...LIEUTENANT_EVENTS];
 
 function motionOff() {
   return reducedMotion.matches;
@@ -119,6 +121,7 @@ export function createUi(callbacks) {
     renownGate: element("renown-gate"),
     renownGateFill: element("renown-gate-fill"),
     renownGateLabel: element("renown-gate-label"),
+    lieutenantChip: element("lieutenant-chip"),
     onboarding: element("onboarding"),
     onboardingSeal: element("onboarding-seal"),
     onboardingTitle: element("onboarding-title"),
@@ -145,6 +148,12 @@ export function createUi(callbacks) {
     roadEventText: element("road-event-text"),
     roadEventChoiceA: element("road-event-choice-a"),
     roadEventChoiceB: element("road-event-choice-b"),
+    formationModal: element("formation-modal"),
+    formationKicker: element("formation-kicker"),
+    formationScout: element("formation-scout"),
+    formationWedge: element("formation-wedge"),
+    formationLine: element("formation-line"),
+    formationCircle: element("formation-circle"),
     contractModal: element("contract-modal"),
     contractKicker: element("contract-kicker"),
     contractTitle: element("contract-title"),
@@ -157,6 +166,9 @@ export function createUi(callbacks) {
     contractWar: element("contract-offer-war"),
     contractWarTitle: element("contract-war-title"),
     contractWarDetail: element("contract-war-detail"),
+    lieutenantOffer: element("lieutenant-offer"),
+    lieutenantOfferTitle: element("lieutenant-offer-title"),
+    lieutenantOfferDetail: element("lieutenant-offer-detail"),
     contractClose: element("contract-close"),
     ending: element("demo-ending"),
     endingSeal: element("ending-seal"),
@@ -232,6 +244,12 @@ export function createUi(callbacks) {
     if (parameters.choiceLabel) resolved.choice = localizedRoadCopy(parameters.choiceLabel);
     if (parameters.effectsApplied) {
       resolved.effects = formatRoadEventEffects(parameters.effectsApplied);
+    }
+    if (parameters.playerFormation) {
+      resolved.playerFormation = t(`formation.${parameters.playerFormation}`);
+    }
+    if (parameters.enemyFormation) {
+      resolved.enemyFormation = t(`formation.${parameters.enemyFormation}`);
     }
     if (parameters.townId && currentState) {
       const town = getTown(currentState, parameters.townId);
@@ -368,7 +386,7 @@ export function createUi(callbacks) {
     refs.roadEventModal.hidden = !visible;
     if (!visible) return;
     const eventId = typeof active === "string" ? active : (active.eventId || active.id);
-    const definition = ROAD_EVENTS.find((entry) => entry.id === eventId);
+    const definition = ALL_ROAD_EVENTS.find((entry) => entry.id === eventId);
     if (!definition) {
       refs.roadEventModal.hidden = true;
       return;
@@ -377,6 +395,20 @@ export function createUi(callbacks) {
     refs.roadEventText.textContent = localizedRoadCopy(definition.text);
     refs.roadEventChoiceA.textContent = localizedRoadCopy(definition.choices[0]?.label);
     refs.roadEventChoiceB.textContent = localizedRoadCopy(definition.choices[1]?.label);
+  }
+
+  function syncFormationModal(state) {
+    const formations = state.battle?.formations;
+    const visible = Boolean(
+      state.demo?.modal === "formation" &&
+      formations?.eligible &&
+      !formations.resolved
+    );
+    refs.formationModal.hidden = !visible;
+    if (!visible) return;
+    refs.formationScout.textContent = t("formation.scout", {
+      shape: t(`formation.report.${formations.reportedEnemy || "line"}`)
+    });
   }
 
   function contractSummary(contract) {
@@ -394,17 +426,30 @@ export function createUi(callbacks) {
   }
 
   function syncContractModal(state, town) {
-    const visible = Boolean(contractsOpen && town && state.player.act >= 2 && !state.player.contract?.active);
+    const activeContract = state.player.contract?.active === true;
+    const lieutenantAvailable = isV11State(state) && !state.player.lieutenant;
+    const visible = Boolean(
+      contractsOpen &&
+      town &&
+      state.player.act >= 2 &&
+      (!activeContract || lieutenantAvailable)
+    );
     refs.contractModal.hidden = !visible;
     document.body.classList.toggle("contract-open", visible);
     if (!visible) return;
-    const offers = getTavernContracts(state, town.id) || [];
+    const offers = activeContract ? [] : (getTavernContracts(state, town.id) || []);
     const escort = offers.find((offer) => offer.type === "escort");
     const risky = offers.find((offer) => offer.type === "risky");
     const war = offers.find((offer) => offer.type === "war");
     refs.contractEscort.hidden = !escort;
     refs.contractRisky.hidden = !risky;
     refs.contractWar.hidden = !war;
+    refs.lieutenantOffer.hidden = !lieutenantAvailable;
+    refs.lieutenantOffer.disabled = state.player.gold < CONFIG.V11_LIEUTENANT_COST;
+    refs.lieutenantOfferDetail.textContent = t("lieutenant.offerDetail", {
+      cost: CONFIG.V11_LIEUTENANT_COST,
+      bonus: Math.round(CONFIG.V11_LIEUTENANT_ATTACK_BONUS * 100)
+    });
     if (escort) {
       refs.contractEscort.dataset.contractId = escort.id;
       refs.contractEscortDetail.textContent = t("contracts.escortDetail", {
@@ -498,6 +543,9 @@ export function createUi(callbacks) {
   }
 
   function syncStaticStrings() {
+    const buildLabel = isV11State(currentState)
+      ? `${CONFIG.BUILD_VERSION} · ${CONFIG.V11_BUILD_LABEL}`
+      : CONFIG.BUILD_VERSION;
     const htmlLanguage = language() === "en" ? "en" : "zh-CN";
     document.documentElement.lang = htmlLanguage;
     document.title = t("page.title");
@@ -510,6 +558,7 @@ export function createUi(callbacks) {
     refs.reportToggle.setAttribute("aria-label", t("aria.toggleReport"));
     refs.townSheet.setAttribute("aria-label", t("aria.town"));
     refs.contractModal.setAttribute("aria-label", t("aria.contracts"));
+    refs.formationModal.setAttribute("aria-label", t("aria.formation"));
     refs.contractClose.setAttribute("aria-label", t("aria.closeContracts"));
     refs.settingsSheet.setAttribute("aria-label", t("aria.settings"));
     refs.settingsScrim.setAttribute("aria-label", t("aria.closeSettings"));
@@ -549,6 +598,11 @@ export function createUi(callbacks) {
     refs.contractEscortTitle.textContent = t("contracts.escortTitle");
     refs.contractRiskyTitle.textContent = t("contracts.riskyTitle");
     refs.contractClose.textContent = t("contracts.close");
+    refs.lieutenantOfferTitle.textContent = t("lieutenant.offerTitle");
+    refs.formationKicker.textContent = t("formation.kicker");
+    refs.formationWedge.textContent = t("formation.wedge");
+    refs.formationLine.textContent = t("formation.line");
+    refs.formationCircle.textContent = t("formation.circle");
     refs.settingsTitle.textContent = t("settings.title");
     refs.settingsClose.setAttribute("aria-label", t("aria.closeSettings"));
     refs.languageLabel.textContent = t("settings.language");
@@ -572,7 +626,8 @@ export function createUi(callbacks) {
     refs.replay.textContent = t("ending.replay");
     refs.replay.setAttribute("aria-label", t("aria.replay"));
     refs.version.textContent = CONFIG.BUILD_VERSION;
-    refs.titleDiagnostics.textContent = `${t("legend.seed", { seed: currentState.seed })} · ${CONFIG.BUILD_VERSION}`;
+    if (isV11State(currentState)) refs.version.textContent = buildLabel;
+    refs.titleDiagnostics.textContent = `${t("legend.seed", { seed: currentState.seed })} · ${buildLabel}`;
     if (activeToast) refs.toast.textContent = t(activeToast.key, resolveParameters(activeToast.parameters));
   }
 
@@ -694,6 +749,10 @@ export function createUi(callbacks) {
     refs.wage.textContent = state.stats.days < CONFIG.WAGE_GRACE_DAYS
       ? t("hud.wageGrace", { day: CONFIG.WAGE_GRACE_DAYS })
       : t("hud.wages", { wage: getDailyWage(state.player) });
+    refs.lieutenantChip.hidden = !(isV11State(state) && state.player.lieutenant);
+    refs.lieutenantChip.textContent = state.player.lieutenant
+      ? t("lieutenant.hud")
+      : "";
     refs.seed.textContent = t("legend.seed", { seed: state.seed });
     syncRenownGate(state);
     syncMirrorHud(state);
@@ -718,7 +777,11 @@ export function createUi(callbacks) {
     const town = !state.paused && !state.battle && !settingsOpen && !state.demo.modal
       ? activeTown(state)
       : null;
-    if (!town || state.player.act < 2 || state.player.contract?.active) contractsOpen = false;
+    if (
+      !town ||
+      state.player.act < 2 ||
+      (state.player.contract?.active && (!isV11State(state) || state.player.lieutenant))
+    ) contractsOpen = false;
     refs.townSheet.hidden = !town || contractsOpen;
     document.body.classList.toggle("town-open", Boolean(town) && !contractsOpen);
     if (town) {
@@ -775,7 +838,9 @@ export function createUi(callbacks) {
       refs.tavern.hidden = state.player.act < 2;
       if (state.player.act >= 2) {
         const activeContract = state.player.contract?.active ? state.player.contract : null;
-        refs.tavern.disabled = Boolean(activeContract);
+        refs.tavern.disabled = Boolean(
+          activeContract && (!isV11State(state) || state.player.lieutenant)
+        );
         refs.tavernDetail.textContent = activeContract
           ? t("townPanel.contractActive", {
             contract: contractSummary(activeContract)
@@ -799,6 +864,7 @@ export function createUi(callbacks) {
     syncOnboarding(state);
     configurePromiseModal(state);
     syncRoadEvent(state);
+    syncFormationModal(state);
     renderEnding(state);
     updateNumberBudget();
   }
@@ -1008,6 +1074,10 @@ export function createUi(callbacks) {
   refs.contractEscort.addEventListener("click", () => selectContract(refs.contractEscort));
   refs.contractRisky.addEventListener("click", () => selectContract(refs.contractRisky));
   refs.contractWar.addEventListener("click", () => selectContract(refs.contractWar));
+  refs.lieutenantOffer.addEventListener("click", () => {
+    contractsOpen = false;
+    callbacks.onHireLieutenant();
+  });
   refs.contractClose.addEventListener("click", () => {
     contractsOpen = false;
     if (currentState) sync(currentState, { saveAvailable });
@@ -1028,6 +1098,9 @@ export function createUi(callbacks) {
   refs.contextTooltip.addEventListener("click", () => { refs.contextTooltip.hidden = true; });
   refs.roadEventChoiceA.addEventListener("click", () => callbacks.onRoadEventChoice(0));
   refs.roadEventChoiceB.addEventListener("click", () => callbacks.onRoadEventChoice(1));
+  [refs.formationWedge, refs.formationLine, refs.formationCircle].forEach((button) => {
+    button.addEventListener("click", () => callbacks.onChooseFormation(button.dataset.formation));
+  });
   refs.shareResult.addEventListener("click", () => callbacks.onShare());
   refs.replay.addEventListener("click", () => callbacks.onNewSeed(true));
   refs.ending.addEventListener("scroll", updateNumberBudget, { passive: true });
@@ -1048,6 +1121,7 @@ export function createUi(callbacks) {
     refs.contractEscort,
     refs.contractRisky,
     refs.contractWar,
+    refs.lieutenantOffer,
     refs.contractClose,
     refs.skipBattle,
     refs.retreatBattle,
@@ -1057,6 +1131,9 @@ export function createUi(callbacks) {
     refs.contextTooltip,
     refs.roadEventChoiceA,
     refs.roadEventChoiceB,
+    refs.formationWedge,
+    refs.formationLine,
+    refs.formationCircle,
     refs.shareResult,
     refs.replay
   ].forEach((control) => control.addEventListener("pointerdown", (event) => event.stopPropagation()));

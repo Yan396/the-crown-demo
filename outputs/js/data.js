@@ -18,8 +18,10 @@ export const TOKENS = Object.freeze({
 export const CONFIG = Object.freeze({
   DEMO,
   BUILD_VERSION: "2d5cb2d",
+  V11_BUILD_LABEL: "v1.1",
   SAVE_VERSION: 2,
   SAVE_KEY: "the-crown.phase1.world-state",
+  V11_SAVE_KEY: "the-crown.demo-v1.1.world-state",
   WORLD_SIZE: 2000,
   SEED: 0x00c0ffee,
   LOGIC_MS: 500,
@@ -218,6 +220,25 @@ export const CONFIG = Object.freeze({
   AUTOPLAY_ACT2_TARGET_MAX_SECONDS: 720,
   AUTOPLAY_END_TARGET_MIN_SECONDS: 1200,
   AUTOPLAY_END_TARGET_MAX_SECONDS: 1800,
+  // v1.1 engagement branch. Every knob stays dormant unless state.features.v11
+  // is true, so the default v1.0 URL keeps its save, RNG stream, and balance.
+  V11_FORMATION_MIN_SIDE_TROOPS: 4,
+  V11_FORMATION_SCOUT_ACCURACY: 0.8,
+  V11_FORMATION_ATTACK_ADVANTAGE: 1.15,
+  V11_FORMATION_DEFENSE_ADVANTAGE: 1.15,
+  V11_FORMATION_ATTACK_DISADVANTAGE: 1,
+  V11_FORMATION_DEFENSE_DISADVANTAGE: 1,
+  V11_LORD_FORMATION_CAUTIOUS_MAX: 0.34,
+  V11_LORD_FORMATION_BOLD_MIN: 0.67,
+  V11_LORD_FORMATION_WEIGHTS: Object.freeze({
+    cautious: Object.freeze([0.18, 0.27, 0.55]),
+    balanced: Object.freeze([0.28, 0.44, 0.28]),
+    bold: Object.freeze([0.55, 0.27, 0.18])
+  }),
+  V11_LIEUTENANT_COST: 150,
+  V11_LIEUTENANT_ATTACK_BONUS: 0.1,
+  V11_LIEUTENANT_PURSUIT_GOLD: 80,
+  V11_LIEUTENANT_PURSUIT_TROOPS: 3,
   // Road movement. ROAD_MOVEMENT gates the whole feature so it can be turned
   // off in one place if pacing regresses; the multipliers are never surfaced in
   // the UI, so players feel the difference without being told about it.
@@ -237,6 +258,8 @@ export const TROOP_TYPES = Object.freeze({
   veteran: Object.freeze({ atk: 5, def: 6, cost: 0, wage: 3 }),
   bandit: Object.freeze({ atk: 3, def: 2, cost: 0, wage: 0 })
 });
+
+export const FORMATION_IDS = Object.freeze(["wedge", "line", "circle"]);
 
 export const ROAD_EVENT_TOPICS = Object.freeze([
   "animal",
@@ -267,7 +290,10 @@ const ROAD_EVENT_TOPIC_BY_ID = Object.freeze({
   chicken_deserter: "animal",
   tax_cart_wheel: "trade",
   banner_laundry: "traveler",
-  camp_drinks: "camp"
+  camp_drinks: "camp",
+  chen_mang_pursuit: "traveler",
+  chen_mang_banner: "omen",
+  chen_mang_wager: "camp"
 });
 
 function casualEvent(id, prompt, choices) {
@@ -431,6 +457,50 @@ export const CASUAL_EVENTS = Object.freeze([
   }, [
     { label: { zh: "请", en: "Buy the drinks" }, effects: { gold: -CONFIG.ROAD_EVENT_DRINK_COST, nextBattleAttackBonus: CONFIG.ROAD_EVENT_NEXT_BATTLE_ATTACK_BONUS } },
     { label: { zh: "不请", en: "No drinks" }, effects: { desertionChance: CONFIG.ROAD_EVENT_DESERTION_CHANCE } }
+  ])
+]);
+
+// Kept outside the base 20-card deck: these cards are appended only in the
+// v1.1 variant while Chen Mang is currently in the company.
+export const LIEUTENANT_EVENTS = Object.freeze([
+  casualEvent("chen_mang_pursuit", {
+    zh: "陈莽看见一队逃匪，没等号令便追了出去。半个时辰后，他带回一袋钱，也少带回了几个人。",
+    en: "Chen Mang spots fleeing bandits and charges off without orders. Half an hour later he returns with a purse and fewer soldiers."
+  }, [
+    {
+      label: { zh: "由他追到底", en: "Let him finish the chase" },
+      effects: { gold: CONFIG.V11_LIEUTENANT_PURSUIT_GOLD, troops: -CONFIG.V11_LIEUTENANT_PURSUIT_TROOPS }
+    },
+    {
+      label: { zh: "鸣金把他叫回来", en: "Sound the recall" },
+      effects: { renown: CONFIG.ROAD_EVENT_RENOWN_MEDIUM }
+    }
+  ]),
+  casualEvent("chen_mang_banner", {
+    zh: "陈莽把背旗插在一辆粮车上壮声势。粮车走了，旗也跟着投奔了远方。",
+    en: "Chen Mang plants his back-banner on a grain cart for effect. The cart leaves, and the banner defects with it."
+  }, [
+    {
+      label: { zh: "出钱把旗赎回来", en: "Pay to recover the banner" },
+      effects: { gold: -CONFIG.ROAD_EVENT_GOLD_BIG, relation: CONFIG.ROAD_EVENT_RELATION_MEDIUM }
+    },
+    {
+      label: { zh: "宣称这是诱敌之计", en: "Call it a feint" },
+      effects: { renown: CONFIG.ROAD_EVENT_RENOWN_MEDIUM, relation: -CONFIG.ROAD_EVENT_RELATION_SMALL }
+    }
+  ]),
+  casualEvent("chen_mang_wager", {
+    zh: "陈莽和店主打赌能一口喝完一坛酒。他赢了赌，输给了桌子。",
+    en: "Chen Mang wagers he can drain a wine jar in one go. He beats the wager and loses to the table."
+  }, [
+    {
+      label: { zh: "替他付酒钱", en: "Pay his wine bill" },
+      effects: { gold: -CONFIG.ROAD_EVENT_DRINK_COST, nextBattleAttackBonus: CONFIG.ROAD_EVENT_NEXT_BATTLE_ATTACK_BONUS }
+    },
+    {
+      label: { zh: "让他留下刷碗", en: "Leave him to wash dishes" },
+      effects: { relation: CONFIG.ROAD_EVENT_RELATION_MEDIUM, renown: CONFIG.ROAD_EVENT_RENOWN_SMALL }
+    }
   ])
 ]);
 

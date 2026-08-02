@@ -38,6 +38,10 @@ export function getTroopCount(party) {
   return party.troops.reduce((sum, stack) => sum + stack.count, 0);
 }
 
+export function isV11State(state) {
+  return state?.features?.v11 === true;
+}
+
 export function getPartyStrength(party) {
   return party.troops.reduce((sum, stack) => {
     const type = TROOP_TYPES[stack.type];
@@ -337,6 +341,7 @@ export function createInitialState(seed = CONFIG.SEED, options = {}) {
   const demo = createDemoState(options);
   const state = {
     saveVersion: CONFIG.SAVE_VERSION,
+    features: { v11: Boolean(options.v11) },
     seed: normalizedSeed,
     rng: createRng(normalizedSeed),
     tick: 0,
@@ -356,6 +361,7 @@ export function createInitialState(seed = CONFIG.SEED, options = {}) {
       fiefs: [],
       promises: [],
       contract: null,
+      lieutenant: null,
       encounterCooldownUntil: 0
     },
     factions: createFactions(),
@@ -449,7 +455,17 @@ function isScriptReference(value, sides) {
 }
 
 export function isBattleScript(value) {
-  if (!hasExactKeys(value, ["battleId", "terrain", "sides", "events"])) return false;
+  const baseKeys = ["battleId", "terrain", "sides", "events"];
+  const v11Keys = [...baseKeys, "formations"];
+  if (!hasExactKeys(value, baseKeys) && !hasExactKeys(value, v11Keys)) return false;
+  if (
+    Object.hasOwn(value, "formations") &&
+    (
+      !hasExactKeys(value.formations, ["player", "enemy"]) ||
+      !["wedge", "line", "circle"].includes(value.formations.player) ||
+      !["wedge", "line", "circle"].includes(value.formations.enemy)
+    )
+  ) return false;
   if (typeof value.battleId !== "string" || !value.battleId.length) return false;
   if (!["field", "town"].includes(value.terrain)) return false;
   if (!hasExactKeys(value.sides, ["player", "enemy"])) return false;
@@ -575,10 +591,20 @@ export function isValidState(value) {
   if (!Number.isInteger(value.seed) || value.seed < 0 || value.seed > 0xffffffff) return false;
   if (!isValidRng(value.rng)) return false;
   if (!Number.isSafeInteger(value.tick) || value.tick < 0 || typeof value.paused !== "boolean") return false;
+  if (!value.features || typeof value.features.v11 !== "boolean") return false;
   if (!value.settings || !SUPPORTED_LANGUAGES.includes(value.settings.language)) return false;
   if (!Number.isSafeInteger(value.lastSavedTick) || value.lastSavedTick < -1) return false;
   if (!isParty(value.player) || !Number.isFinite(value.player.gold) || value.player.gold < 0) return false;
   if (!Number.isFinite(value.player.renown) || value.player.renown < 0) return false;
+  if (
+    value.player.lieutenant !== null &&
+    (
+      !isV11State(value) ||
+      value.player.lieutenant?.id !== "chen_mang" ||
+      !Number.isSafeInteger(value.player.lieutenant.hiredAtTick) ||
+      value.player.lieutenant.hiredAtTick < 0
+    )
+  ) return false;
   if (
     ![1, 2].includes(value.player.act) ||
     !Array.isArray(value.player.promises) ||
@@ -601,6 +627,8 @@ export function isValidState(value) {
     !Number.isFinite(value.telemetry.totalActiveSeconds) ||
     value.telemetry.totalActiveSeconds < 0 ||
     !Array.isArray(value.telemetry.eventChoices) ||
+    !Array.isArray(value.telemetry.lieutenantEventChoices) ||
+    !value.telemetry.lieutenant ||
     !value.telemetry.promiseCrossings ||
     typeof value.telemetry.promiseCrossings !== "object" ||
     !value.telemetry.chronicle ||
@@ -633,12 +661,19 @@ function migrateState(state) {
   const legacy = state.saveVersion === 1;
   if (!legacy && state.saveVersion !== CONFIG.SAVE_VERSION) return null;
   state.saveVersion = CONFIG.SAVE_VERSION;
+  state.features = { v11: state.features?.v11 === true };
   state.player.act = state.player.act >= 2 ? 2 : 1;
   state.player.promises = (state.promises || state.player.promises || [])
     .map(normalizePromise)
     .slice(0, 2);
   state.promises = state.player.promises;
   state.player.contract ||= null;
+  state.player.lieutenant = state.features.v11 && state.player.lieutenant?.id === "chen_mang"
+    ? {
+      id: "chen_mang",
+      hiredAtTick: Math.max(0, Math.floor(Number(state.player.lieutenant.hiredAtTick) || 0))
+    }
+    : null;
   state.stats = {
     days: 0,
     battles: 0,
@@ -754,7 +789,7 @@ export function saveState(state, storage) {
   const previousSavedTick = state.lastSavedTick;
   try {
     state.lastSavedTick = state.tick;
-    target.setItem(CONFIG.SAVE_KEY, serializeState(state));
+    target.setItem(isV11State(state) ? CONFIG.V11_SAVE_KEY : CONFIG.SAVE_KEY, serializeState(state));
     return true;
   } catch {
     state.lastSavedTick = previousSavedTick;
@@ -762,14 +797,15 @@ export function saveState(state, storage) {
   }
 }
 
-export function loadState(storage) {
+export function loadState(storage, options = {}) {
   const target = resolveStorage(storage);
   if (!target) return null;
   try {
-    const raw = target.getItem(CONFIG.SAVE_KEY);
+    const v11 = options.v11 === true;
+    const raw = target.getItem(v11 ? CONFIG.V11_SAVE_KEY : CONFIG.SAVE_KEY);
     if (!raw) return null;
     const parsed = migrateState(JSON.parse(raw));
-    if (!parsed || !isValidState(parsed)) return null;
+    if (!parsed || isV11State(parsed) !== v11 || !isValidState(parsed)) return null;
     return prepareLoadedState(parsed);
   } catch {
     return null;
@@ -792,7 +828,8 @@ export function createReplayState(previousState, options = {}) {
     replayCount: (previousState.telemetry?.replayCount || 0) + 1,
     skipOnboarding: true,
     tooltipsSeen: previousState.demo?.tooltipsSeen,
-    startedAt: options.startedAt || null
+    startedAt: options.startedAt || null,
+    v11: isV11State(previousState)
   });
 }
 

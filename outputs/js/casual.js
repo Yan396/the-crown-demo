@@ -1,4 +1,4 @@
-import { CASUAL_EVENTS, CONFIG, TROOP_TYPES } from "./data.js";
+import { CASUAL_EVENTS, CONFIG, LIEUTENANT_EVENTS, TROOP_TYPES } from "./data.js";
 import { nextFloat, randomBetween, randomInt } from "./rng.js";
 import {
   addEvent,
@@ -6,8 +6,15 @@ import {
   clamp,
   getTroopCount,
   incrementTroop,
+  isV11State,
   nearestTown
 } from "./state.js";
+
+export function getRoadEventDefinitions(state) {
+  return isV11State(state) && state.player?.lieutenant?.id === "chen_mang"
+    ? [...CASUAL_EVENTS, ...LIEUTENANT_EVENTS]
+    : CASUAL_EVENTS;
+}
 
 function casualDefaults() {
   return {
@@ -156,20 +163,22 @@ function compactAppliedEffects(effects, delta, special) {
 }
 
 function nextEventDefinition(state) {
+  const definitions = getRoadEventDefinitions(state);
   const recent = new Set(
     state.casual.eventHistory
-      .slice(-(CASUAL_EVENTS.length - 1))
+      .slice(-(definitions.length - 1))
       .map((entry) => entry.eventId)
   );
-  const unseen = CASUAL_EVENTS.filter((event) => !recent.has(event.id));
-  const candidates = unseen.length ? unseen : CASUAL_EVENTS;
+  const unseen = definitions.filter((event) => !recent.has(event.id));
+  const candidates = unseen.length ? unseen : definitions;
   return candidates[randomInt(state.rng, 0, candidates.length)];
 }
 
 export function getActiveRoadEvent(state) {
   const active = state.demo?.activeRoadEvent || state.demo?.roadEvent;
   if (!active) return null;
-  const event = CASUAL_EVENTS.find((entry) => entry.id === (active.eventId || active.id)) || null;
+  const event = getRoadEventDefinitions(state)
+    .find((entry) => entry.id === (active.eventId || active.id)) || null;
   return event ? { ...active, event } : null;
 }
 
@@ -231,7 +240,8 @@ export function chooseRoadEvent(state, choiceIndex) {
   ensureCasualState(state);
   const active = state.demo?.activeRoadEvent || state.demo?.roadEvent;
   if (!active) return { ok: false, reason: "noRoadEvent" };
-  const event = CASUAL_EVENTS.find((entry) => entry.id === (active.eventId || active.id));
+  const event = getRoadEventDefinitions(state)
+    .find((entry) => entry.id === (active.eventId || active.id));
   const index = Number(choiceIndex);
   if (!event) return { ok: false, reason: "missingEvent" };
   if (!Number.isInteger(index) || index < 0 || index >= event.choices.length) {
@@ -268,6 +278,19 @@ export function chooseRoadEvent(state, choiceIndex) {
       delta: Object.fromEntries(Object.entries(delta).filter(([, value]) => value !== 0))
     });
     state.telemetry.eventChoices = state.telemetry.eventChoices.slice(-CONFIG.ROAD_EVENT_HISTORY_LIMIT);
+    if (event.id.startsWith("chen_mang_")) {
+      state.telemetry.lieutenantEventChoices = Array.isArray(state.telemetry.lieutenantEventChoices)
+        ? state.telemetry.lieutenantEventChoices
+        : [];
+      state.telemetry.lieutenantEventChoices.push({
+        cardId: event.id,
+        choice: index,
+        effectsApplied,
+        day: active.day
+      });
+      state.telemetry.lieutenantEventChoices = state.telemetry.lieutenantEventChoices
+        .slice(-CONFIG.ROAD_EVENT_HISTORY_LIMIT);
+    }
   }
   state.demo.roadEvent = null;
   state.demo.activeRoadEvent = null;

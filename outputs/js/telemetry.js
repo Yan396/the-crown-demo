@@ -19,6 +19,13 @@ export function createTelemetry(options = {}) {
     townEntries: 0,
     recruitClicks: 0,
     eventChoices: [],
+    lieutenant: {
+      hired: false,
+      hireCount: 0,
+      lostCount: 0,
+      firstHiredAt: null
+    },
+    lieutenantEventChoices: [],
     promiseValues: { troops: null, gold: null },
     promiseFinalActuals: { troops: null, gold: null },
     promiseCrossings: { troops: null, gold: null },
@@ -52,6 +59,10 @@ export function normalizeTelemetry(value, options = {}) {
     eventChoices: Array.isArray(value.eventChoices)
       ? value.eventChoices.slice(-CONFIG.ROAD_EVENT_HISTORY_LIMIT)
       : [],
+    lieutenant: { ...fallback.lieutenant, ...(value.lieutenant || {}) },
+    lieutenantEventChoices: Array.isArray(value.lieutenantEventChoices)
+      ? value.lieutenantEventChoices.slice(-CONFIG.ROAD_EVENT_HISTORY_LIMIT)
+      : [],
     promiseValues: { ...fallback.promiseValues, ...(value.promiseValues || {}) },
     promiseFinalActuals: { ...fallback.promiseFinalActuals, ...(value.promiseFinalActuals || {}) },
     promiseCrossings: { ...fallback.promiseCrossings, ...(value.promiseCrossings || {}) },
@@ -70,6 +81,9 @@ export function normalizeTelemetry(value, options = {}) {
   ].forEach((key) => {
     normalized[key] = Math.max(0, Number(normalized[key]) || 0);
   });
+  normalized.lieutenant.hired = Boolean(normalized.lieutenant.hired);
+  normalized.lieutenant.hireCount = Math.max(0, Number(normalized.lieutenant.hireCount) || 0);
+  normalized.lieutenant.lostCount = Math.max(0, Number(normalized.lieutenant.lostCount) || 0);
   return normalized;
 }
 
@@ -226,7 +240,9 @@ export function buildPlaytestPayload(state) {
   const wins = Math.max(0, Number(state.stats?.wins) || 0);
   return {
     version: 1,
-    build: CONFIG.BUILD_VERSION,
+    build: state.features?.v11
+      ? `${CONFIG.BUILD_VERSION}-${CONFIG.V11_BUILD_LABEL}`
+      : CONFIG.BUILD_VERSION,
     seed: state.seed,
     telemetry: { ...state.telemetry },
     promises: state.player.promises.map((entry) => ({
