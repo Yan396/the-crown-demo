@@ -2342,6 +2342,21 @@ body.battle-stage-open #town-sheet {
   100% { translate: 0 0; }
 }
 
+/* Phase 3: the lines actually travel to the centreline across the charge, back
+   ranks setting off later so the advance keeps its depth. */
+.battle-stage.phase-charge .stage-token {
+  transition-duration: 1500ms;
+  transition-delay: var(--lag, 0ms);
+  transition-timing-function: cubic-bezier(0.45, 0, 0.3, 1);
+}
+
+/* Contact and after: short, snappy adjustments. */
+.battle-stage.phase-melee .stage-token,
+.battle-stage.phase-rout .stage-token {
+  transition-duration: 420ms;
+  transition-delay: 0ms;
+}
+
 /* Phase 3: the last stride before contact tightens up. */
 .battle-stage.is-lead .stage-token {
   animation-duration: calc(var(--sway, 2s) * 0.4);
@@ -2486,13 +2501,13 @@ body.battle-stage-open #town-sheet {
 }
 
 @keyframes token-march-l {
-  from { opacity: 0; transform: translate(calc(var(--tx) - 120px), var(--ty)) scale(var(--tscale)); }
-  to { opacity: 1; transform: translate(var(--tx), var(--ty)) scale(var(--tscale)); }
+  from { opacity: 0; transform: translate(calc(var(--tx) + var(--mx, 0px) - 120px), var(--ty)) scale(var(--tscale)); }
+  to { opacity: 1; transform: translate(calc(var(--tx) + var(--mx, 0px)), var(--ty)) scale(var(--tscale)); }
 }
 
 @keyframes token-march-r {
-  from { opacity: 0; transform: translate(calc(var(--tx) + 120px), var(--ty)) scale(var(--tscale)); }
-  to { opacity: 1; transform: translate(var(--tx), var(--ty)) scale(var(--tscale)); }
+  from { opacity: 0; transform: translate(calc(var(--tx) + var(--mx, 0px) + 120px), var(--ty)) scale(var(--tscale)); }
+  to { opacity: 1; transform: translate(calc(var(--tx) + var(--mx, 0px)), var(--ty)) scale(var(--tscale)); }
 }
 
 /* -- fight beats ------------------------------------------------------------ */
@@ -2528,7 +2543,7 @@ body.battle-stage-open #town-sheet {
 
 @keyframes token-melt {
   0% { opacity: 1; }
-  100% { opacity: 0; transform: translate(var(--tx), calc(var(--ty) + 10px)) scale(var(--tscale)); }
+  100% { opacity: 0; transform: translate(calc(var(--tx) + var(--mx, 0px)), calc(var(--ty) + 10px)) scale(var(--tscale)); }
 }
 
 /* Morale wavering: bigger idle sway, looser spacing. */
@@ -2554,7 +2569,7 @@ body.battle-stage-open #town-sheet {
   0% { opacity: 1; }
   100% {
     opacity: 0;
-    transform: translate(calc(var(--tx) - 260px), calc(var(--ty) + var(--flee-drift, 0px))) scale(var(--tscale));
+    transform: translate(calc(var(--tx) + var(--mx, 0px) - 260px), calc(var(--ty) + var(--flee-drift, 0px))) scale(var(--tscale));
   }
 }
 
@@ -2566,7 +2581,7 @@ body.battle-stage-open #town-sheet {
   0% { opacity: 1; }
   100% {
     opacity: 0;
-    transform: translate(calc(var(--tx) + 260px), calc(var(--ty) + var(--flee-drift, 0px))) scale(var(--tscale));
+    transform: translate(calc(var(--tx) + var(--mx, 0px) + 260px), calc(var(--ty) + var(--flee-drift, 0px))) scale(var(--tscale));
   }
 }
 

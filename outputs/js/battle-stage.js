@@ -36,6 +36,8 @@ const TIMING = Object.freeze({
 
 const PHASES = Object.freeze(["deploy", "standoff", "charge", "melee", "rout"]);
 
+const TOKEN_WIDTH = 38; // mirrors .stage-token width in ui.css
+
 function seededRandom(seed) {
   let value = (seed ^ 0x9e3779b9) >>> 0;
   return function nextRandom() {
@@ -388,6 +390,14 @@ export function createBattleStage(host, options = {}) {
       token.tx = tx;
       token.row = row;
       token.melee = 0;
+      token.jitterX = roll() - 0.5;
+      // Parade position along the stage, derived rather than measured: the
+      // rank anchors are left/right 7% of the world and the token box is
+      // TOKEN_WIDTH wide, so this holds before any animation has run.
+      const anchor = sideKey === "player"
+        ? worldNode.clientWidth * 0.07
+        : worldNode.clientWidth * 0.93;
+      token.baseX = anchor + tx + TOKEN_WIDTH / 2;
     });
   }
 
@@ -441,7 +451,7 @@ export function createBattleStage(host, options = {}) {
     ));
     shake(12);
     splashCentreBand();
-    enterMelee();
+    convergeTo(1);
   }
 
   function splashCentreBand() {
@@ -457,17 +467,44 @@ export function createBattleStage(host, options = {}) {
     }
   }
 
-  // The melee band: both lines step toward the centre and interleave, so the
-  // fight stops reading as two tidy rows facing each other.
-  function enterMelee() {
+  /**
+   * Close both lines on the centreline by `ratio` (0 = parade, 1 = full melee).
+   *
+   * The offset is a fraction of each token's REAL distance to the middle of the
+   * stage, not a fixed nudge: the ranks are anchored at left/right 7%, so on a
+   * 390px screen a constant offset leaves a visibly empty middle and the blows
+   * look like they land across a gap.
+   *
+   * At ratio 1 each side's own spread is remapped onto a band centred on the
+   * line, with the leading edge biased PAST it. That overlap is the point: the
+   * two armies interleave instead of holding one half of the screen each.
+   */
+  function convergeTo(ratio) {
+    if (!worldNode) return;
+    const width = worldNode.clientWidth;
+    const centre = width / 2;
+    const band = Math.min(P.MELEE_BAND_PX, width * P.MELEE_BAND_MAX_RATIO);
+
     ["player", "enemy"].forEach((sideKey) => {
-      const pull = sideKey === "player" ? 1 : -1;
-      script.sides[sideKey].tokens.forEach((token) => {
-        if (!token.node) return;
-        const depth = 0.45 + roll() * 0.55;
-        token.melee = Math.round(pull * 30 * depth);
+      const dir = sideKey === "player" ? 1 : -1;
+      const tokens = script.sides[sideKey].tokens.filter((token) => token.node);
+      if (!tokens.length) return;
+      const bases = tokens.map((token) => token.baseX);
+      const low = Math.min(...bases);
+      const high = Math.max(...bases);
+      const span = high - low || 1;
+
+      tokens.forEach((token) => {
+        // 0 = furthest from the enemy, 1 = closest. The enemy rank runs the
+        // other way along x, so its normalised order is inverted.
+        const along = (token.baseX - low) / span;
+        const leading = dir === 1 ? along : 1 - along;
+        const target = centre + dir * (leading - P.MELEE_BIAS) * band;
+        const travel = (target - token.baseX) * ratio;
+        const jitter = token.jitterX * P.MELEE_JITTER_PX * ratio;
+        token.melee = Math.round(travel + jitter);
         token.node.style.setProperty("--mx", `${token.melee}px`);
-        token.node.style.setProperty("--my", `${Math.round((roll() - 0.5) * 12)}px`);
+        token.node.style.setProperty("--my", `${Math.round(token.jitterX * 14 * ratio)}px`);
       });
     });
   }
@@ -762,7 +799,13 @@ export function createBattleStage(host, options = {}) {
       { at: P.DEPLOY_MS, run: () => { setPhase("standoff"); log(translate("stage.standoff")); } },
       {
         at: P.DEPLOY_MS + P.STANDOFF_MS,
-        run: () => { setPhase("charge"); log(translate("stage.charge")); }
+        run: () => {
+          setPhase("charge");
+          log(translate("stage.charge"));
+          // The charge is an actual advance: the lines travel most of the way
+          // to the centre during this phase, back ranks following on --lag.
+          convergeTo(P.CHARGE_CONVERGE);
+        }
       },
       { at: contactAt - P.CHARGE_LEAD_MS, run: () => root && root.classList.add("is-lead") },
       { at: contactAt, run: onContact }
