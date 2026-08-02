@@ -146,8 +146,10 @@ test("the visible chip is the only speed control and 1x/2x/4x persists", () => {
   assert.match(stage, /class=\"stage-speed\"/);
   assert.match(stage, /chip\.dataset\.speed\s*=\s*String\(speed\)/);
   assert.match(stage, /advanceVirtualClock\(virtualTime, now - lastReal, speed\)/);
+  assert.match(stage, /const counts = endEvent\s*\? battleEndCounts\(endEvent\)/);
   assert.match(main, /query\.get\("battleStage"\) === "1"/);
   assert.match(main, /translate:\s*\(key, parameters\)\s*=>\s*ui\.text\(key, parameters\)/);
+  assert.match(main, /state\.paused \|\| battlePresentationActive \|\| document\.visibilityState === "hidden"/);
 });
 
 test("gold, troop, and fief promise values remain visible beside live annotations", () => {

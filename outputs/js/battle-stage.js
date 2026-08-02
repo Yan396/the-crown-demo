@@ -731,8 +731,14 @@ export function createBattleStage(host, options = {}) {
 
   function syncCounts() {
     if (!countNodes.player) return;
-    countNodes.player.textContent = String(survivorsOf(script.sides.player));
-    countNodes.enemy.textContent = String(survivorsOf(script.sides.enemy));
+    const counts = endEvent
+      ? battleEndCounts(endEvent)
+      : {
+        player: survivorsOf(script.sides.player),
+        enemy: survivorsOf(script.sides.enemy)
+      };
+    countNodes.player.textContent = String(counts.player);
+    countNodes.enemy.textContent = String(counts.enemy);
   }
 
   function tokenAt(sideKey, idx) {
@@ -1019,6 +1025,8 @@ export function createBattleStage(host, options = {}) {
     playing = false;
     endEvent = event;
     const finalCounts = battleEndCounts(event);
+    root.dataset.playerSurvivors = String(finalCounts.player);
+    root.dataset.enemySurvivors = String(finalCounts.enemy);
     countNodes.player.textContent = String(finalCounts.player);
     countNodes.enemy.textContent = String(finalCounts.enemy);
 
