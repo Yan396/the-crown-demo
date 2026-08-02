@@ -24,8 +24,21 @@ export const CONFIG_PRESENTATION = Object.freeze({
   CHARGE_BACK_RANK_LAG_MS: 200,
   CHARGE_LEAD_MS: 120,        // everything speeds up just before contact
 
+  // How far the lines have closed on the centreline by the end of the charge.
+  // Not a pixel offset: a ratio toward a measured target, because a fixed
+  // nudge never reaches the middle of a 390px screen.
+  CHARGE_CONVERGE: 0.82,
+
   /* -- phase 4: melee ------------------------------------------------------ */
   CONTACT_PAUSE_MS: 80,
+  // The melee band. Each side's own spread is remapped onto a band straddling
+  // the centreline, so the two armies interleave instead of holding one half
+  // of the screen each. BIAS > 0.5 pushes each side's leading edge PAST the
+  // centre, which is what produces the overlap.
+  MELEE_BAND_PX: 112,
+  MELEE_BAND_MAX_RATIO: 0.3,  // cap the band as a share of stage width
+  MELEE_BIAS: 0.85,
+  MELEE_JITTER_PX: 11,
   ROUND_MS: 2400,
   ROUND_BREATH_MS: 400,       // both sides give half a step, then press back in
   // The engine often resolves a small fight in a single round. The melee is the
