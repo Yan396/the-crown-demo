@@ -636,13 +636,19 @@ export function createUi(callbacks) {
     if (town) {
       const faction = getFaction(state, town.factionId);
       const cap = actTroopCap(state);
-      const capped = getTroopCount(state.player) >= cap;
+      const troops = getTroopCount(state.player);
+      const capped = troops >= cap;
       refs.townName.textContent = t(town.nameKey);
       refs.townFaction.textContent = t("townPanel.territory", { faction: t(faction.nameKey) });
-      refs.recruit.disabled = capped || state.player.gold < CONFIG.RECRUIT_COST || town.recruitPool <= 0;
+      const recruitsEmpty = (
+        town.recruitPool <= 0 && troops >= CONFIG.PLAYER_RECOVERY_RECRUIT_FLOOR
+      );
+      refs.recruit.disabled = capped || state.player.gold < CONFIG.RECRUIT_COST || recruitsEmpty;
       refs.recruitCost.textContent = capped
         ? t("townPanel.recruitCapped", { cap })
-        : t("townPanel.recruitCost", { cost: CONFIG.RECRUIT_COST });
+        : recruitsEmpty
+          ? t("townPanel.recruitEmpty")
+          : t("townPanel.recruitCost", { cost: CONFIG.RECRUIT_COST });
       refs.tavern.hidden = state.player.act < 2;
       if (state.player.act >= 2) {
         const activeContract = state.player.contract;

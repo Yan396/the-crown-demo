@@ -912,13 +912,15 @@ export function recruitMilitia(state) {
   if (state.battle) return { ok: false, reason: "battle" };
   const town = activeTown(state);
   if (!town) return { ok: false, reason: "outsideTown" };
+  const troops = getTroopCount(state.player);
   const cap = state.player.act >= 2 ? CONFIG.ACT2_TROOP_CAP : CONFIG.ACT1_TROOP_CAP;
-  if (getTroopCount(state.player) >= cap) return { ok: false, reason: "cap", cap };
-  if (town.recruitPool <= 0) return { ok: false, reason: "pool" };
+  if (troops >= cap) return { ok: false, reason: "cap", cap };
+  const recoveryRecruit = town.recruitPool <= 0 && troops < CONFIG.PLAYER_RECOVERY_RECRUIT_FLOOR;
+  if (town.recruitPool <= 0 && !recoveryRecruit) return { ok: false, reason: "pool" };
   if (state.player.gold < CONFIG.RECRUIT_COST) return { ok: false, reason: "gold" };
 
   state.player.gold -= CONFIG.RECRUIT_COST;
-  town.recruitPool -= 1;
+  if (!recoveryRecruit) town.recruitPool -= 1;
   incrementTroop(state.player, "militia", 1);
   state.stats.peakTroops = Math.max(state.stats.peakTroops || 0, getTroopCount(state.player));
   addEvent(state, "log.recruit", { townId: town.id, cost: CONFIG.RECRUIT_COST });

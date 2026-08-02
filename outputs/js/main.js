@@ -46,6 +46,7 @@ const seedParameter = query.get("seed");
 const requestedSeed = seedParameter === null ? Number.NaN : Number(seedParameter);
 const autoplaySeed = Number.isFinite(requestedSeed) ? requestedSeed >>> 0 : CONFIG.SEED;
 const qaFreshEnabled = !autoplayEnabled && query.get("qa") === "1" && query.get("fresh") === "1";
+const qaRecruitRecoveryEnabled = qaFreshEnabled && query.get("recruitRecovery") === "1";
 
 let state = autoplayEnabled
   ? createInitialState(autoplaySeed, { startedAt: new Date(0).toISOString() })
@@ -54,6 +55,12 @@ let state = autoplayEnabled
     : loadState();
 const loadedExistingState = Boolean(state);
 if (!state) state = createInitialState(CONFIG.SEED);
+if (qaRecruitRecoveryEnabled) {
+  state.player.gold = 164;
+  state.player.troops = [{ type: "militia", count: 3, xp: 0 }];
+  const recoveryTown = state.towns.find((town) => town.id === CONFIG.START_TOWN_ID);
+  if (recoveryTown) recoveryTown.recruitPool = 0;
+}
 startTelemetrySession(state);
 
 const renderer = createMapRenderer(canvas);
@@ -250,6 +257,8 @@ ui = createUi({
       ui.showToast("toast.recruited");
     } else if (result.reason === "gold") {
       ui.showToast("toast.goldInsufficient");
+    } else if (result.reason === "pool") {
+      ui.showToast("toast.recruitEmpty");
     } else if (result.reason === "paused") {
       ui.showToast("toast.paused");
     } else if (result.reason === "battle") {

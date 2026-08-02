@@ -85,6 +85,7 @@ export const STRINGS = Object.freeze({
       recruit: "招募民兵",
       recruitCost: "花费 {cost} 金币",
       recruitCapped: "兵力已达本幕上限 {cap}",
+      recruitEmpty: "暂无兵源",
       tavern: "酒馆合同",
       contractOffer: "为{faction}而战 · 每胜 +{reward}",
       contractActive: "受雇于{faction} · 每胜 +{reward}"
@@ -101,6 +102,7 @@ export const STRINGS = Object.freeze({
     }),
     toast: Object.freeze({
       goldInsufficient: "金币不足",
+      recruitEmpty: "城中暂时无人应募",
       recruited: "民兵加入队伍",
       battleLocked: "战斗中，暂时无法行军",
       paused: "世界已暂停",
@@ -355,6 +357,7 @@ export const STRINGS = Object.freeze({
       recruit: "Recruit Militia",
       recruitCost: "Costs {cost} gold",
       recruitCapped: "Act troop cap reached: {cap}",
+      recruitEmpty: "No recruits available",
       tavern: "Tavern Contract",
       contractOffer: "Fight for {faction} · +{reward} per win",
       contractActive: "Hired by {faction} · +{reward} per win"
@@ -371,6 +374,7 @@ export const STRINGS = Object.freeze({
     }),
     toast: Object.freeze({
       goldInsufficient: "Not enough gold",
+      recruitEmpty: "No one in town is ready to enlist",
       recruited: "Militia joined your party",
       battleLocked: "You cannot march during battle",
       paused: "The world is paused",

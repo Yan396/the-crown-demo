@@ -597,6 +597,29 @@ test("events: every tap emits exact feedback, a numeric report, and effectsAppli
   assert.match(main, /autoplayEnabled\s*\|\|\s*qaFreshEnabled[\s\S]{0,80}return true/);
 });
 
+test("recruitment: depleted AI pools cannot lock a recovering player out", () => {
+  const recovering = stateModule.createInitialState(0xc0de, { skipOnboarding: true });
+  const startTown = recovering.towns.find((town) => town.id === CONFIG.START_TOWN_ID);
+  startTown.recruitPool = 0;
+  recovering.player.gold = 164;
+  recovering.player.troops = [{ type: "militia", count: 3, xp: 0 }];
+
+  const first = sim.recruitMilitia(recovering);
+  const second = sim.recruitMilitia(recovering);
+  assert.equal(first.ok, true, "the screenshot state (164 gold, 3 troops, in town) must recruit");
+  assert.equal(second.ok, true, "a depleted town must let the player recover to five troops");
+  assert.equal(recovering.player.gold, 144);
+  assert.equal(stateModule.getTroopCount(recovering.player), CONFIG.PLAYER_RECOVERY_RECRUIT_FLOOR);
+  assert.equal(startTown.recruitPool, 0, "emergency recruits must not make the shared pool negative");
+  assert.deepEqual(sim.recruitMilitia(recovering), { ok: false, reason: "pool" });
+
+  const uiSource = read("js/ui.js");
+  const mainSource = read("js/main.js");
+  assert.match(uiSource, /town\.recruitPool\s*<=\s*0\s*&&\s*troops\s*>=\s*CONFIG\.PLAYER_RECOVERY_RECRUIT_FLOOR/);
+  assert.match(mainSource, /qaRecruitRecoveryEnabled[\s\S]{0,280}count:\s*3[\s\S]{0,180}recruitPool\s*=\s*0/);
+  assert.equal(strings.STRINGS.zh.townPanel.recruitEmpty, "暂无兵源");
+});
+
 test("rubber band: two consecutive losses cap the next two encounters at 0.7x", () => {
   findConfig([/(?:LOSS|DEFEAT).*STREAK.*(?:THRESHOLD|TRIGGER|COUNT)/i], 2);
   findConfig([/(?:LOSS|DEFEAT).*(?:RUBBER|ASSIST|CAP).*STRENGTH|(?:LOSS|DEFEAT).*STRENGTH.*CAP|(?:LOSS|DEFEAT).*SPAWN.*MAX.*RATIO|(?:RUBBER|ASSIST).*STRENGTH.*CAP/i], 0.7);
