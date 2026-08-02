@@ -71,3 +71,67 @@ export const CONFIG_PRESENTATION = Object.freeze({
   ZOOM_MELEE: 1.08,
   ZOOM_ROUT: 1.13
 });
+
+/*
+ * v1.1 formation layouts.
+ *
+ * These exist only when the script carries a `formations` block, which only
+ * happens under ?v=1.1 -- v1.0 keeps the plain row packing untouched.
+ *
+ * Each layout returns a parade position in stage pixels for one token:
+ *   x  along the approach axis, already multiplied by `dir`
+ *      (+1 = the player's side advancing right, -1 = the enemy advancing left)
+ *   y  vertical offset, negative is further up the sheet
+ *   rank  depth index, used for the charge lag and the draw scale
+ *
+ * The shapes have to differ at a GLANCE on a 390px screen, so they are pushed
+ * well past anatomical sense: a wedge is a hard V, a line is one flat row, a
+ * circle is a ring with a man in the middle.
+ */
+export const FORMATION_SHAPE = Object.freeze({
+  WEDGE_DEPTH_PX: 26,   // how far each rank falls back from the tip
+  WEDGE_LIFT_PX: 21,    // how far each rank steps off the spine
+  LINE_GAP_PX: 27,
+  LINE_WAVER_PX: 3,     // a flat row, with just enough waver to look hand-drawn
+  CIRCLE_RX_PX: 54,
+  CIRCLE_RY_PX: 34,
+  JITTER_SCALE: 0.25    // formations keep their shape: damp the usual scatter
+});
+
+export const FORMATION_LAYOUTS = Object.freeze({
+  // 锋矢 — a spearhead. One man at the point, the rest falling back in two
+  // symmetrical arms.
+  wedge(index, count, dir) {
+    const rank = Math.ceil(index / 2);
+    const arm = index === 0 ? 0 : (index % 2 === 1 ? -1 : 1);
+    const deepest = Math.ceil((count - 1) / 2);
+    return {
+      x: (deepest - rank) * FORMATION_SHAPE.WEDGE_DEPTH_PX * dir,
+      y: arm * rank * FORMATION_SHAPE.WEDGE_LIFT_PX,
+      rank
+    };
+  },
+
+  // 横列 — one flat rank, shoulder to shoulder, no depth at all.
+  line(index, count, dir) {
+    const gap = Math.min(FORMATION_SHAPE.LINE_GAP_PX, 190 / Math.max(1, count));
+    return {
+      x: index * gap * dir,
+      y: (index % 2 ? 1 : -1) * FORMATION_SHAPE.LINE_WAVER_PX,
+      rank: 0
+    };
+  },
+
+  // 圆阵 — a ring facing outward with one man held in the middle.
+  circle(index, count, dir) {
+    const centre = FORMATION_SHAPE.CIRCLE_RX_PX;
+    if (index === 0 || count < 3) return { x: centre * dir, y: 0, rank: 1 };
+    const onRing = count - 1;
+    const angle = ((index - 1) / onRing) * Math.PI * 2;
+    return {
+      x: (centre + Math.cos(angle) * FORMATION_SHAPE.CIRCLE_RX_PX) * dir,
+      y: Math.sin(angle) * FORMATION_SHAPE.CIRCLE_RY_PX,
+      rank: Math.sin(angle) > 0 ? 0 : 1
+    };
+  }
+});

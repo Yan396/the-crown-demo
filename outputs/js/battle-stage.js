@@ -1,5 +1,9 @@
 import { stampSeal } from "./seal.js";
-import { CONFIG_PRESENTATION as P } from "./presentation.js";
+import {
+  CONFIG_PRESENTATION as P,
+  FORMATION_LAYOUTS,
+  FORMATION_SHAPE
+} from "./presentation.js";
 
 /*
  * Battle cinematics — a full-screen paper stage that PLAYS a battleScript.
@@ -383,38 +387,22 @@ export function createBattleStage(host, options = {}) {
       let column = index % perRow;
       let formationX = null;
       let formationY = null;
-      if (formation === "wedge") {
-        const lanes = Math.min(5, Math.max(3, shown));
-        const lane = index % lanes;
-        const group = Math.floor(index / lanes);
-        const middle = (lanes - 1) / 2;
-        const distanceFromMiddle = Math.abs(lane - middle);
-        formationX = (group * spacing * 0.72 + (middle - distanceFromMiddle) * spacing * 0.82) * dir;
-        formationY = (lane - middle) * 19 - group * 3;
-        row = group;
-        column = lane;
-      } else if (formation === "line") {
-        const lanes = Math.min(6, Math.max(3, shown));
-        const lane = index % lanes;
-        const group = Math.floor(index / lanes);
-        formationX = group * spacing * 0.68 * dir;
-        formationY = (lane - (lanes - 1) / 2) * 17;
-        row = group;
-        column = lane;
-      } else if (formation === "circle") {
-        const angle = shown > 1 ? index / shown * Math.PI * 2 : 0;
-        const radiusX = Math.min(62, Math.max(30, shown * 4));
-        const radiusY = Math.min(48, Math.max(24, shown * 3));
-        formationX = (radiusX + Math.cos(angle) * radiusX) * dir;
-        formationY = Math.sin(angle) * radiusY;
-        row = Math.floor(index / Math.max(1, Math.ceil(shown / 3)));
+      // v1.1 only: the script carries `formations` solely under ?v=1.1, so the
+      // default build keeps its plain row packing untouched.
+      const layout = formation ? FORMATION_LAYOUTS[formation] : null;
+      if (layout) {
+        const placed = layout(index, shown, dir);
+        formationX = placed.x;
+        formationY = placed.y;
+        row = placed.rank;
         column = index;
       }
       const node = document.createElement("i");
       node.className = `stage-token unit-${token.troopType || "militia"}`;
       node.innerHTML = figureSvg(token.troopType);
-      const jx = (roll() - 0.5) * 14;
-      const jy = (roll() - 0.5) * 10;
+      const scatter = layout ? FORMATION_SHAPE.JITTER_SCALE : 1;
+      const jx = (roll() - 0.5) * 14 * scatter;
+      const jy = (roll() - 0.5) * 10 * scatter;
       const scale = 1 + (rows - 1 - row) * 0.12;
       const tx = (formationX ?? ((column * spacing + row * spacing * 0.4) * dir)) + jx;
       node.style.setProperty("--tx", `${tx}px`);
