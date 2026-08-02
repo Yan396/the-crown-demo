@@ -560,5 +560,33 @@ export const SUPPORTED_LANGUAGES = Object.freeze(["zh", "en"]);
 export const CONFIG_V11 = Object.freeze({
   LIEUTENANT_ATTACK_BONUS: 0.3,
   LIEUTENANT_HP_BONUS: 0.2,
-  LIEUTENANT_DEFENSE_BONUS: 0.1
+  LIEUTENANT_DEFENSE_BONUS: 0.1,
+
+  /*
+   * Per-soldier hitpoints (v1.1 only).
+   *
+   * v1.0 kills a whole soldier per unit of resolved damage, which is why a
+   * health bar there can only be full or empty. Under ?v=1.1 a soldier absorbs
+   * HP first and only dies when his pool is spent, so a token can be struck
+   * several times and the bar visibly steps down.
+   *
+   * Scaled against TROOP_TYPES.def (3/6/2) so toughness ordering is unchanged:
+   * a veteran outlasts a militiaman, a bandit is the most brittle.
+   */
+  HP_PER_SOLDIER: Object.freeze({
+    militia: 10,
+    veteran: 20,
+    bandit: 12
+  }),
+  HP_PER_SOLDIER_DEFAULT: 10,
+  // 陈莽 soaks several rounds on his own, so his bar is the one you watch.
+  LIEUTENANT_HP: 200,
+  // Resolved casualties are converted to HP damage at this rate. 1 means a
+  // round that would have killed one soldier in v1.0 instead spends exactly
+  // one soldier's worth of hitpoints, keeping v1.1 pacing close to v1.0.
+  HP_DAMAGE_PER_CASUALTY: 1.15,
+  // Glancing blows are sized at this fraction of a soldier's pool, so a
+  // soldier's worth of damage arrives as roughly two visible hits rather than
+  // one. This is what puts a step in the bar in a small fight.
+  HP_GLANCING_BLOW_FRACTION: 0.55
 });

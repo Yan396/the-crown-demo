@@ -1,5 +1,6 @@
 import {
   CONFIG,
+  CONFIG_V11,
   FACTION_DATA,
   LORD_DATA,
   LORD_START_FRACTIONS,
@@ -67,6 +68,66 @@ export function incrementTroop(party, type, amount = 1) {
   }
   stack.count = Math.max(0, stack.count + Math.floor(amount));
   return stack.count;
+}
+
+/*
+ * Per-soldier hitpoints. v1.1 ONLY.
+ *
+ * v1.0 parties never carry `hpPerSoldier`/`hpCurrent`: the fields are optional
+ * additions on the stack, the v1.0 resolver never reads or writes them, and
+ * nothing below is reachable without isV11State. That is what keeps the
+ * default build byte-identical and the v1.0 save format unchanged.
+ */
+export function hpPerSoldierFor(type) {
+  return CONFIG_V11.HP_PER_SOLDIER[type] || CONFIG_V11.HP_PER_SOLDIER_DEFAULT;
+}
+
+export function ensurePartyHp(party) {
+  if (!party?.troops) return party;
+  party.troops.forEach((stack) => {
+    if (!Number.isFinite(stack.hpPerSoldier) || stack.hpPerSoldier <= 0) {
+      stack.hpPerSoldier = hpPerSoldierFor(stack.type);
+    }
+    const full = Math.max(0, stack.count) * stack.hpPerSoldier;
+    if (!Number.isFinite(stack.hpCurrent) || stack.hpCurrent > full || stack.hpCurrent < 0) {
+      stack.hpCurrent = full;
+    }
+  });
+  return party;
+}
+
+export function averageHpPerSoldier(party) {
+  const total = getTroopCount(party);
+  if (total <= 0) return CONFIG_V11.HP_PER_SOLDIER_DEFAULT;
+  const sum = party.troops.reduce(
+    (acc, stack) => acc + hpPerSoldierFor(stack.type) * stack.count, 0
+  );
+  return sum / total;
+}
+
+export function partyHp(party) {
+  return (party?.troops || []).reduce((sum, stack) => sum + Math.max(0, stack.hpCurrent || 0), 0);
+}
+
+/**
+ * Spend hitpoints across a party. A soldier dies only once his own pool is
+ * gone, so a hit can be non-lethal -- which is the whole point. Returns how
+ * many died, so the caller's casualty accounting is unchanged in shape.
+ */
+export function applyHpDamage(party, damage) {
+  let remaining = Math.max(0, damage);
+  let deaths = 0;
+  for (const stack of party.troops) {
+    if (remaining <= 0) break;
+    const take = Math.min(remaining, stack.hpCurrent);
+    stack.hpCurrent -= take;
+    remaining -= take;
+    const alive = Math.max(0, Math.ceil(stack.hpCurrent / stack.hpPerSoldier));
+    deaths += Math.max(0, stack.count - alive);
+    stack.count = alive;
+  }
+  party.troops = party.troops.filter((stack) => stack.count > 0);
+  return deaths;
 }
 
 export function applyCasualties(party, casualtyCount) {
@@ -520,9 +581,16 @@ export function isBattleScript(value) {
       continue;
     }
     if (event.type === "strike") {
-      if (!hasExactKeys(event, ["t", "type", "from", "to", "kill", "dmgShown", "beat"])) {
-        return false;
-      }
+      // v1.1 adds `hpAfter`; v1.0 scripts never carry it. Additive only.
+      const strikeKeys = ["t", "type", "from", "to", "kill", "dmgShown", "beat"];
+      if (
+        !hasExactKeys(event, strikeKeys) &&
+        !hasExactKeys(event, [...strikeKeys, "hpAfter"])
+      ) return false;
+      if (
+        Object.hasOwn(event, "hpAfter") &&
+        (!Number.isSafeInteger(event.hpAfter) || event.hpAfter < 0)
+      ) return false;
       if (roundStarts <= 0) return false;
       if (!isScriptReference(event.from, value.sides) || !isScriptReference(event.to, value.sides)) {
         return false;
