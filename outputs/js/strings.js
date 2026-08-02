@@ -12,6 +12,7 @@ export const STRINGS = Object.freeze({
       report: "行军战报",
       toggleReport: "展开或收起边闻",
       roadEvent: "路遇抉择",
+      formation: "战前选择阵型",
       town: "城镇招募",
       contracts: "酒馆合同选择",
       closeContracts: "关闭酒馆合同",
@@ -76,6 +77,18 @@ export const STRINGS = Object.freeze({
       sideEnemy: "匪队",
       sideLord: "追兵"
     }),
+    formation: Object.freeze({
+      kicker: "战前 · 布阵",
+      scout: "斥候来报：敌军似乎{shape}",
+      wedge: "锋矢",
+      line: "横列",
+      circle: "圆阵",
+      report: Object.freeze({
+        wedge: "锋势前突",
+        line: "排成一线",
+        circle: "结成环阵"
+      })
+    }),
     report: Object.freeze({
       march: "行军战报",
       battle: "交战记录",
@@ -119,6 +132,11 @@ export const STRINGS = Object.freeze({
       activeRisky: "剿灭大股匪帮",
       activeWar: "替{faction}对{target}出征"
     }),
+    lieutenant: Object.freeze({
+      hud: "陈莽 · 莽",
+      offerTitle: "招揽陈莽",
+      offerDetail: "花费 {cost} 金币 · 随军攻击 +{bonus}% · 一席部将"
+    }),
     settings: Object.freeze({
       title: "设置",
       closeGlyph: "×",
@@ -144,6 +162,8 @@ export const STRINGS = Object.freeze({
       saveFailed: "本地存档失败",
       contractAccepted: "已接受酒馆合同",
       contractUnavailable: "这份合同暂不可接",
+      lieutenantHired: "陈莽加入队伍",
+      lieutenantUnavailable: "眼下无法招揽陈莽",
       contractPaid: "合同酬金 +{reward}",
       retreatSuccess: "你甩开了匪队",
       retreatFailed: "撤退失败",
@@ -183,6 +203,10 @@ export const STRINGS = Object.freeze({
       hostileLordPursuit: "{lord}奉{faction}之命追击你。",
       warBandits: "{faction}战区溃兵为匪，{town}附近匪患增加。",
       lordEncounter: "遭遇{faction}追兵：我方 {playerCount} 人，敌方 {enemyCount} 人。",
+      formationChosen: "我军列{playerFormation}，敌军列{enemyFormation}。",
+      lieutenantHired: "在{town}招揽陈莽为部将，花费 {cost} 金币。",
+      lieutenantBattle: "陈莽提刀随军出战。",
+      lieutenantLost: "全军溃散，陈莽离开了队伍。",
       retreatSuccess: "成功撤离战场。",
       retreatFailed: "撤退失败，匪队追了上来。",
       lordRecruited: "{lord}在{town}补充了 {count} 名士兵。",
@@ -332,6 +356,7 @@ export const STRINGS = Object.freeze({
       report: "Campaign report",
       toggleReport: "Expand or collapse the road ticker",
       roadEvent: "Roadside choice",
+      formation: "Choose a formation before battle",
       town: "Town recruitment",
       contracts: "Tavern contract choices",
       closeContracts: "Close tavern contracts",
@@ -396,6 +421,18 @@ export const STRINGS = Object.freeze({
       sideEnemy: "Bandits",
       sideLord: "Pursuers"
     }),
+    formation: Object.freeze({
+      kicker: "Before Battle · Formation",
+      scout: "Scouts report: the enemy appears to be {shape}",
+      wedge: "Wedge",
+      line: "Line",
+      circle: "Circle",
+      report: Object.freeze({
+        wedge: "driving forward in a wedge",
+        line: "forming a straight line",
+        circle: "closing into a ring"
+      })
+    }),
     report: Object.freeze({
       march: "Campaign Report",
       battle: "Battle Record",
@@ -439,6 +476,11 @@ export const STRINGS = Object.freeze({
       activeRisky: "Large bandit contract",
       activeWar: "{faction} against {target}"
     }),
+    lieutenant: Object.freeze({
+      hud: "Chen Mang · Rash",
+      offerTitle: "Hire Chen Mang",
+      offerDetail: "Costs {cost} gold · party attack +{bonus}% · one lieutenant slot"
+    }),
     settings: Object.freeze({
       title: "Settings",
       closeGlyph: "×",
@@ -464,6 +506,8 @@ export const STRINGS = Object.freeze({
       saveFailed: "Local save failed",
       contractAccepted: "Accepted a tavern contract",
       contractUnavailable: "That contract is not currently available",
+      lieutenantHired: "Chen Mang joined the company",
+      lieutenantUnavailable: "Chen Mang cannot be hired right now",
       contractPaid: "Contract pay +{reward}",
       retreatSuccess: "You slipped away from the bandits",
       retreatFailed: "Retreat failed",
@@ -503,6 +547,10 @@ export const STRINGS = Object.freeze({
       hostileLordPursuit: "{lord} is pursuing you on {faction}'s orders.",
       warBandits: "Deserters in the {faction} war zone turned bandit near {town}.",
       lordEncounter: "Met {faction} pursuers: {playerCount} troops against {enemyCount}.",
+      formationChosen: "You formed {playerFormation}; the enemy formed {enemyFormation}.",
+      lieutenantHired: "Hired Chen Mang as lieutenant in {town} for {cost} gold.",
+      lieutenantBattle: "Chen Mang draws his blade and joins the line.",
+      lieutenantLost: "The company was wiped out, and Chen Mang left.",
       retreatSuccess: "You withdrew from the field.",
       retreatFailed: "The retreat failed; the bandits caught up.",
       lordRecruited: "{lord} recruited {count} troops in {town}.",

@@ -1,4 +1,9 @@
-import { attemptFlee, skipBattle } from "./battle.js";
+import {
+  attemptFlee,
+  choosePlayerFormation,
+  counterFormation,
+  skipBattle
+} from "./battle.js";
 import { createBattleStage } from "./battle-stage.js";
 import { CONFIG, SUPPORTED_LANGUAGES } from "./data.js";
 import {
@@ -12,11 +17,13 @@ import {
   updateSessionPeaks
 } from "./demo.js";
 import { createMapRenderer } from "./map.js";
+import { CONFIG_PRESENTATION } from "./presentation.js";
 import { stampSeal } from "./seal.js";
 import {
   acceptMercenaryContract,
   buyTownBattleBuff,
   chooseRoadEvent,
+  hireLieutenant,
   recruitMilitia,
   replenishVeteran,
   setAutoplay,
@@ -42,8 +49,10 @@ import { createUi } from "./ui.js";
 
 const canvas = document.getElementById("map");
 const query = new URLSearchParams(window.location.search);
+const v11Enabled = query.get("v") === "1.1";
 const autoplayEnabled = query.get("autoplay") === "1";
 const holdAutoplayRoadEvents = autoplayEnabled && query.get("qa") === "1" && query.get("holdEvents") === "1";
+const holdAutoplayFormations = autoplayEnabled && query.get("qa") === "1" && query.get("holdFormations") === "1";
 const seedParameter = query.get("seed");
 const requestedSeed = seedParameter === null ? Number.NaN : Number(seedParameter);
 const autoplaySeed = Number.isFinite(requestedSeed) ? requestedSeed >>> 0 : CONFIG.SEED;
@@ -52,12 +61,19 @@ const qaRecruitRecoveryEnabled = qaFreshEnabled && query.get("recruitRecovery") 
 const qaAct2TownEnabled = qaFreshEnabled && query.get("act2Town") === "1";
 
 let state = autoplayEnabled
-  ? createInitialState(autoplaySeed, { startedAt: new Date(0).toISOString() })
+  ? createInitialState(autoplaySeed, {
+    startedAt: new Date(0).toISOString(),
+    v11: v11Enabled
+  })
   : qaFreshEnabled
-    ? createInitialState(autoplaySeed, { skipOnboarding: true, startedAt: new Date(0).toISOString() })
-    : loadState();
+    ? createInitialState(autoplaySeed, {
+      skipOnboarding: true,
+      startedAt: new Date(0).toISOString(),
+      v11: v11Enabled
+    })
+    : loadState(undefined, { v11: v11Enabled });
 const loadedExistingState = Boolean(state);
-if (!state) state = createInitialState(CONFIG.SEED);
+if (!state) state = createInitialState(CONFIG.SEED, { v11: v11Enabled });
 if (qaRecruitRecoveryEnabled) {
   state.player.gold = 164;
   state.player.troops = [{ type: "militia", count: 3, xp: 0 }];
@@ -88,11 +104,15 @@ let actIntroTimer = null;
 
 const autoplayMetrics = {
   enabled: autoplayEnabled,
+  variant: v11Enabled ? "1.1" : "1.0",
   seed: state.seed,
   firstBattleSeconds: null,
   act2Seconds: null,
   endingSeconds: null,
+  act2RawSeconds: null,
+  endingRawSeconds: null,
   activeSeconds: 0,
+  battleRoundCounts: [],
   roadEventCardsChecked: 0,
   roadEventChoicesChecked: 0
 };
@@ -183,9 +203,41 @@ function showNextTooltip() {
 
 function recordAutoplayMilestone(name, seconds) {
   if (!autoplayEnabled || autoplayMetrics[name] !== null) return;
-  autoplayMetrics[name] = seconds;
+  let reportedSeconds = seconds;
+  if (v11Enabled && ["act2Seconds", "endingSeconds"].includes(name)) {
+    const simulationRoundSeconds = CONFIG.BATTLE_ROUND_TICKS * CONFIG.LOGIC_MS / 1000;
+    const simulatedBattleSeconds = autoplayMetrics.battleRoundCounts.reduce(
+      (sum, rounds) => sum + rounds * simulationRoundSeconds,
+      0
+    );
+    const presentationSeconds = autoplayMetrics.battleRoundCounts.reduce((sum, rounds) => {
+      const contact = (
+        CONFIG_PRESENTATION.DEPLOY_MS +
+        CONFIG_PRESENTATION.STANDOFF_MS +
+        CONFIG_PRESENTATION.CHARGE_MS
+      );
+      const melee = Math.min(
+        CONFIG_PRESENTATION.MELEE_MAX_MS,
+        Math.max(
+          CONFIG_PRESENTATION.MELEE_MIN_MS,
+          rounds * (CONFIG_PRESENTATION.ROUND_MS + CONFIG_PRESENTATION.ROUND_BREATH_MS)
+        )
+      );
+      const settlement = (
+        CONFIG_PRESENTATION.ROUT_SLOWMO_MS +
+        CONFIG_PRESENTATION.FLEE_MIN_MS +
+        CONFIG_PRESENTATION.FLEE_VAR_MS +
+        CONFIG_PRESENTATION.VICTORY_HOLD_MS
+      );
+      return sum + (contact + melee + settlement) / 1000;
+    }, 0);
+    reportedSeconds = seconds - simulatedBattleSeconds + presentationSeconds;
+    autoplayMetrics[name === "act2Seconds" ? "act2RawSeconds" : "endingRawSeconds"] = seconds;
+  }
+  autoplayMetrics[name] = reportedSeconds;
   const label = name === "act2Seconds" ? "Act 2" : name === "endingSeconds" ? "renown 100" : "first battle";
-  console.info(`[CROWN autoplay] ${label}: ${(seconds / 60).toFixed(2)} active minutes`);
+  const units = v11Enabled && name !== "firstBattleSeconds" ? "player minutes" : "active minutes";
+  console.info(`[CROWN autoplay] ${label}: ${(reportedSeconds / 60).toFixed(2)} ${units}`);
 }
 
 function resolveAutoplayModal() {
@@ -211,12 +263,18 @@ function resolveAutoplayModal() {
     submitPromise(state, CONFIG.AUTOPLAY_GOLD_PROMISE, new Date(state.tick * CONFIG.LOGIC_MS).toISOString());
     return true;
   }
+  if (state.demo.modal === "formation") {
+    if (holdAutoplayFormations) return false;
+    const report = state.battle?.formations?.reportedEnemy || "line";
+    choosePlayerFormation(state, counterFormation(report));
+    return true;
+  }
   return false;
 }
 
 function finishAutoplaySetup() {
   if (!autoplayEnabled) return;
-  const eventAudit = verifyRoadEventChoiceEffects();
+  const eventAudit = verifyRoadEventChoiceEffects({ v11: v11Enabled });
   autoplayMetrics.roadEventCardsChecked = eventAudit.cardsChecked;
   autoplayMetrics.roadEventChoicesChecked = eventAudit.choicesChecked;
   if (!eventAudit.ok) {
@@ -339,6 +397,26 @@ ui = createUi({
     }
     sync();
   },
+  onHireLieutenant() {
+    const result = hireLieutenant(state);
+    if (result.ok) {
+      persist(true);
+      ui.showToast("toast.lieutenantHired");
+    } else if (result.reason === "gold") {
+      ui.showToast("toast.goldInsufficient");
+    } else {
+      ui.showToast("toast.lieutenantUnavailable");
+    }
+    sync();
+  },
+  onChooseFormation(formation) {
+    const result = choosePlayerFormation(state, formation);
+    if (!result.ok) return;
+    lastFrameAt = performance.now();
+    logicAccumulator = 0;
+    persist(true);
+    sync();
+  },
   onRoadEventChoice(choiceIndex) {
     const result = chooseRoadEvent(state, choiceIndex);
     if (!result.ok) return;
@@ -414,7 +492,8 @@ ui = createUi({
     const next = createInitialState(nextWorldSeed(state), {
       language: state.settings.language,
       replayCount: state.telemetry.replayCount,
-      startedAt: new Date().toISOString()
+      startedAt: new Date().toISOString(),
+      v11: v11Enabled
     });
     replaceState(next);
   }
@@ -434,6 +513,11 @@ function runLogicStep() {
   updateSessionPeaks(state);
   const activeSeconds = state.telemetry.totalActiveSeconds;
   autoplayMetrics.activeSeconds = activeSeconds;
+  if (result.battleResult?.battleScript) {
+    autoplayMetrics.battleRoundCounts.push(
+      result.battleResult.battleScript.events.filter((event) => event.type === "round_start").length
+    );
+  }
   if (state.stats.battles > 0) recordAutoplayMilestone("firstBattleSeconds", activeSeconds);
 
   const transition = advanceActIfNeeded(

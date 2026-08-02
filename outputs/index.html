@@ -120,6 +120,7 @@
       <small id="renown-gate-label"></small>
       <div id="renown-gate-track"><div id="renown-gate-fill"></div></div>
     </div>
+    <div id="lieutenant-chip" hidden></div>
 
     <div id="hint">
       <span id="hint-dot"></span>
@@ -255,6 +256,18 @@
       </article>
     </section>
 
+    <section id="formation-modal" class="modal-layer formation-layer" hidden>
+      <article class="formation-card paper-sheet" role="dialog" aria-modal="true">
+        <small id="formation-kicker"></small>
+        <p id="formation-scout"></p>
+        <div class="formation-choices">
+          <button id="formation-wedge" class="formation-choice" data-formation="wedge" type="button"></button>
+          <button id="formation-line" class="formation-choice" data-formation="line" type="button"></button>
+          <button id="formation-circle" class="formation-choice" data-formation="circle" type="button"></button>
+        </div>
+      </article>
+    </section>
+
     <section id="contract-modal" class="modal-layer contract-layer" hidden>
       <article class="contract-card paper-sheet" role="dialog" aria-modal="true">
         <small id="contract-kicker"></small>
@@ -271,6 +284,10 @@
           <button id="contract-offer-war" class="contract-choice" type="button">
             <strong id="contract-war-title"></strong>
             <span id="contract-war-detail"></span>
+          </button>
+          <button id="lieutenant-offer" class="contract-choice" type="button" hidden>
+            <strong id="lieutenant-offer-title"></strong>
+            <span id="lieutenant-offer-detail"></span>
           </button>
         </div>
         <button id="contract-close" class="ghost-button" type="button"></button>

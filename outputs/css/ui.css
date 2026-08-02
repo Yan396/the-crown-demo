@@ -348,6 +348,24 @@ body.has-gold-overshoot #renown-gate {
   display: none;
 }
 
+#lieutenant-chip {
+  position: absolute;
+  z-index: 4;
+  top: calc(max(10px, env(safe-area-inset-top)) + 82px);
+  left: max(12px, env(safe-area-inset-left));
+  padding: 5px 8px;
+  border: 1px solid var(--rule-on-lacquer);
+  border-radius: 2px;
+  background: var(--lacquer-soft);
+  color: var(--paper-on-lacquer);
+  font: 11px var(--font-display);
+  letter-spacing: 0.08em;
+}
+
+#lieutenant-chip[hidden] {
+  display: none;
+}
+
 #renown-gate-track {
   width: 104px;
   height: 3px;
@@ -708,6 +726,8 @@ body.battle-active #stats .promise-marker:not(.exceeded) {
 #tavern-button[hidden],
 #contract-modal[hidden],
 #contract-offer-war[hidden],
+#lieutenant-offer[hidden],
+#formation-modal[hidden],
 #settings-sheet[hidden],
 #settings-scrim[hidden],
 #onboarding[hidden],
@@ -1085,6 +1105,50 @@ body.diagnostics-visible #title-diagnostics {
   place-items: center;
   padding: max(18px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   background: rgba(28, 25, 22, 0.78);
+}
+
+.formation-layer {
+  display: grid;
+  place-items: center;
+  background: rgba(28, 25, 22, 0.78);
+}
+
+.formation-card {
+  width: min(480px, calc(100vw - 32px));
+  padding: 24px 20px 20px;
+  text-align: center;
+}
+
+#formation-kicker {
+  color: var(--ink-faint);
+  font: 10px var(--font-body);
+  letter-spacing: 0.2em;
+}
+
+#formation-scout {
+  margin: 13px 0 18px;
+  color: var(--ink);
+  font: 700 20px/1.5 var(--font-display);
+  text-wrap: balance;
+}
+
+.formation-choices {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.formation-choice {
+  min-height: 58px;
+  border: 1px solid rgba(43, 38, 32, 0.42);
+  border-radius: 3px;
+  background: rgba(232, 220, 195, 0.28);
+  color: var(--ink);
+  font: 700 17px var(--font-display);
+}
+
+.formation-choice:active {
+  background: rgba(43, 38, 32, 0.1);
 }
 
 .contract-card {

@@ -9,6 +9,8 @@ import {
 import {
   checkForEncounter,
   checkForHostileLordEncounter,
+  choosePlayerFormation,
+  counterFormation,
   resolveAiBattle,
   resolveBattleRound,
   skipBattle,
@@ -21,7 +23,7 @@ import {
   getActiveRoadEvent,
   processDailyRoadEvent as rollDailyRoadEvent
 } from "./casual.js";
-import { CASUAL_EVENTS, CONFIG, TROOP_TYPES } from "./data.js";
+import { CASUAL_EVENTS, CONFIG, LIEUTENANT_EVENTS, TROOP_TYPES } from "./data.js";
 import {
   advanceActIfNeeded,
   advanceOnboarding,
@@ -48,6 +50,7 @@ import {
   getTown,
   getTroopCount,
   incrementTroop,
+  isV11State,
   nearestTown
 } from "./state.js";
 
@@ -632,17 +635,23 @@ export { getActiveRoadEvent };
 
 // URL-only autoplay preflight: every card/choice resolves against its own
 // state, so a stale closure or a missing declarative effect fails loudly.
-export function verifyRoadEventChoiceEffects() {
+export function verifyRoadEventChoiceEffects(options = {}) {
   const failures = [];
   let choicesChecked = 0;
+  const v11 = options.v11 === true;
+  const definitions = v11 ? [...CASUAL_EVENTS, ...LIEUTENANT_EVENTS] : CASUAL_EVENTS;
 
-  CASUAL_EVENTS.forEach((event, eventIndex) => {
+  definitions.forEach((event, eventIndex) => {
     event.choices.forEach((choice, choiceIndex) => {
       choicesChecked += 1;
       const probe = createInitialState(0xe700 + eventIndex * 2 + choiceIndex, {
         skipOnboarding: true,
-        startedAt: new Date(0).toISOString()
+        startedAt: new Date(0).toISOString(),
+        v11
       });
+      if (event.id.startsWith("chen_mang_")) {
+        probe.player.lieutenant = { id: "chen_mang", hiredAtTick: 0 };
+      }
       ensureCasualState(probe);
       probe.player.gold = 1000;
       probe.player.renown = 100;
@@ -715,6 +724,12 @@ export function verifyRoadEventChoiceEffects() {
       ) {
         failures.push({ cardId: event.id, choice: choiceIndex, field: "telemetry" });
       }
+      if (
+        event.id.startsWith("chen_mang_") &&
+        probe.telemetry.lieutenantEventChoices.at(-1)?.cardId !== event.id
+      ) {
+        failures.push({ cardId: event.id, choice: choiceIndex, field: "lieutenantTelemetry" });
+      }
       const report = probe.eventLog[0];
       if (
         report?.key !== "log.roadEventResolved" ||
@@ -727,7 +742,7 @@ export function verifyRoadEventChoiceEffects() {
 
   return {
     ok: failures.length === 0,
-    cardsChecked: CASUAL_EVENTS.length,
+    cardsChecked: definitions.length,
     choicesChecked,
     failures
   };
@@ -775,6 +790,18 @@ function autoplayDecision(state) {
   const troopCap = state.player.act >= 2 ? CONFIG.ACT2_TROOP_CAP : CONFIG.ACT1_TROOP_CAP;
   const troops = getTroopCount(state.player);
   const contract = activeContract(state);
+
+  if (
+    isV11State(state) &&
+    state.player.act >= 2 &&
+    !state.player.lieutenant &&
+    town &&
+    state.player.gold >= CONFIG.V11_LIEUTENANT_COST
+  ) {
+    state.player.moveTarget = null;
+    hireLieutenant(state);
+    return;
+  }
 
   if (contract?.type === "escort") {
     state.player.moveTarget = null;
@@ -1108,6 +1135,44 @@ export function buyTownBattleBuff(state) {
   };
 }
 
+export function hireLieutenant(state) {
+  if (!isV11State(state)) return { ok: false, reason: "variant" };
+  if (state.paused) return { ok: false, reason: "paused" };
+  if (state.battle) return { ok: false, reason: "battle" };
+  if (state.player.act < 2 || state.demo?.ended) return { ok: false, reason: "act" };
+  const town = activeTown(state);
+  if (!town) return { ok: false, reason: "outsideTown" };
+  if (state.player.lieutenant) return { ok: false, reason: "occupied" };
+  if (state.player.gold < CONFIG.V11_LIEUTENANT_COST) {
+    return { ok: false, reason: "gold", cost: CONFIG.V11_LIEUTENANT_COST };
+  }
+  state.player.gold -= CONFIG.V11_LIEUTENANT_COST;
+  state.player.lieutenant = { id: "chen_mang", hiredAtTick: state.tick };
+  if (state.telemetry?.lieutenant) {
+    state.telemetry.lieutenant.hired = true;
+    state.telemetry.lieutenant.hireCount = Math.max(
+      0,
+      Number(state.telemetry.lieutenant.hireCount) || 0
+    ) + 1;
+    state.telemetry.lieutenant.firstHiredAt ||= {
+      tick: state.tick,
+      day: state.stats.days + 1,
+      activeSeconds: Number(state.telemetry.totalActiveSeconds) || 0
+    };
+  }
+  addEvent(state, "log.lieutenantHired", {
+    lieutenantId: "chen_mang",
+    townId: town.id,
+    cost: CONFIG.V11_LIEUTENANT_COST
+  }, "win");
+  return {
+    ok: true,
+    lieutenant: state.player.lieutenant,
+    townId: town.id,
+    cost: CONFIG.V11_LIEUTENANT_COST
+  };
+}
+
 function activeContract(state) {
   return state.player.contract?.active === true ? state.player.contract : null;
 }
@@ -1243,15 +1308,24 @@ function resolveAutoplayModal(state) {
     submitPromise(state, CONFIG.AUTOPLAY_GOLD_PROMISE, deterministicTimestamp(state));
     return true;
   }
+  if (state.demo.modal === "formation") {
+    const report = state.battle?.formations?.reportedEnemy || "line";
+    choosePlayerFormation(state, counterFormation(report));
+    return true;
+  }
   return false;
 }
 
 export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
-  const roadEventEffectAudit = verifyRoadEventChoiceEffects();
+  const v11 = options.v11 === true;
+  const roadEventEffectAudit = verifyRoadEventChoiceEffects({ v11 });
   if (!roadEventEffectAudit.ok) {
     throw new Error(`Autoplay road-event effect mismatch: ${JSON.stringify(roadEventEffectAudit.failures)}`);
   }
-  const state = createInitialState(seed, { startedAt: new Date(0).toISOString() });
+  const state = createInitialState(seed, {
+    startedAt: new Date(0).toISOString(),
+    v11
+  });
   initializeLivingWorld(state);
   setAutoplay(state, true);
   while (resolveAutoplayModal(state)) {
@@ -1266,6 +1340,13 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
   let firstEventSeconds = null;
   let act2Seconds = null;
   let endingSeconds = null;
+  let act2BattleCount = null;
+  let endingBattleCount = null;
+  let resolvedBattleRounds = 0;
+  let act2BattleRounds = null;
+  let endingBattleRounds = null;
+  const resolvedBattleRoundCounts = [];
+  let act2BattleRoundCounts = null;
   let battleScriptsChecked = 0;
 
   while (state.telemetry.totalActiveSeconds < maximumActiveSeconds && !state.demo.ended) {
@@ -1277,6 +1358,12 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
         continue;
       }
       const activeSeconds = state.telemetry.totalActiveSeconds;
+      if (result.battleResult?.battleScript) {
+        const roundCount = result.battleResult.battleScript.events
+          .filter((event) => event.type === "round_start").length;
+        resolvedBattleRounds += roundCount;
+        resolvedBattleRoundCounts.push(roundCount);
+      }
       if (result.battleScriptCheck?.ok) battleScriptsChecked += 1;
       if (firstBattleSeconds === null && state.stats.battles > 0) firstBattleSeconds = activeSeconds;
       if (firstEventSeconds === null && result.roadEventResult?.triggered) {
@@ -1286,8 +1373,15 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
       if (transition?.type === "act2") {
         state.autoplay.nextHuntTick = state.tick + CONFIG.AUTOPLAY_ACT2_RECOVERY_TICKS;
         if (act2Seconds === null) act2Seconds = activeSeconds;
+        if (act2BattleCount === null) act2BattleCount = state.stats.battles;
+        if (act2BattleRounds === null) act2BattleRounds = resolvedBattleRounds;
+        if (act2BattleRoundCounts === null) act2BattleRoundCounts = resolvedBattleRoundCounts.slice();
       }
-      if (transition?.type === "ending") endingSeconds = activeSeconds;
+      if (transition?.type === "ending") {
+        endingSeconds = activeSeconds;
+        endingBattleCount = state.stats.battles;
+        endingBattleRounds = resolvedBattleRounds;
+      }
       while (resolveAutoplayModal(state)) {
         // Resolve the Act 2 promise before advancing more ticks.
       }
@@ -1303,10 +1397,17 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
   }
   return {
     state,
+    variant: v11 ? "1.1" : "1.0",
     firstBattleSeconds,
     firstEventSeconds,
     act2Seconds,
     endingSeconds,
+    act2BattleCount,
+    endingBattleCount: endingBattleCount ?? (state.demo.ended ? state.stats.battles : null),
+    act2BattleRounds,
+    endingBattleRounds: endingBattleRounds ?? (state.demo.ended ? resolvedBattleRounds : null),
+    act2BattleRoundCounts,
+    endingBattleRoundCounts: state.demo.ended ? resolvedBattleRoundCounts.slice() : null,
     battleScriptsChecked,
     roadEventChoicesChecked: roadEventEffectAudit.choicesChecked,
     activeSeconds: state.telemetry.totalActiveSeconds,

@@ -82,12 +82,19 @@ export function normalizeScript(raw) {
       }))
     };
   });
-  return {
+  const normalized = {
     battleId: raw.battleId,
     terrain: raw.terrain,
     sides,
     events: raw.events.slice().sort((first, second) => first.t - second.t)
   };
+  if (raw.formations) {
+    normalized.formations = {
+      player: raw.formations.player || "line",
+      enemy: raw.formations.enemy || "line"
+    };
+  }
+  return normalized;
 }
 
 /**
@@ -368,19 +375,50 @@ export function createBattleStage(host, options = {}) {
     const rows = Math.min(3, Math.max(1, Math.ceil(shown / maxPerRow)));
     const perRow = Math.ceil(shown / rows) || 1;
     const dir = sideKey === "player" ? 1 : -1;
+    const formation = script.formations?.[sideKey] || null;
+    if (formation) rankHost.dataset.formation = formation;
 
     side.tokens.forEach((token, index) => {
-      const row = Math.floor(index / perRow);
-      const column = index % perRow;
+      let row = Math.floor(index / perRow);
+      let column = index % perRow;
+      let formationX = null;
+      let formationY = null;
+      if (formation === "wedge") {
+        const lanes = Math.min(5, Math.max(3, shown));
+        const lane = index % lanes;
+        const group = Math.floor(index / lanes);
+        const middle = (lanes - 1) / 2;
+        const distanceFromMiddle = Math.abs(lane - middle);
+        formationX = (group * spacing * 0.72 + (middle - distanceFromMiddle) * spacing * 0.82) * dir;
+        formationY = (lane - middle) * 19 - group * 3;
+        row = group;
+        column = lane;
+      } else if (formation === "line") {
+        const lanes = Math.min(6, Math.max(3, shown));
+        const lane = index % lanes;
+        const group = Math.floor(index / lanes);
+        formationX = group * spacing * 0.68 * dir;
+        formationY = (lane - (lanes - 1) / 2) * 17;
+        row = group;
+        column = lane;
+      } else if (formation === "circle") {
+        const angle = shown > 1 ? index / shown * Math.PI * 2 : 0;
+        const radiusX = Math.min(62, Math.max(30, shown * 4));
+        const radiusY = Math.min(48, Math.max(24, shown * 3));
+        formationX = (radiusX + Math.cos(angle) * radiusX) * dir;
+        formationY = Math.sin(angle) * radiusY;
+        row = Math.floor(index / Math.max(1, Math.ceil(shown / 3)));
+        column = index;
+      }
       const node = document.createElement("i");
       node.className = `stage-token unit-${token.troopType || "militia"}`;
       node.innerHTML = figureSvg(token.troopType);
       const jx = (roll() - 0.5) * 14;
       const jy = (roll() - 0.5) * 10;
       const scale = 1 + (rows - 1 - row) * 0.12;
-      const tx = (column * spacing + row * spacing * 0.4) * dir + jx;
+      const tx = (formationX ?? ((column * spacing + row * spacing * 0.4) * dir)) + jx;
       node.style.setProperty("--tx", `${tx}px`);
-      node.style.setProperty("--ty", `${row * -42 + jy}px`);
+      node.style.setProperty("--ty", `${(formationY ?? row * -42) + jy}px`);
       node.style.setProperty("--tscale", scale.toFixed(2));
       node.style.setProperty("--sway", `${(1.6 + roll() * 1.2).toFixed(2)}s`);
       // Back ranks lag into the charge, so the advance has depth.

@@ -1,4 +1,4 @@
-import { CONFIG, TROOP_TYPES } from "./data.js";
+import { CONFIG, FORMATION_IDS, TROOP_TYPES } from "./data.js";
 import { STRINGS } from "./strings.js";
 import {
   areBanditBattlesBlocked,
@@ -7,7 +7,7 @@ import {
   prepareStarterBattle,
   recordPlayerBattleOutcome
 } from "./casual.js";
-import { createRng, nextFloat } from "./rng.js";
+import { createRng, nextFloat, randomInt } from "./rng.js";
 import {
   recordBattleOutcome,
   recordBiggestBattle
@@ -30,8 +30,130 @@ import {
   getTroopCount,
   incrementTroop,
   isBattleScript,
+  isV11State,
   nearestTown
 } from "./state.js";
+
+const FORMATION_BEATS = Object.freeze({
+  wedge: "line",
+  line: "circle",
+  circle: "wedge"
+});
+
+export function counterFormation(formation) {
+  return FORMATION_IDS.find((candidate) => FORMATION_BEATS[candidate] === formation) || "line";
+}
+
+function weightedFormation(rng, weights) {
+  let cursor = nextFloat(rng) * weights.reduce((sum, weight) => sum + weight, 0);
+  for (let index = 0; index < FORMATION_IDS.length; index += 1) {
+    cursor -= weights[index];
+    if (cursor < 0) return FORMATION_IDS[index];
+  }
+  return FORMATION_IDS[FORMATION_IDS.length - 1];
+}
+
+function enemyFormation(rng, enemyKind, enemy) {
+  if (enemyKind !== "lord") {
+    return FORMATION_IDS[randomInt(rng, 0, FORMATION_IDS.length)];
+  }
+  const personality = Number(enemy?.personality) || 0.5;
+  const profile = personality <= CONFIG.V11_LORD_FORMATION_CAUTIOUS_MAX
+    ? "cautious"
+    : personality >= CONFIG.V11_LORD_FORMATION_BOLD_MIN
+      ? "bold"
+      : "balanced";
+  return weightedFormation(rng, CONFIG.V11_LORD_FORMATION_WEIGHTS[profile]);
+}
+
+function prepareFormations(state, enemyKind, enemy, playerStart, enemyStart, battleId) {
+  if (!isV11State(state)) return null;
+  // Formation/scout generation is deterministic but intentionally isolated
+  // from state.rng: adding the v1.1 decision must not reshuffle bandit spawns,
+  // loot, diplomacy, or the combat rolls that follow it.
+  const rng = createRng(presentationSeed(state.seed, `${battleId}:formation`));
+  const actualEnemy = enemyFormation(rng, enemyKind, enemy);
+  const eligible = (
+    playerStart >= CONFIG.V11_FORMATION_MIN_SIDE_TROOPS &&
+    enemyStart >= CONFIG.V11_FORMATION_MIN_SIDE_TROOPS
+  );
+  if (!eligible) {
+    return {
+      player: "line",
+      enemy: actualEnemy,
+      reportedEnemy: actualEnemy,
+      scoutAccurate: true,
+      eligible: false,
+      resolved: true,
+      resumePaused: false
+    };
+  }
+  const scoutAccurate = nextFloat(rng) < CONFIG.V11_FORMATION_SCOUT_ACCURACY;
+  const alternatives = FORMATION_IDS.filter((formation) => formation !== actualEnemy);
+  const reportedEnemy = scoutAccurate
+    ? actualEnemy
+    : alternatives[randomInt(rng, 0, alternatives.length)];
+  return {
+    player: null,
+    enemy: actualEnemy,
+    reportedEnemy,
+    scoutAccurate,
+    eligible: true,
+    resolved: false,
+    resumePaused: false
+  };
+}
+
+function formationModifiers(formations) {
+  const neutral = {
+    player: { attack: 1, defense: 1 },
+    enemy: { attack: 1, defense: 1 },
+    winner: null
+  };
+  if (!formations?.player || !formations?.enemy || formations.player === formations.enemy) return neutral;
+  const playerWins = FORMATION_BEATS[formations.player] === formations.enemy;
+  const winner = playerWins ? "player" : "enemy";
+  const loser = playerWins ? "enemy" : "player";
+  neutral[winner] = {
+    attack: CONFIG.V11_FORMATION_ATTACK_ADVANTAGE,
+    defense: CONFIG.V11_FORMATION_DEFENSE_ADVANTAGE
+  };
+  neutral[loser] = {
+    attack: CONFIG.V11_FORMATION_ATTACK_DISADVANTAGE,
+    defense: CONFIG.V11_FORMATION_DEFENSE_DISADVANTAGE
+  };
+  neutral.winner = winner;
+  return neutral;
+}
+
+export function choosePlayerFormation(state, formation) {
+  const battle = state?.battle;
+  if (!isV11State(state)) return { ok: false, reason: "variant" };
+  if (!battle?.formations?.eligible || battle.formations.resolved) {
+    return { ok: false, reason: "unavailable" };
+  }
+  if (!FORMATION_IDS.includes(formation)) return { ok: false, reason: "formation" };
+  battle.formations.player = formation;
+  battle.formations.resolved = true;
+  battle.formationModifiers = formationModifiers(battle.formations);
+  if (state.demo?.modal === "formation") {
+    state.demo.modal = null;
+    state.demo.pauseReason = null;
+    state.paused = Boolean(battle.formations.resumePaused);
+  }
+  addEvent(state, "log.formationChosen", {
+    playerFormation: formation,
+    enemyFormation: battle.formations.enemy,
+    advantage: battle.formationModifiers.winner || "none"
+  }, "round");
+  return {
+    ok: true,
+    formation,
+    enemyFormation: battle.formations.enemy,
+    reportedEnemy: battle.formations.reportedEnemy,
+    advantage: battle.formationModifiers.winner
+  };
+}
 
 function calculateCasualties(attackStrength, defender, multiplier, terrain = CONFIG.FIELD_TERRAIN) {
   const defenders = getTroopCount(defender);
@@ -435,7 +557,7 @@ export function buildBattleScript(state, battle, result, winner) {
   });
   events.sort((first, second) => first.t - second.t);
 
-  return {
+  const script = {
     battleId: battle.battleId,
     terrain: battle.terrain,
     sides: {
@@ -444,6 +566,13 @@ export function buildBattleScript(state, battle, result, winner) {
     },
     events
   };
+  if (isV11State(state)) {
+    script.formations = {
+      player: battle.formations?.player || "line",
+      enemy: battle.formations?.enemy || "line"
+    };
+  }
+  return script;
 }
 
 export function validateBattleScript(script, expected = null) {
@@ -642,6 +771,18 @@ function finishBattle(state, winner, bandit) {
   const result = winner === "player"
     ? playerBattleWinner(state, battle, bandit)
     : playerBattleLoser(state, battle, bandit);
+  const playerWiped = battle.playerStart - battle.playerCasualties <= 0;
+  if (playerWiped && isV11State(state) && state.player.lieutenant?.id === "chen_mang") {
+    state.player.lieutenant = null;
+    if (state.telemetry?.lieutenant) {
+      state.telemetry.lieutenant.lostCount = Math.max(
+        0,
+        Number(state.telemetry.lieutenant.lostCount) || 0
+      ) + 1;
+    }
+    addEvent(state, "log.lieutenantLost", { lieutenantId: "chen_mang" }, "loss");
+    result.lieutenantLost = true;
+  }
   result.balance = battle.balance || null;
   result.playerAttackMultiplier = battle.playerAttackMultiplier || 1;
   recordBattleOutcome(state, {
@@ -690,24 +831,38 @@ export function resolveBattleRound(state) {
     return null;
   }
   ensureBattleCapture(state, battle, bandit);
+  if (battle.formations?.eligible && !battle.formations.resolved) return null;
 
   if (battle.round >= CONFIG.MAX_BATTLE_ROUNDS) {
     const winner = getPartyStrength(state.player) >= getPartyStrength(bandit) ? "player" : "bandit";
     return finishBattle(state, winner, bandit);
   }
 
-  const playerAttack = getPartyStrength(state.player) * (battle.playerAttackMultiplier || 1);
-  const banditAttack = getPartyStrength(bandit);
+  const formation = battle.formationModifiers || formationModifiers(battle.formations);
+  const playerAttack = getPartyStrength(state.player)
+    * (battle.playerAttackMultiplier || 1)
+    * formation.player.attack;
+  const banditAttack = getPartyStrength(bandit) * formation.enemy.attack;
   const playerMultiplier = CONFIG.BATTLE_DAMAGE_MIN + nextFloat(state.rng) * (
     CONFIG.BATTLE_DAMAGE_MAX - CONFIG.BATTLE_DAMAGE_MIN
   );
   const banditMultiplier = CONFIG.BATTLE_DAMAGE_MIN + nextFloat(state.rng) * (
     CONFIG.BATTLE_DAMAGE_MAX - CONFIG.BATTLE_DAMAGE_MIN
   );
-  const playerDamage = playerAttack * playerMultiplier * CONFIG.FIELD_TERRAIN;
-  const enemyDamage = banditAttack * banditMultiplier * CONFIG.FIELD_TERRAIN;
-  const banditLoss = calculateCasualties(playerAttack, bandit, playerMultiplier);
-  const playerLoss = calculateCasualties(banditAttack, state.player, banditMultiplier);
+  const playerDamage = playerAttack * playerMultiplier * CONFIG.FIELD_TERRAIN
+    / formation.enemy.defense;
+  const enemyDamage = banditAttack * banditMultiplier * CONFIG.FIELD_TERRAIN
+    / formation.player.defense;
+  const banditLoss = calculateCasualties(
+    playerAttack,
+    bandit,
+    playerMultiplier / formation.enemy.defense
+  );
+  const playerLoss = calculateCasualties(
+    banditAttack,
+    state.player,
+    banditMultiplier / formation.player.defense
+  );
 
   const actualBanditLoss = applyCasualties(bandit, banditLoss);
   const actualPlayerLoss = applyCasualties(state.player, playerLoss);
@@ -752,7 +907,10 @@ export function startBattle(state, bandit, options = {}) {
   const balance = enemyKind === "bandit"
     ? prepareRiskyContractBattle(state, bandit) || prepareStarterBattle(state, bandit)
     : null;
-  const playerAttackMultiplier = consumePlayerAttackMultiplier(state);
+  const lieutenantAttackMultiplier = isV11State(state) && state.player.lieutenant?.id === "chen_mang"
+    ? 1 + CONFIG.V11_LIEUTENANT_ATTACK_BONUS
+    : 1;
+  const playerAttackMultiplier = consumePlayerAttackMultiplier(state) * lieutenantAttackMultiplier;
   const playerStart = getTroopCount(state.player);
   const banditStart = getTroopCount(bandit);
   const elite = Boolean(bandit.elite || bandit.isElite);
@@ -762,11 +920,20 @@ export function startBattle(state, bandit, options = {}) {
   state.stats.battles += 1;
   incrementTelemetry(state, "battlesFought");
   if (state.demo && state.demo.firstBattleTick === null) state.demo.firstBattleTick = state.tick;
+  const battleId = battleScriptId(state, bandit);
+  const formations = prepareFormations(
+    state,
+    enemyKind,
+    bandit,
+    playerStart,
+    banditStart,
+    battleId
+  );
   state.battle = {
     banditId: bandit.id,
     enemyKind,
     enemyFactionId: bandit.factionId || null,
-    battleId: battleScriptId(state, bandit),
+    battleId,
     terrain,
     playerStart,
     banditStart,
@@ -789,8 +956,16 @@ export function startBattle(state, bandit, options = {}) {
       : state.player.contract?.active && state.player.contract.type === "war" && enemyKind === "lord"
         ? "war"
         : null,
-    playerAttackMultiplier
+    playerAttackMultiplier,
+    formations,
+    formationModifiers: formationModifiers(formations)
   };
+  if (formations?.eligible) {
+    formations.resumePaused = Boolean(state.paused);
+    state.demo.modal = "formation";
+    state.demo.pauseReason = "formation";
+    state.paused = true;
+  }
   state.battleScript = null;
   state.battlePlayback ||= { speed: 1, skip: false };
   state.battlePlayback.speed = state.battlePlayback.speed === 2 ? 2 : 1;
@@ -811,6 +986,9 @@ export function startBattle(state, bandit, options = {}) {
       : { playerCount: playerStart, banditCount: banditStart, elite },
     "round"
   );
+  if (isV11State(state) && state.player.lieutenant?.id === "chen_mang") {
+    addEvent(state, "log.lieutenantBattle", { lieutenantId: "chen_mang" }, "round");
+  }
 
   if (getTroopCount(state.player) <= 0) return finishBattle(state, "bandit", bandit);
   return null;
@@ -854,6 +1032,9 @@ export function checkForHostileLordEncounter(state) {
 }
 
 export function skipBattle(state) {
+  if (state.battle?.formations?.eligible && !state.battle.formations.resolved) {
+    return { type: "blocked", reason: "formation" };
+  }
   let result = null;
   let safety = CONFIG.MAX_BATTLE_ROUNDS;
   while (state.battle && safety > 0) {
