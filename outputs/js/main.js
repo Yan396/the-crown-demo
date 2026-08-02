@@ -10,8 +10,10 @@ import {
   advanceActIfNeeded,
   advanceOnboarding,
   beginAct2Promise,
+  beginAct3Promise,
   checkLowGoldTooltip,
   consumeTooltip,
+  dismissFiefThreat,
   submitPromise,
   trackTownEntry,
   updateSessionPeaks
@@ -26,6 +28,7 @@ import {
   hireLieutenant,
   recruitMilitia,
   replenishVeteran,
+  setFiefGarrison,
   setAutoplay,
   verifyRoadEventChoiceEffects,
   worldTick
@@ -116,11 +119,13 @@ let actIntroTimer = null;
 
 const autoplayMetrics = {
   enabled: autoplayEnabled,
-  variant: v11Enabled ? "1.1" : "1.0",
+  variant: fullVersion ? "full" : v11Enabled ? "1.1" : "1.0",
   seed: state.seed,
   firstBattleSeconds: null,
   act2Seconds: null,
   endingSeconds: null,
+  act3Seconds: null,
+  fiefThreatSeconds: null,
   act2RawSeconds: null,
   endingRawSeconds: null,
   activeSeconds: 0,
@@ -200,6 +205,23 @@ function scheduleAct2Intro() {
   }, pauseMs);
 }
 
+function scheduleAct3Intro() {
+  if (state.demo?.modal !== "act3Transition") return;
+  if (autoplayEnabled) {
+    beginAct3Promise(state);
+    return;
+  }
+  if (actIntroTimer) clearTimeout(actIntroTimer);
+  const pauseMs = CONFIG.ACT_TRANSITION_PAUSE_MS ?? 1000;
+  stampSeal(ui.text("map.fiefSeal"), { hold: Math.max(220, pauseMs - 320) });
+  actIntroTimer = setTimeout(() => {
+    actIntroTimer = null;
+    if (!beginAct3Promise(state).advanced) return;
+    persist(true);
+    sync();
+  }, pauseMs);
+}
+
 function sync() {
   ui.sync(state, { saveAvailable, autoplayEnabled });
 }
@@ -247,7 +269,15 @@ function recordAutoplayMilestone(name, seconds) {
     autoplayMetrics[name === "act2Seconds" ? "act2RawSeconds" : "endingRawSeconds"] = seconds;
   }
   autoplayMetrics[name] = reportedSeconds;
-  const label = name === "act2Seconds" ? "Act 2" : name === "endingSeconds" ? "renown 100" : "first battle";
+  const label = name === "act2Seconds"
+    ? "Act 2"
+    : name === "endingSeconds"
+      ? "renown 100"
+      : name === "act3Seconds"
+        ? "Act 3"
+        : name === "fiefThreatSeconds"
+          ? "first fief threat"
+          : "first battle";
   const units = v11Enabled && name !== "firstBattleSeconds" ? "player minutes" : "active minutes";
   console.info(`[CROWN autoplay] ${label}: ${(reportedSeconds / 60).toFixed(2)} ${units}`);
 }
@@ -275,6 +305,18 @@ function resolveAutoplayModal() {
     submitPromise(state, CONFIG.AUTOPLAY_GOLD_PROMISE, new Date(state.tick * CONFIG.LOGIC_MS).toISOString());
     return true;
   }
+  if (state.demo.modal === "act3Transition") {
+    beginAct3Promise(state);
+    return true;
+  }
+  if (state.demo.modal === "fiefPromise") {
+    submitPromise(state, CONFIG.AUTOPLAY_FIEF_PROMISE, new Date(state.tick * CONFIG.LOGIC_MS).toISOString());
+    return true;
+  }
+  if (state.demo.modal === "fiefThreat") {
+    dismissFiefThreat(state);
+    return true;
+  }
   if (state.demo.modal === "formation") {
     if (holdAutoplayFormations) return false;
     const report = state.battle?.formations?.reportedEnemy || "line";
@@ -295,7 +337,7 @@ function finishAutoplaySetup() {
   console.info(
     `[CROWN autoplay] road-event effects ${eventAudit.choicesChecked}/${eventAudit.choicesChecked}: ok`
   );
-  setAutoplay(state, true);
+  setAutoplay(state, true, { fullVersion });
   while (resolveAutoplayModal()) {
     // Tutorial taps and mirror answers intentionally consume no active time.
   }
@@ -395,6 +437,19 @@ ui = createUi({
     showNextTooltip();
     sync();
   },
+  onSetGarrison(townId, desired) {
+    const result = setFiefGarrison(state, townId, desired);
+    if (!result.ok) return;
+    persist(true);
+    sync();
+  },
+  onDismissFiefThreat() {
+    if (!dismissFiefThreat(state).dismissed) return;
+    lastFrameAt = performance.now();
+    logicAccumulator = 0;
+    persist(true);
+    sync();
+  },
   onSelectContract(contractId) {
     const result = acceptMercenaryContract(state, activeTown(state)?.id || null, contractId);
     if (result.ok) {
@@ -444,13 +499,14 @@ ui = createUi({
     }
     const result = skipBattle(state);
     updateSessionPeaks(state);
-    const transition = advanceActIfNeeded(state);
+    const transition = advanceActIfNeeded(state, undefined, { demoBuild: CONFIG.DEMO });
     const script = result?.battleScript || state.battleScript;
 
     const settle = (staged) => {
       handleBattleResult(result, { transition: Boolean(transition), staged });
       if (transition?.type === "ending") stampSeal(ui.text("ending.seal"));
       if (transition?.type === "act2") scheduleAct2Intro();
+      if (transition?.type === "act3") scheduleAct3Intro();
       persist(true);
       sync();
     };
@@ -513,6 +569,7 @@ ui = createUi({
 
 finishAutoplaySetup();
 if (!autoplayEnabled && state.demo?.modal === "act2Transition") scheduleAct2Intro();
+if (!autoplayEnabled && state.demo?.modal === "act3Transition") scheduleAct3Intro();
 
 function runLogicStep() {
   if (autoplayStopped) return;
@@ -534,7 +591,8 @@ function runLogicStep() {
 
   const transition = advanceActIfNeeded(
     state,
-    autoplayEnabled ? new Date(state.tick * CONFIG.LOGIC_MS).toISOString() : undefined
+    autoplayEnabled ? new Date(state.tick * CONFIG.LOGIC_MS).toISOString() : undefined,
+    { demoBuild: CONFIG.DEMO }
   );
   handleBattleResult(result.battleResult, { transition: Boolean(transition) });
   if (transition?.type === "ending" && !autoplayEnabled) stampSeal(ui.text("ending.seal"));
@@ -543,10 +601,18 @@ function runLogicStep() {
     state.autoplay.nextHuntTick = state.tick + CONFIG.AUTOPLAY_ACT2_RECOVERY_TICKS;
   }
   if (transition?.type === "ending") recordAutoplayMilestone("endingSeconds", activeSeconds);
+  if (transition?.type === "act3") recordAutoplayMilestone("act3Seconds", activeSeconds);
+  if (state.telemetry.chronicle.fiefThreat) {
+    recordAutoplayMilestone(
+      "fiefThreatSeconds",
+      state.telemetry.chronicle.fiefThreat.activeSeconds ?? activeSeconds
+    );
+  }
   while (resolveAutoplayModal()) {
     // Resolve the Act 2 mirror question before the next simulated tick.
   }
   if (transition?.type === "act2" && !autoplayEnabled) scheduleAct2Intro();
+  if (transition?.type === "act3" && !autoplayEnabled) scheduleAct3Intro();
 
   const townId = activeTown(state)?.id || null;
   if (townId !== lastTooltipTownId || result.dayAdvanced || result.battleResult) showNextTooltip();
@@ -557,11 +623,13 @@ function runLogicStep() {
     persist();
   }
 
-  if (
-    autoplayEnabled &&
-    !state.demo.ended &&
-    activeSeconds >= CONFIG.AUTOPLAY_MAX_ACTIVE_SECONDS
-  ) {
+  const autoplayLimit = fullVersion
+    ? CONFIG.AUTOPLAY_FULL_MAX_ACTIVE_SECONDS
+    : CONFIG.AUTOPLAY_MAX_ACTIVE_SECONDS;
+  if (autoplayEnabled && fullVersion && autoplayMetrics.fiefThreatSeconds !== null) {
+    autoplayStopped = true;
+    state.paused = true;
+  } else if (autoplayEnabled && !state.demo.ended && activeSeconds >= autoplayLimit) {
     autoplayStopped = true;
     state.paused = true;
     console.warn(`[CROWN autoplay] target missed at ${(activeSeconds / 60).toFixed(2)} active minutes`);

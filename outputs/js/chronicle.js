@@ -78,7 +78,7 @@ function lineFor(language, entry) {
     case "act2":
       return t("ending.chronicleAct2", { day });
     case "act3":
-      return t("ending.chronicleAct3", { day });
+      return t("ending.chronicleFiefAct", { day });
     case "ending":
       return t("ending.chronicleEnding", { day });
     case "start":

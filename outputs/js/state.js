@@ -365,6 +365,8 @@ function createDemoState(options = {}) {
     lastTownId: null,
     roadEvent: null,
     activeRoadEvent: null,
+    fiefThreat: null,
+    fiefThreatKey: null,
     tooltipsSeen: {
       town: Boolean(options.tooltipsSeen?.town),
       lowGold: Boolean(options.tooltipsSeen?.lowGold),
@@ -683,9 +685,11 @@ export function isValidState(value) {
     )
   ) return false;
   if (
-    ![1, 2].includes(value.player.act) ||
+    ![1, 2, 3].includes(value.player.act) ||
     !Array.isArray(value.player.promises) ||
-    !Array.isArray(value.promises)
+    !Array.isArray(value.promises) ||
+    !Array.isArray(value.player.fiefs) ||
+    !value.player.fiefs.every((townId) => typeof townId === "string" && value.towns?.some((town) => town.id === townId))
   ) return false;
   if (!Array.isArray(value.factions) || value.factions.length !== FACTION_DATA.length) return false;
   if (!Array.isArray(value.towns) || value.towns.length !== TOWN_DATA.length || !value.towns.every((town) => isPosition(town.pos))) return false;
@@ -723,11 +727,15 @@ export function isValidState(value) {
 }
 
 function normalizePromise(entry, index) {
-  const act = entry?.act === 2 ? 2 : index + 1;
+  const act = [1, 2, 3].includes(entry?.act) ? entry.act : Math.min(3, index + 1);
+  const kind = entry?.kind || (act === 1 ? "troops" : act === 2 ? "gold" : "fiefs");
+  const rawGoal = entry?.statedGoal ?? entry?.value;
   return {
     act,
-    kind: entry?.kind || (act === 1 ? "troops" : "gold"),
-    statedGoal: Math.max(0, Number(entry?.statedGoal ?? entry?.value) || 0),
+    kind,
+    statedGoal: kind === "fiefs" && rawGoal === "all"
+      ? "all"
+      : Math.max(0, Number(rawGoal) || 0),
     actualAtActEnd: entry?.actualAtActEnd ?? entry?.actual ?? null,
     exceeded: Boolean(entry?.exceeded),
     exceededAtTick: entry?.exceededAtTick ?? null
@@ -739,11 +747,14 @@ function migrateState(state) {
   if (!legacy && state.saveVersion !== CONFIG.SAVE_VERSION) return null;
   state.saveVersion = CONFIG.SAVE_VERSION;
   state.features = { v11: state.features?.v11 === true };
-  state.player.act = state.player.act >= 2 ? 2 : 1;
+  state.player.act = state.player.act >= 3 ? 3 : state.player.act >= 2 ? 2 : 1;
   state.player.promises = (state.promises || state.player.promises || [])
     .map(normalizePromise)
-    .slice(0, 2);
+    .slice(0, 3);
   state.promises = state.player.promises;
+  state.player.fiefs = Array.isArray(state.player.fiefs)
+    ? [...new Set(state.player.fiefs.filter((townId) => state.towns.some((town) => town.id === townId)))]
+    : [];
   state.player.contract ||= null;
   state.player.lieutenant = state.features.v11 && state.player.lieutenant?.id === "chen_mang"
     ? {

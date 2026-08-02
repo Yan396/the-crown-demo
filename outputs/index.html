@@ -72,6 +72,16 @@
           <strong id="troop-value"></strong>
           <small id="troop-promise" class="promise-marker" hidden></small>
         </div>
+        <div id="fief-stat" class="stat fief-stat" hidden>
+          <span class="stat-head">
+            <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path d="M3 13.5h10M4 13.5V7l4-3.5L12 7v6.5M6.2 13.5V9.2h3.6v4.3"/>
+            </svg>
+            <span id="fief-label"></span>
+          </span>
+          <strong id="fief-value"></strong>
+          <small id="fief-promise" class="promise-marker" hidden></small>
+        </div>
         <div class="stat renown-stat">
           <span class="stat-head">
             <!-- laurel: two facing sprigs -->
@@ -184,6 +194,13 @@
           <span id="tavern-detail"></span>
         </button>
       </div>
+      <div id="fief-garrison" class="fief-garrison" hidden>
+        <div class="garrison-copy">
+          <strong id="garrison-title"></strong>
+          <small id="garrison-counts"></small>
+        </div>
+        <input id="garrison-slider" type="range" min="0" step="1">
+      </div>
     </section>
 
     <button id="settings-scrim" type="button" hidden></button>
@@ -236,8 +253,24 @@
         <output id="promise-value" for="promise-slider"></output>
         <input id="promise-slider" type="range">
         <div class="promise-range"><span id="promise-min"></span><span id="promise-max"></span></div>
+        <div id="fief-promise-options" class="fief-promise-options" hidden>
+          <button type="button" data-fief-promise="1">1</button>
+          <button type="button" data-fief-promise="2">2</button>
+          <button type="button" data-fief-promise="3">3</button>
+          <button type="button" data-fief-promise="5">5</button>
+          <button id="fief-promise-all" type="button" data-fief-promise="all"></button>
+        </div>
         <button id="promise-confirm" class="primary-button" type="button"></button>
       </div>
+    </section>
+
+    <section id="fief-threat-modal" class="modal-layer fief-threat-layer" hidden>
+      <article class="fief-threat-card paper-sheet" role="dialog" aria-modal="true">
+        <small id="fief-threat-kicker"></small>
+        <h2 id="fief-threat-title"></h2>
+        <p id="fief-threat-detail"></p>
+        <button id="fief-threat-dismiss" class="primary-button" type="button"></button>
+      </article>
     </section>
 
     <button id="context-tooltip" type="button" hidden></button>
@@ -284,6 +317,14 @@
           <button id="contract-offer-war" class="contract-choice" type="button">
             <strong id="contract-war-title"></strong>
             <span id="contract-war-detail"></span>
+          </button>
+          <button id="contract-offer-reinforce" class="contract-choice" type="button" hidden>
+            <strong id="contract-reinforce-title"></strong>
+            <span id="contract-reinforce-detail"></span>
+          </button>
+          <button id="contract-offer-patrol" class="contract-choice" type="button" hidden>
+            <strong id="contract-patrol-title"></strong>
+            <span id="contract-patrol-detail"></span>
           </button>
           <button id="lieutenant-offer" class="contract-choice" type="button" hidden>
             <strong id="lieutenant-offer-title"></strong>

@@ -278,6 +278,15 @@ export function beginAct3Promise(state) {
   return { advanced: true, promise: "fiefs" };
 }
 
+export function dismissFiefThreat(state) {
+  if (state.demo?.modal !== "fiefThreat") return { dismissed: false };
+  state.demo.modal = null;
+  state.demo.pauseReason = null;
+  state.demo.fiefThreat = null;
+  state.paused = false;
+  return { dismissed: true };
+}
+
 export function completeDemo(state, occurredAt) {
   if (state.demo.ended) return { type: "ending", tick: state.demo.endingTick };
   const goldPromise = state.player.promises.find((entry) => entry.act === 2);
