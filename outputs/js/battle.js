@@ -281,25 +281,49 @@ function resolveHpRound(state, bandit, ctx) {
     ctx.banditMultiplier / (ctx.formation.player.defense * ctx.playerResistance)
   ) * averageHpPerSoldier(state.player) * CONFIG_V11.HP_DAMAGE_PER_CASUALTY;
 
-  let playerBound = toPlayer;
+  const enemyWaves = damageWaves(toEnemy);
+  const playerWaves = damageWaves(toPlayer);
+  let enemyDeaths = 0;
+  let playerDeaths = 0;
+  let enemyDamageApplied = 0;
+  let playerDamageApplied = 0;
   let lieutenantAbsorbed = 0;
-  if (Number.isFinite(battle.lieutenantHp) && battle.lieutenantHp > 0) {
-    lieutenantAbsorbed = Math.min(battle.lieutenantHp, playerBound);
-    battle.lieutenantHp -= lieutenantAbsorbed;
-    playerBound -= lieutenantAbsorbed;
+  const forced = { player: false, enemy: false };
+  let outcome = null;
+
+  for (let index = 0; index < BATTLE_STRIKE_WAVES; index += 1) {
+    let playerBound = playerWaves[index];
+    let absorbedThisWave = 0;
+    if (Number.isFinite(battle.lieutenantHp) && battle.lieutenantHp > 0) {
+      absorbedThisWave = Math.min(battle.lieutenantHp, playerBound);
+      battle.lieutenantHp -= absorbedThisWave;
+      playerBound -= absorbedThisWave;
+      lieutenantAbsorbed += absorbedThisWave;
+    }
+
+    const enemyHit = applyRoutClampedHpDamage(bandit, enemyWaves[index]);
+    const playerHit = applyRoutClampedHpDamage(state.player, playerBound);
+    enemyDeaths += enemyHit.deaths;
+    playerDeaths += playerHit.deaths;
+    enemyDamageApplied += enemyHit.damage;
+    playerDamageApplied += absorbedThisWave + playerHit.damage;
+    forced.enemy ||= enemyHit.forcedRout;
+    forced.player ||= playerHit.forcedRout;
+    outcome = roundOutcome(state, bandit, battle, forced);
+    if (outcome) break;
   }
 
-  const enemyDeaths = applyHpDamage(bandit, toEnemy);
-  const playerDeaths = applyHpDamage(state.player, playerBound);
   return {
     enemyDeaths,
     playerDeaths,
-    enemyHpDealt: toEnemy,
-    playerHpDealt: toPlayer,
+    enemyHpDealt: enemyDamageApplied,
+    playerHpDealt: playerDamageApplied,
     lieutenantAbsorbed,
     lieutenantHp: Number.isFinite(battle.lieutenantHp) ? battle.lieutenantHp : null,
     playerHpRemaining: partyHp(state.player),
-    enemyHpRemaining: partyHp(bandit)
+    enemyHpRemaining: partyHp(bandit),
+    forced,
+    outcome
   };
 }
 
@@ -314,24 +338,110 @@ function routed(remaining, starting) {
   return starting > 0 && remaining < starting * CONFIG.ROUT_THRESHOLD;
 }
 
-function determineWinner(first, second, firstStart, secondStart) {
+function determineWinner(first, second, firstStart, secondStart, options = {}) {
   const firstRemaining = getTroopCount(first);
   const secondRemaining = getTroopCount(second);
-  if (firstRemaining <= 0 && secondRemaining <= 0) return "first";
+  if (firstRemaining <= 0 && secondRemaining <= 0) {
+    return options.allowDraw ? "draw" : "first";
+  }
   if (firstRemaining <= 0) return "second";
   if (secondRemaining <= 0) return "first";
 
-  const firstRouted = routed(firstRemaining, firstStart);
-  const secondRouted = routed(secondRemaining, secondStart);
+  const firstRouted = Boolean(options.firstForcedRout) || routed(firstRemaining, firstStart);
+  const secondRouted = Boolean(options.secondForcedRout) || routed(secondRemaining, secondStart);
   if (firstRouted && !secondRouted) return "second";
   if (secondRouted && !firstRouted) return "first";
   if (firstRouted && secondRouted) {
-    const firstRatio = firstRemaining / firstStart;
-    const secondRatio = secondRemaining / secondStart;
-    if (firstRatio !== secondRatio) return firstRatio > secondRatio ? "first" : "second";
+    const firstStartStrength = Math.max(1, Number(options.firstStartStrength) || firstStart);
+    const secondStartStrength = Math.max(1, Number(options.secondStartStrength) || secondStart);
+    const firstRatio = getPartyStrength(first) / firstStartStrength;
+    const secondRatio = getPartyStrength(second) / secondStartStrength;
+    if (Math.abs(firstRatio - secondRatio) > Number.EPSILON) {
+      return firstRatio > secondRatio ? "first" : "second";
+    }
+    if (options.allowDraw) return "draw";
     return getPartyStrength(first) >= getPartyStrength(second) ? "first" : "second";
   }
   return null;
+}
+
+const BATTLE_STRIKE_WAVES = 3;
+
+function integerWaves(total) {
+  const normalized = Math.max(0, Math.floor(Number(total) || 0));
+  return Array.from({ length: BATTLE_STRIKE_WAVES }, (_, index) => (
+    Math.floor(normalized / BATTLE_STRIKE_WAVES)
+      + (index < normalized % BATTLE_STRIKE_WAVES ? 1 : 0)
+  ));
+}
+
+function damageWaves(total) {
+  const normalized = Math.max(0, Number(total) || 0);
+  const share = normalized / BATTLE_STRIKE_WAVES;
+  return [share, share, normalized - share * 2];
+}
+
+function applyRoutClampedCasualties(party, requested) {
+  const available = getTroopCount(party);
+  const wanted = Math.max(0, Math.floor(Number(requested) || 0));
+  if (available <= 0 || wanted <= 0) {
+    return { deaths: 0, forcedRout: available <= 0 && wanted > 0 };
+  }
+  const forcedRout = wanted >= available;
+  const deaths = applyCasualties(party, Math.min(wanted, Math.max(0, available - 1)));
+  return { deaths, forcedRout };
+}
+
+function applyRoutClampedHpDamage(party, requested) {
+  const available = getTroopCount(party);
+  const hp = partyHp(party);
+  const wanted = Math.max(0, Number(requested) || 0);
+  if (available <= 0 || wanted <= 0) {
+    return { deaths: 0, damage: 0, forcedRout: available <= 0 && wanted > 0 };
+  }
+  const forcedRout = wanted >= hp;
+  // A routed last soldier keeps a fractional positive pool. This is the clamp
+  // that prevents a strike wave from erasing a side before rout is checked.
+  const damage = Math.min(wanted, Math.max(0, hp - 0.5));
+  return { deaths: applyHpDamage(party, damage), damage, forcedRout };
+}
+
+function roundOutcome(state, bandit, battle, forced = {}) {
+  return determineWinner(
+    state.player,
+    bandit,
+    battle.playerStart,
+    battle.banditStart,
+    {
+      allowDraw: true,
+      firstForcedRout: forced.player,
+      secondForcedRout: forced.enemy,
+      firstStartStrength: battle.playerStartStrength,
+      secondStartStrength: battle.enemyStartStrength
+    }
+  );
+}
+
+function resolveCasualtyWaves(state, bandit, battle, playerLoss, enemyLoss) {
+  const playerWaves = integerWaves(playerLoss);
+  const enemyWaves = integerWaves(enemyLoss);
+  let playerDeaths = 0;
+  let enemyDeaths = 0;
+  const forced = { player: false, enemy: false };
+  let outcome = null;
+
+  for (let index = 0; index < BATTLE_STRIKE_WAVES; index += 1) {
+    const enemyHit = applyRoutClampedCasualties(bandit, enemyWaves[index]);
+    const playerHit = applyRoutClampedCasualties(state.player, playerWaves[index]);
+    enemyDeaths += enemyHit.deaths;
+    playerDeaths += playerHit.deaths;
+    forced.enemy ||= enemyHit.forcedRout;
+    forced.player ||= playerHit.forcedRout;
+    outcome = roundOutcome(state, bandit, battle, forced);
+    if (outcome) break;
+  }
+
+  return { playerDeaths, enemyDeaths, forced, outcome };
 }
 
 const MAX_SCRIPT_TOKENS = 24;
@@ -745,7 +855,6 @@ export function buildBattleScript(state, battle, result, winner) {
       drafts = shuffled(rng, addGlancingBlows(
         rng, round, playerSide.buckets, enemySide.buckets, drafts
       ));
-      stampHpAfter(drafts, playerSide.buckets, enemySide.buckets);
     }
     const waveCount = drafts.length >= 3 ? 3 : drafts.length >= 2 ? 2 : 1;
     drafts.forEach((draft, index) => {
@@ -781,7 +890,10 @@ export function buildBattleScript(state, battle, result, winner) {
     if (
       !playerRout &&
       battle.playerStart > 0 &&
-      round.playerRemaining < battle.playerStart * CONFIG.ROUT_THRESHOLD
+      (
+        round.playerRouted ||
+        round.playerRemaining < battle.playerStart * CONFIG.ROUT_THRESHOLD
+      )
     ) {
       playerRout = true;
       events.push({ t: statusTime + 40, type: "rout", side: "player" });
@@ -789,7 +901,10 @@ export function buildBattleScript(state, battle, result, winner) {
     if (
       !enemyRout &&
       battle.banditStart > 0 &&
-      round.enemyRemaining < battle.banditStart * CONFIG.ROUT_THRESHOLD
+      (
+        round.enemyRouted ||
+        round.enemyRemaining < battle.banditStart * CONFIG.ROUT_THRESHOLD
+      )
     ) {
       enemyRout = true;
       events.push({ t: statusTime + 40, type: "rout", side: "enemy" });
@@ -797,7 +912,7 @@ export function buildBattleScript(state, battle, result, winner) {
     roundTime = statusTime + SCRIPT_TIMING.roundGap;
   });
 
-  const survivors = {
+  const survivors = result?.resolvedSurvivors || {
     player: Math.max(0, battle.playerStart - battle.playerCasualties),
     enemy: Math.max(0, battle.banditStart - battle.banditCasualties)
   };
@@ -811,11 +926,18 @@ export function buildBattleScript(state, battle, result, winner) {
     winner,
     loot: {
       gold: result?.type === "victory" ? Math.max(0, result.loot || 0) : 0,
-      renown: result?.type === "victory" ? Math.max(0, result.renown || 0) : 0
+      renown: ["victory", "draw"].includes(result?.type) ? Math.max(0, result.renown || 0) : 0
     },
     survivors
   });
   events.sort((first, second) => first.t - second.t);
+  if (isV11State(state)) {
+    stampHpAfter(
+      events.filter((event) => event.type === "strike"),
+      playerSide.buckets,
+      enemySide.buckets
+    );
+  }
 
   const script = {
     battleId: battle.battleId,
@@ -1025,6 +1147,36 @@ function playerBattleLoser(state, battle, enemy) {
   };
 }
 
+function playerBattleDraw(state, battle, enemy) {
+  const enemyKind = battle.enemyKind || "bandit";
+  const renown = Math.floor(
+    battle.banditCasualties * CONFIG.RENOWN_PER_ENEMY_CASUALTY / 2
+  );
+  state.player.renown += renown;
+  state.player.moveTarget = null;
+  state.player.encounterCooldownUntil = state.tick + CONFIG.RESPAWN_GRACE_TICKS;
+
+  if (enemyKind === "bandit") {
+    assignBanditMoveTarget(state, enemy);
+  } else {
+    enemy.playerPursuitCooldownUntil = state.tick + CONFIG.LORD_PLAYER_PURSUIT_COOLDOWN_TICKS;
+    enemy.aiState = "patrol";
+    enemy.targetKind = null;
+    enemy.targetId = null;
+    enemy.moveTarget = null;
+  }
+
+  addEvent(state, "log.mutualDestruction", { renown }, "round");
+  const casualOutcome = recordPlayerBattleOutcome(state, "draw");
+  return {
+    type: "draw",
+    loot: 0,
+    renown,
+    casualOutcome,
+    progressionCheck: true
+  };
+}
+
 function finishBattle(state, winner, bandit) {
   const battle = state.battle;
   if (!battle) return null;
@@ -1036,7 +1188,9 @@ function finishBattle(state, winner, bandit) {
   state.stats.kills += battle.banditCasualties;
   const result = winner === "player"
     ? playerBattleWinner(state, battle, bandit)
-    : playerBattleLoser(state, battle, bandit);
+    : winner === "draw"
+      ? playerBattleDraw(state, battle, bandit)
+      : playerBattleLoser(state, battle, bandit);
   const playerWiped = battle.playerStart - battle.playerCasualties <= 0;
   if (playerWiped && isV11State(state) && getLieutenants(state).length) {
     const lost = getLieutenants(state).map((entry) => entry.id);
@@ -1080,22 +1234,22 @@ function finishBattle(state, winner, bandit) {
       enemy: Math.max(0, battle.banditCasualties || 0)
     },
     survivors: {
-      player: Math.max(0, battle.playerStart - battle.playerCasualties),
-      enemy: Math.max(0, battle.banditStart - battle.banditCasualties)
+      player: getTroopCount(state.player),
+      enemy: getTroopCount(bandit)
     }
   };
+  result.resolvedCasualties = resolved.casualties;
+  result.resolvedSurvivors = resolved.survivors;
   const battleScript = buildBattleScript(
     state,
     battle,
     result,
-    winner === "player" ? "player" : "enemy"
+    winner === "player" ? "player" : winner === "draw" ? "draw" : "enemy"
   );
   state.battleScript = battleScript;
   state.battlePlayback ||= { speed: 1, skip: false };
   state.battlePlayback.skip = false;
   result.battleScript = battleScript;
-  result.resolvedCasualties = resolved.casualties;
-  result.resolvedSurvivors = resolved.survivors;
   result.battleScriptCheck = validateBattleScript(battleScript, resolved);
   state.battle = null;
   return result;
@@ -1156,6 +1310,7 @@ export function resolveBattleRound(state) {
   let actualBanditLoss;
   let actualPlayerLoss;
   let hpRound = null;
+  let casualtyRound = null;
   if (isV11State(state)) {
     hpRound = resolveHpRound(state, bandit, {
       playerAttack,
@@ -1168,8 +1323,15 @@ export function resolveBattleRound(state) {
     actualBanditLoss = hpRound.enemyDeaths;
     actualPlayerLoss = hpRound.playerDeaths;
   } else {
-    actualBanditLoss = applyCasualties(bandit, banditLoss);
-    actualPlayerLoss = applyCasualties(state.player, playerLoss);
+    casualtyRound = resolveCasualtyWaves(
+      state,
+      bandit,
+      battle,
+      playerLoss,
+      banditLoss
+    );
+    actualBanditLoss = casualtyRound.enemyDeaths;
+    actualPlayerLoss = casualtyRound.playerDeaths;
   }
   battle.round += 1;
   battle.playerCasualties += actualPlayerLoss;
@@ -1184,6 +1346,10 @@ export function resolveBattleRound(state) {
     enemyRemaining: getTroopCount(bandit),
     playerStrengthRemaining: getPartyStrength(state.player),
     enemyStrengthRemaining: getPartyStrength(bandit),
+    playerRouted: Boolean(hpRound?.forced?.player || casualtyRound?.forced?.player)
+      || routed(getTroopCount(state.player), battle.playerStart),
+    enemyRouted: Boolean(hpRound?.forced?.enemy || casualtyRound?.forced?.enemy)
+      || routed(getTroopCount(bandit), battle.banditStart),
     ...(hpRound ? {
       playerHpDealt: hpRound.playerHpDealt,
       enemyHpDealt: hpRound.enemyHpDealt,
@@ -1198,8 +1364,14 @@ export function resolveBattleRound(state) {
     playerLoss: actualPlayerLoss
   }, "round");
 
-  const winner = determineWinner(state.player, bandit, battle.playerStart, battle.banditStart);
-  if (winner) return finishBattle(state, winner === "first" ? "player" : "bandit", bandit);
+  const winner = hpRound?.outcome || casualtyRound?.outcome || roundOutcome(state, bandit, battle);
+  if (winner) {
+    return finishBattle(
+      state,
+      winner === "draw" ? "draw" : winner === "first" ? "player" : "bandit",
+      bandit
+    );
+  }
   battle.nextRoundTick = state.tick + CONFIG.BATTLE_ROUND_TICKS;
   return null;
 }
@@ -1293,7 +1465,9 @@ export function startBattle(state, bandit, options = {}) {
   }
   state.battleScript = null;
   state.battlePlayback ||= { speed: 1, skip: false };
-  state.battlePlayback.speed = state.battlePlayback.speed === 2 ? 2 : 1;
+  state.battlePlayback.speed = [1, 2, 4].includes(state.battlePlayback.speed)
+    ? state.battlePlayback.speed
+    : 1;
   state.battlePlayback.skip = false;
   recordBiggestBattle(state, {
     tick: state.tick,
@@ -1323,7 +1497,8 @@ export function checkForEncounter(state) {
   if (
     state.battle ||
     areBanditBattlesBlocked(state) ||
-    state.tick < state.player.encounterCooldownUntil
+    state.tick < state.player.encounterCooldownUntil ||
+    (state.autoplay?.enabled && state.tick < (state.autoplay.nextHuntTick || 0))
   ) return null;
   const candidates = state.bandits
     .map((bandit) => ({ bandit, separation: distance(state.player.pos, bandit.pos) }))
@@ -1340,7 +1515,8 @@ export function checkForHostileLordEncounter(state) {
     state.battle ||
     state.player.act < 2 ||
     areBanditBattlesBlocked(state) ||
-    state.tick < state.player.encounterCooldownUntil
+    state.tick < state.player.encounterCooldownUntil ||
+    (state.autoplay?.enabled && state.tick < (state.autoplay.nextHuntTick || 0))
   ) return null;
   const candidates = state.lords
     .filter((lord) => (

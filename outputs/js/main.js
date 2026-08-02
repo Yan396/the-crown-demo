@@ -91,6 +91,8 @@ const qaAct2TownEnabled = qaFreshEnabled && query.get("act2Town") === "1";
 const qaCapture = qaFreshEnabled ? query.get("capture") : null;
 const storage = await createStorageAdapter();
 const desktopRuntime = isDesktopRuntime();
+const qaPromiseCrossingEnabled = fullVersion && qaFreshEnabled && query.get("promiseCrossing") === "1";
+const qaBattleStageEnabled = qaFreshEnabled && query.get("battleStage") === "1";
 
 let state = autoplayEnabled
   ? createInitialState(autoplaySeed, {
@@ -138,6 +140,24 @@ if (qaAct2TownEnabled) {
   state.player.pos = { ...captureTown.pos };
   state.player.prevPos = { ...captureTown.pos };
   state.casual.openingBattlesPrepared = CONFIG.STARTER_BATTLE_COUNT;
+}
+if (qaPromiseCrossingEnabled) {
+  state.player.act = 3;
+  state.player.gold = 611;
+  state.player.troops = [{ type: "militia", count: 97, xp: 0 }];
+  state.player.fiefs = ["riverbend", "stoneford"];
+  state.player.promises = [
+    { act: 1, kind: "troops", statedGoal: 60, exceeded: true, exceededAtTick: 1 },
+    { act: 2, kind: "gold", statedGoal: 500, exceeded: true, exceededAtTick: 2 },
+    { act: 3, kind: "fiefs", statedGoal: 1, exceeded: true, exceededAtTick: 3 }
+  ];
+}
+if (qaBattleStageEnabled) {
+  const qaBandit = state.bandits.find((bandit) => !bandit.elite && !bandit.isElite) || state.bandits[0];
+  if (qaBandit) {
+    qaBandit.troops = [{ type: "bandit", count: 2, xp: 0 }];
+    startBattle(state, qaBandit);
+  }
 }
 startTelemetrySession(state);
 
@@ -195,13 +215,14 @@ let battleStage = null;
 function getBattleStage() {
   if (battleStage) return battleStage;
   battleStage = createBattleStage(document.body, {
-    translate: (key) => ui.text(key),
+    translate: (key, parameters) => ui.text(key, parameters),
     hintSeen: () => {
       try { return storage?.getItem(STAGE_HINT_KEY) === "1"; } catch (error) { return false; }
     },
     persistHint: () => {
       try { storage?.setItem(STAGE_HINT_KEY, "1"); } catch (error) { /* private mode */ }
     },
+    initialSpeed: () => state.battlePlayback?.speed || 1,
     // The brief's playback controls write to the engine's own playback record.
     onSpeedChange: (speed) => {
       if (state.battlePlayback) state.battlePlayback.speed = speed;
@@ -222,6 +243,9 @@ function handleBattleResult(result, options = {}) {
   } else if (result.type === "defeat") {
     if (!options.staged) stampSeal(ui.text("map.defeatSeal"), { tone: "loss" });
     ui.showToast("toast.defeat", { townId: result.townId });
+  } else if (result.type === "draw") {
+    if (!options.staged) stampSeal(ui.text("map.drawSeal"));
+    ui.showToast("toast.draw", { renown: result.renown });
   }
 }
 

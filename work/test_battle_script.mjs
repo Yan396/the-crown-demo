@@ -145,7 +145,7 @@ function assertExactContract(script) {
       assert.deepEqual(keys(event), ["loot", "survivors", "t", "type", "winner"]);
       assert.deepEqual(keys(event.loot), ["gold", "renown"]);
       assert.deepEqual(keys(event.survivors), ["enemy", "player"]);
-      assert.ok(["player", "enemy"].includes(event.winner));
+      assert.ok(["player", "enemy", "draw"].includes(event.winner));
     }
   }
 }
@@ -160,16 +160,17 @@ function assertResolvedCasualties(result) {
   assert.deepEqual(check.survivors, result.resolvedSurvivors);
 }
 
-test("reference outcomes and gameplay RNG are unchanged", () => {
+test("reference outcomes keep their RNG while the rout clamp preserves one survivor", () => {
   const victory = referenceBattle({ count: 1, gold: 60 });
   assert.equal(victory.result.type, "victory");
   assert.equal(victory.state.player.gold, 130);
-  assert.equal(victory.state.player.renown, 1);
+  assert.equal(victory.state.player.renown, 0);
   assert.deepEqual(victory.state.rng, {
     algorithm: "mulberry32-v1",
     value: 2852120795,
     draws: 25
   });
+  assert.deepEqual(victory.result.resolvedSurvivors, { player: 4, enemy: 1 });
   assertResolvedCasualties(victory.result);
 
   const defeat = referenceBattle({ count: 100, gold: 3000 });
@@ -180,8 +181,8 @@ test("reference outcomes and gameplay RNG are unchanged", () => {
     value: 2220285125,
     draws: 27
   });
-  assert.deepEqual(defeat.result.resolvedSurvivors, { player: 0, enemy: 95 });
-  assert.equal(getTroopCount(defeat.state.player), 1, "refuge troop is settlement, not a combat survivor");
+  assert.deepEqual(defeat.result.resolvedSurvivors, { player: 1, enemy: 96 });
+  assert.equal(getTroopCount(defeat.state.player), 1);
   assertResolvedCasualties(defeat.result);
 });
 
@@ -191,7 +192,7 @@ test("battleScript follows the exact event contract and is deterministic", () =>
   assert.deepEqual(first.result.battleScript, second.result.battleScript);
   assertExactContract(first.result.battleScript);
   const roundLog = first.state.eventLog.find((entry) => entry.key === "log.battleRound");
-  assert.deepEqual(roundLog?.parameters, { round: 1, banditLoss: 1, playerLoss: 1 });
+  assert.deepEqual(roundLog?.parameters, { round: 1, banditLoss: 0, playerLoss: 1 });
 });
 
 test("token buckets cap at 24 while every real casualty remains a kill event", () => {
@@ -455,16 +456,16 @@ function replayReference() {
   return state;
 }
 
-test("reference replay and full autoplay keep the gameplay-depth frozen outputs", () => {
+test("reference replay and v1.1 autoplay freeze the post-integrity outputs", () => {
   const replay = replayReference();
   assert.equal(replay.bandits.length, 7);
   assert.deepEqual(replay.rng, {
     algorithm: "mulberry32-v1",
-    value: 3106568492,
-    draws: 466
+    value: 443767118,
+    draws: 556
   });
 
-  const autoplay = simulateAutoplay(CONFIG.SEED, { maxActiveSeconds: 1800 });
+  const autoplay = simulateAutoplay(CONFIG.SEED, { maxActiveSeconds: 1800, v11: true });
   assert.deepEqual({
     firstBattleSeconds: autoplay.firstBattleSeconds,
     firstEventSeconds: autoplay.firstEventSeconds,
@@ -481,21 +482,21 @@ test("reference replay and full autoplay keep the gameplay-depth frozen outputs"
     rng: autoplay.state.rng
   }, {
     firstBattleSeconds: 6.5,
-    firstEventSeconds: 112,
-    act2Seconds: 653.5,
-    endingSeconds: 1637.5,
-    battleScriptsChecked: 19,
-    stateBattleScriptsChecked: 19,
-    gold: 494,
-    troops: 1,
-    renown: 115,
-    battles: 19,
-    wins: 17,
-    bandits: 5,
+    firstEventSeconds: 170.5,
+    act2Seconds: 618.5,
+    endingSeconds: 1538,
+    battleScriptsChecked: 13,
+    stateBattleScriptsChecked: 13,
+    gold: 864,
+    troops: 35,
+    renown: 144,
+    battles: 13,
+    wins: 13,
+    bandits: 11,
     rng: {
       algorithm: "mulberry32-v1",
-      value: 152939306,
-      draws: 3276
+      value: 2808164380,
+      draws: 3254
     }
   });
 });

@@ -1153,6 +1153,11 @@ test("battle: exactly the third survivor win upgrades militia to veteran", () =>
 });
 
 test("bandits/loot: one persistent elite, seeded randomized loot, 10% jackpot", () => {
+  const initializeLivingWorld = requireFunction(
+    [simModule, livingModule],
+    ["initializeLivingWorld", "ensureLivingState"],
+    "living-world initialization"
+  );
   const state = createInitialState(121);
   assert.equal(eliteBandits(state).length, 1, "exactly one ELITE must be alive after initialization");
   const elite = eliteBandits(state)[0];
@@ -1186,17 +1191,32 @@ test("bandits/loot: one persistent elite, seeded randomized loot, 10% jackpot", 
   assert.ok(jackpotEntries.every((entry) => (typeof entry === "number" ? entry : entry.amount) >= 200), "every jackpot must pay at least 200 gold");
 
   state.player.troops = [{ type: "veteran", count: 200, xp: 0 }];
+  const frozenEliteCount = totalTroops(elite);
+  initializeLivingWorld(state);
+  assert.equal(
+    totalTroops(elite),
+    frozenEliteCount,
+    "an existing ELITE must stay frozen at its spawn-time strength"
+  );
   if (state.casual) state.casual.openingBattlesPrepared = CONFIG.STARTER_BATTLE_COUNT ?? 2;
   elite.pos = clone(state.player.pos);
   elite.prevPos = clone(state.player.pos);
   battleModule.startBattle(state, elite);
-  // startBattle exercises production rescaling first; then make the already-started
-  // encounter safely winnable without changing the replacement path under test.
+  // Make the already-started encounter safely winnable without changing the
+  // spawn-frozen pack's identity or replacement path under test.
   elite.troops = [{ type: "bandit", count: 1, xp: 0 }];
   state.battle.banditStart = 1;
   const eliteResult = battleModule.skipBattle(state);
   assert.equal(eliteResult?.type, "victory", "production battle path must defeat the test ELITE");
-  assert.equal(eliteBandits(state).length, 1, "production ELITE defeat flow must replace it immediately so exactly one remains alive");
+  assert.equal(eliteBandits(state).length, 0, "ELITE defeat must open a cooldown instead of replacing it immediately");
+  const readyTick = state.tick + CONFIG.ELITE_RESPAWN_COOLDOWN_DAYS * CONFIG.TICKS_PER_DAY;
+  assert.equal(state.mechanics.eliteRespawnReadyTick, readyTick);
+  state.tick = readyTick - 1;
+  initializeLivingWorld(state);
+  assert.equal(eliteBandits(state).length, 0, "ELITE must stay absent throughout the cooldown");
+  state.tick = readyTick;
+  initializeLivingWorld(state);
+  assert.equal(eliteBandits(state).length, 1, "ELITE must respawn once the configured cooldown expires");
   assert.ok(eliteResult.loot >= (elite.lootValue ?? elite.gold ?? 0) * CONFIG.LOOT_SHARE, "ELITE production payout must include its explicit 3x loot value");
   assert.match(fs.readFileSync(path.join(JS_DIR, "map.js"), "utf8"), /elite/i, "map renderer must visibly distinguish the larger dark ELITE marker");
 });
@@ -1447,7 +1467,7 @@ test("autoplay: default seed meets first-battle, Act 2, and ending targets", () 
     ["runAutoplay", "simulateAutoplay"],
     "deterministic greedy autoplay"
   );
-  const result = runAutoplay(CONFIG.SEED, { multiplier: 20, maxActiveSeconds: 1800 });
+  const result = runAutoplay(CONFIG.SEED, { multiplier: 20, maxActiveSeconds: 1800, v11: true });
   assert.ok(result && typeof result === "object");
   const metrics = {
     seed: CONFIG.SEED,

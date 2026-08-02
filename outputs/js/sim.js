@@ -1133,12 +1133,39 @@ function progressionHook(state) {
 }
 
 function nearestBandit(state, includeElite = false) {
-  const maximumStrength = getPartyStrength(state.player) * CONFIG.AUTOPLAY_MAX_TARGET_STRENGTH_RATIO;
-  const candidates = state.bandits.filter((bandit) => (
-    (includeElite || !bandit.elite) && getPartyStrength(bandit) <= maximumStrength
+  const playerStrength = getPartyStrength(state.player);
+  if (!isV11State(state)) {
+    const maximumStrength = playerStrength * CONFIG.AUTOPLAY_MAX_TARGET_STRENGTH_RATIO;
+    const candidates = state.bandits.filter((bandit) => (
+      (includeElite || !bandit.elite) && getPartyStrength(bandit) <= maximumStrength
+    ));
+    return candidates.reduce((nearest, bandit) => {
+      if (!nearest) return bandit;
+      const gap = distance(state.player.pos, bandit.pos);
+      const nearestGap = distance(state.player.pos, nearest.pos);
+      if (gap !== nearestGap) return gap < nearestGap ? bandit : nearest;
+      return bandit.id.localeCompare(nearest.id) < 0 ? bandit : nearest;
+    }, null);
+  }
+  // The integrity resolver now honours routs between strike waves. The bot's
+  // old 1.3x ceiling described a nominally beatable pack, not a reliable win;
+  // use the encounter UI's existing "稳赢" boundary so pacing tests measure
+  // progression rather than an avoidable chain of mutual routs.
+  const beatableStrength = playerStrength * CONFIG.AUTOPLAY_MAX_TARGET_STRENGTH_RATIO;
+  const sureWinStrength = isV11State(state)
+    ? playerStrength * CONFIG.LOSS_STREAK_SPAWN_MAX_RATIO
+    : playerStrength / CONFIG.ENCOUNTER_SURE_WIN_RATIO;
+  const beatable = state.bandits.filter((bandit) => (
+    (includeElite || !bandit.elite) && getPartyStrength(bandit) <= beatableStrength
   ));
+  const cautious = beatable.filter((bandit) => getPartyStrength(bandit) <= sureWinStrength);
+  const candidates = cautious.length ? cautious : beatable;
   return candidates.reduce((nearest, bandit) => {
     if (!nearest) return bandit;
+    if (!cautious.length) {
+      const strengthGap = getPartyStrength(bandit) - getPartyStrength(nearest);
+      if (strengthGap !== 0) return strengthGap < 0 ? bandit : nearest;
+    }
     const gap = distance(state.player.pos, bandit.pos);
     const nearestGap = distance(state.player.pos, nearest.pos);
     if (gap !== nearestGap) return gap < nearestGap ? bandit : nearest;
@@ -1377,7 +1404,7 @@ export function worldTick(state) {
   if (
     battleResult &&
     state.autoplay?.enabled &&
-    ["victory", "defeat", "fled"].includes(battleResult.type)
+    ["victory", "defeat", "fled", "draw"].includes(battleResult.type)
   ) {
     battleScriptCheck = validateBattleScript(state.battleScript, {
       casualties: battleResult.resolvedCasualties,
@@ -1385,6 +1412,15 @@ export function worldTick(state) {
     });
     if (!battleScriptCheck.ok) {
       throw new Error(`Autoplay battleScript mismatch: ${battleScriptCheck.errors.join(", ")}`);
+    }
+    const stageEnd = [...(state.battleScript?.events || [])]
+      .reverse()
+      .find((event) => event.type === "battle_end");
+    const livePlayerSurvivors = getTroopCount(state.player);
+    if (stageEnd?.survivors?.player !== livePlayerSurvivors) {
+      throw new Error(
+        `Autoplay stage/HUD survivor mismatch: stage ${stageEnd?.survivors?.player}, state ${livePlayerSurvivors}`
+      );
     }
     state.autoplay.battleScriptsChecked = Math.max(
       0,

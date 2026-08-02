@@ -43,6 +43,27 @@ const PHASES = Object.freeze(["deploy", "standoff", "charge", "melee", "rout"]);
 
 const TOKEN_WIDTH = 38; // mirrors .stage-token width in ui.css
 
+export function normalizePlaybackSpeed(value) {
+  const numeric = Number(value);
+  return [1, 2, 4].includes(numeric) ? numeric : 1;
+}
+
+export function nextPlaybackSpeed(value) {
+  const current = normalizePlaybackSpeed(value);
+  return current === 1 ? 2 : current === 2 ? 4 : 1;
+}
+
+export function advanceVirtualClock(current, realDelta, playbackSpeed) {
+  return current + Math.max(0, Number(realDelta) || 0) * normalizePlaybackSpeed(playbackSpeed);
+}
+
+export function battleEndCounts(event) {
+  return {
+    player: Math.max(0, Math.floor(Number(event?.survivors?.player) || 0)),
+    enemy: Math.max(0, Math.floor(Number(event?.survivors?.enemy) || 0))
+  };
+}
+
 function seededRandom(seed) {
   let value = (seed ^ 0x9e3779b9) >>> 0;
   return function nextRandom() {
@@ -438,6 +459,7 @@ export function createBattleStage(host, options = {}) {
     // takes the 1fr row (it must have height for the ranks to stand on), the
     // dispatch line takes the last auto row.
     root.innerHTML =
+      '<button class="stage-speed" type="button"></button>' +
       '<div class="stage-paper">' +
       '<header class="stage-plates">' +
       '<div class="stage-plate"><b class="plate-name"></b><span class="plate-count"></span></div>' +
@@ -471,6 +493,7 @@ export function createBattleStage(host, options = {}) {
     root.addEventListener("pointerdown", onPressStart);
     root.addEventListener("pointerup", onPressEnd);
     root.addEventListener("pointercancel", onPressCancel);
+    root.querySelector(".stage-speed").addEventListener("click", cycleSpeed);
   }
 
   function spawnSide(sideKey) {
@@ -1037,10 +1060,14 @@ export function createBattleStage(host, options = {}) {
     if (!root) return;
     playing = false;
     endEvent = event;
-    syncCounts();
+    const finalCounts = battleEndCounts(event);
+    countNodes.player.textContent = String(finalCounts.player);
+    countNodes.enemy.textContent = String(finalCounts.enemy);
 
     const won = event.winner === "player";
-    stampSeal(translate(won ? "map.victorySeal" : "map.defeatSeal"), won ? {} : { tone: "loss" });
+    const drawn = event.winner === "draw";
+    const sealKey = won ? "map.victorySeal" : drawn ? "map.drawSeal" : "map.defeatSeal";
+    stampSeal(translate(sealKey), won || drawn ? {} : { tone: "loss" });
 
     const tally = root.querySelector(".stage-tally");
     tally.hidden = false;
@@ -1096,7 +1123,7 @@ export function createBattleStage(host, options = {}) {
 
   function tick(now) {
     if (!playing) return;
-    if (now > frozenUntilReal) virtualTime += (now - lastReal) * speed;
+    if (now > frozenUntilReal) virtualTime = advanceVirtualClock(virtualTime, now - lastReal, speed);
     lastReal = now;
     while (cursor < timeline.length && timeline[cursor].at <= virtualTime) {
       timeline[cursor].run();
@@ -1108,17 +1135,37 @@ export function createBattleStage(host, options = {}) {
   /* -- controls --------------------------------------------------------------- */
 
   function onPressStart(event) {
-    if (event.target.closest(".stage-continue")) return;
+    if (event.target.closest(".stage-continue, .stage-speed")) return;
     pressFired = false;
     pressTimer = window.setTimeout(() => { pressFired = true; skip(); }, TIMING.LONG_PRESS);
   }
 
-  function onPressEnd() {
+  function onPressEnd(event) {
     window.clearTimeout(pressTimer);
-    if (pressFired || !playing) return;
-    speed = speed === 1 ? 2 : 1;
+    if (event.target.closest(".stage-speed")) return;
+    // A normal stage tap intentionally does nothing. Long-press is the only
+    // stage-wide gesture; speed belongs exclusively to the visible chip.
+    pressFired = false;
+  }
+
+  function setSpeed(value, notify = true) {
+    speed = normalizePlaybackSpeed(value);
+    if (!root) return speed;
     root.classList.toggle("is-fast", speed === 2);
-    if (options.onSpeedChange) options.onSpeedChange(speed);
+    root.classList.toggle("is-very-fast", speed === 4);
+    const chip = root.querySelector(".stage-speed");
+    if (chip) {
+      chip.textContent = `▶▶ ${speed}×`;
+      chip.setAttribute("aria-label", translate("stage.speedLabel", { speed }));
+      chip.dataset.speed = String(speed);
+    }
+    if (notify && options.onSpeedChange) options.onSpeedChange(speed);
+    return speed;
+  }
+
+  function cycleSpeed(event) {
+    event.stopPropagation();
+    setSpeed(nextPlaybackSpeed(speed));
   }
 
   function onPressCancel() {
@@ -1147,6 +1194,7 @@ export function createBattleStage(host, options = {}) {
     );
 
     buildDom();
+    setSpeed(typeof options.initialSpeed === "function" ? options.initialSpeed() : options.initialSpeed, false);
     document.body.classList.add("battle-stage-open");
     const names = root.querySelectorAll(".plate-name");
     countNodes = {
@@ -1185,7 +1233,6 @@ export function createBattleStage(host, options = {}) {
     }
 
     playing = true;
-    speed = 1;
     virtualTime = 0;
     lastReal = performance.now();
     frozenUntilReal = 0;
@@ -1219,10 +1266,13 @@ export function createBattleStage(host, options = {}) {
     // Survivors as the stage currently believes them — compared against
     // battle_end.survivors by the contract cases.
     get survivors() {
-      return script
+      return endEvent
+        ? battleEndCounts(endEvent)
+        : script
         ? { player: survivorsOf(script.sides.player), enemy: survivorsOf(script.sides.enemy) }
         : null;
     },
-    get endEvent() { return endEvent; }
+    get endEvent() { return endEvent; },
+    get speed() { return speed; }
   };
 }
