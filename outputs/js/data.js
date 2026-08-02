@@ -1,4 +1,4 @@
-export const DEMO = false;
+export const DEMO = true;
 
 export const TOKENS = Object.freeze({
   paper: "#E8DCC3",

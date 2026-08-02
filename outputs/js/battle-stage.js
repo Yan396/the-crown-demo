@@ -431,6 +431,7 @@ export function createBattleStage(host, options = {}) {
       '<div class="stage-ranks stage-ranks-enemy"></div>' +
       "</div>" +
       '<p class="stage-log" aria-live="polite"></p>' +
+      '<button type="button" class="stage-speed" aria-live="polite"></button>' +
       '<p class="stage-hint" hidden></p>' +
       "</div>" +
       // Outside .stage-paper on purpose: the paper clips its children, and the
@@ -451,6 +452,7 @@ export function createBattleStage(host, options = {}) {
     root.addEventListener("pointerdown", onPressStart);
     root.addEventListener("pointerup", onPressEnd);
     root.addEventListener("pointercancel", onPressCancel);
+    root.querySelector(".stage-speed").addEventListener("click", onSpeedChipClick);
   }
 
   function spawnSide(sideKey) {
@@ -618,7 +620,16 @@ export function createBattleStage(host, options = {}) {
     if (!worldNode) return;
     const width = worldNode.clientWidth;
     const centre = width / 2;
-    const band = Math.min(P.MELEE_BAND_PX, width * P.MELEE_BAND_MAX_RATIO);
+    const crowd = Math.max(
+      script.sides.player.tokens.length,
+      script.sides.enemy.tokens.length
+    );
+    // Widen for the crowd, then clamp to the stage: a big battle spreads out
+    // instead of stacking every man on the same few pixels.
+    const band = Math.min(
+      width * P.MELEE_BAND_MAX_RATIO,
+      Math.max(P.MELEE_BAND_PX, crowd * P.MELEE_BAND_PER_TOKEN_PX)
+    );
 
     ["player", "enemy"].forEach((sideKey) => {
       const dir = sideKey === "player" ? 1 : -1;
@@ -1066,17 +1077,34 @@ export function createBattleStage(host, options = {}) {
   /* -- controls --------------------------------------------------------------- */
 
   function onPressStart(event) {
-    if (event.target.closest(".stage-continue")) return;
+    if (event.target.closest(".stage-continue, .stage-speed")) return;
     pressFired = false;
     pressTimer = window.setTimeout(() => { pressFired = true; skip(); }, TIMING.LONG_PRESS);
   }
 
+  // Tap-anywhere no longer changes speed. It was the ONLY speed control and it
+  // was also every other interaction, so any tap meant to skip or dismiss
+  // silently flipped playback -- which is the whole "sometimes 2x, sometimes
+  // not" report. Long-press-to-skip stays; the chip is now the speed control.
   function onPressEnd() {
     window.clearTimeout(pressTimer);
-    if (pressFired || !playing) return;
-    speed = speed === 1 ? 2 : 1;
-    root.classList.toggle("is-fast", speed === 2);
+  }
+
+  function setSpeed(next) {
+    speed = next;
+    root.classList.toggle("is-fast", speed > 1);
+    const chip = root.querySelector(".stage-speed");
+    // The chip states the CURRENT effective speed. Display and effect are set
+    // from the same value in the same call so they cannot drift apart.
+    if (chip) chip.textContent = `${speed}\u00d7`;
     if (options.onSpeedChange) options.onSpeedChange(speed);
+  }
+
+  function onSpeedChipClick(event) {
+    event.stopPropagation();
+    if (!playing) return;
+    const steps = P.SPEED_STEPS;
+    setSpeed(steps[(steps.indexOf(speed) + 1) % steps.length] || steps[0]);
   }
 
   function onPressCancel() {
@@ -1143,7 +1171,10 @@ export function createBattleStage(host, options = {}) {
     }
 
     playing = true;
-    speed = 1;
+    // Carried across battles: a chosen playback speed is a preference, not
+    // something to relearn every fight.
+    const remembered = Number(options.initialSpeed);
+    setSpeed(P.SPEED_STEPS.includes(remembered) ? remembered : P.SPEED_STEPS[0]);
     virtualTime = 0;
     lastReal = performance.now();
     frozenUntilReal = 0;

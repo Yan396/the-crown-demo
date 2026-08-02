@@ -166,6 +166,7 @@ function getBattleStage() {
       try { localStorage.setItem(STAGE_HINT_KEY, "1"); } catch (error) { /* private mode */ }
     },
     // The brief's playback controls write to the engine's own playback record.
+    initialSpeed: state.battlePlayback?.speed,
     onSpeedChange: (speed) => {
       if (state.battlePlayback) state.battlePlayback.speed = speed;
     },
