@@ -12,13 +12,19 @@ import { CONFIG } from "../outputs/js/data.js";
 import {
   acceptMercenaryContract,
   buyTownBattleBuff,
+  declareWar,
   getTavernContracts,
   initializeLivingWorld,
   replenishVeteran,
   townRecruitPrice,
   worldTick
 } from "../outputs/js/sim.js";
-import { createInitialState, getPartyStrength, getTown } from "../outputs/js/state.js";
+import {
+  createInitialState,
+  factionsAtWar,
+  getPartyStrength,
+  getTown
+} from "../outputs/js/state.js";
 
 function actTwoState(seed = 0xd330) {
   const state = createInitialState(seed, { skipOnboarding: true, startedAt: new Date(0).toISOString() });
@@ -26,6 +32,13 @@ function actTwoState(seed = 0xd330) {
   state.paused = false;
   state.demo.modal = null;
   initializeLivingWorld(state);
+  // These tests are about war-zone economics, so the war is a PREMISE of the
+  // fixture, not something to inherit. The demo build happened to seed one
+  // (CONFIG.DEMO in initializeLivingWorld); the full build does not, which is
+  // what turned three assertions red. Declaring it here makes the fixture
+  // build-agnostic instead of quietly demo-only.
+  const [warFirst, warSecond] = CONFIG.DEMO_INITIAL_WAR_FACTIONS;
+  if (!factionsAtWar(state, warFirst, warSecond)) declareWar(state, warFirst, warSecond);
   const town = getTown(state, CONFIG.START_TOWN_ID);
   state.player.pos = { ...town.pos };
   state.player.prevPos = { ...town.pos };
