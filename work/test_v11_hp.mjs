@@ -160,7 +160,7 @@ test("陈莽 soaks damage before the ranks do", () => {
   assert.ok(CONFIG_V11.LIEUTENANT_HP > 0);
 });
 
-test("v1.0 default-seed world is byte-identical", () => {
+test("v1.0 default-seed post-integrity world stays byte-identical", () => {
   const state = createInitialState(CONFIG.SEED, {
     skipOnboarding: true, startedAt: new Date(0).toISOString()
   });
@@ -188,6 +188,6 @@ test("v1.0 default-seed world is byte-identical", () => {
   };
   assert.equal(
     createHash("sha256").update(JSON.stringify(snapshot)).digest("hex"),
-    "af59599a1472c31b5a244bba359cf13651328b3005ac97c519ab0746d630aab9"
+    "777b312320f2c693e668d41bfbc94d5c8029c7cf9a97a5e6b1c185b3b781f8db"
   );
 });

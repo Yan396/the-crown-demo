@@ -812,7 +812,10 @@ test("autoplay: ending remains reachable when logs and tooltips are presentation
   assert.equal(typeof demo.advanceOnboarding, "function");
   assert.equal(typeof demo.submitPromise, "function");
   assert.equal(typeof demo.advanceActIfNeeded, "function");
-  const state = stateModule.createInitialState(CONFIG.SEED, { startedAt: new Date(0).toISOString() });
+  const state = stateModule.createInitialState(CONFIG.SEED, {
+    startedAt: new Date(0).toISOString(),
+    v11: true
+  });
   sim.initializeLivingWorld(state);
   sim.setAutoplay(state, true);
   state.demo.tooltipsSeen = { town: true, lowGold: true, act2: true, elite: true };
@@ -823,6 +826,10 @@ test("autoplay: ending remains reachable when logs and tooltips are presentation
     if (state.demo.modal === "act2Transition") return demo.beginAct2Promise(state);
     if (state.demo.modal === "goldPromise") return demo.submitPromise(state, CONFIG.AUTOPLAY_GOLD_PROMISE, new Date(state.tick * CONFIG.LOGIC_MS).toISOString());
     if (state.demo.modal === "roadEvent") return casual.chooseRoadEvent(state, CONFIG.AUTOPLAY_ROAD_EVENT_CHOICE_INDEX);
+    if (state.demo.modal === "formation") {
+      const reported = state.battle?.formations?.reportedEnemy || "line";
+      return battle.choosePlayerFormation(state, battle.counterFormation(reported));
+    }
     return null;
   };
   while (resolveModal()) {
@@ -830,7 +837,10 @@ test("autoplay: ending remains reachable when logs and tooltips are presentation
     state.demo.pendingTooltips.length = 0;
   }
   let safety = Math.ceil(1800 / (CONFIG.LOGIC_MS / 1000)) + 10;
-  while (!state.demo.ended && safety > 0) {
+  const reachedTarget = () => data.DEMO
+    ? state.demo.ended
+    : state.player.renown >= CONFIG.DEMO_END_RENOWN;
+  while (!reachedTarget() && safety > 0) {
     const result = sim.worldTick(state);
     if (result.advanced) demo.advanceActIfNeeded(state, new Date(state.tick * CONFIG.LOGIC_MS).toISOString());
     while (resolveModal()) {
@@ -841,7 +851,12 @@ test("autoplay: ending remains reachable when logs and tooltips are presentation
     state.demo.pendingTooltips.length = 0;
     safety -= 1;
   }
-  assert.ok(state.demo.ended, "autoplay must still reach the ending while log history and tooltip queues are continuously erased");
+  assert.ok(
+    reachedTarget(),
+    data.DEMO
+      ? "autoplay must still reach the ending while log history and tooltip queues are continuously erased"
+      : "full-build autoplay must still cross the demo renown gate while presentation queues are erased"
+  );
   assert.equal(state.eventLog.length, 0, "test precondition: no event-log history may survive");
   assert.equal(state.demo.pendingTooltips.length, 0, "test precondition: no tooltip queue may survive");
   assert.ok(state.player.renown >= CONFIG.DEMO_END_RENOWN, "suppressed presentation must not alter progression");

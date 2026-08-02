@@ -623,7 +623,7 @@ export function isBattleScript(value) {
     }
     if (event.type === "battle_end") {
       if (!hasExactKeys(event, ["t", "type", "winner", "loot", "survivors"])) return false;
-      if (index !== value.events.length - 1 || !["player", "enemy"].includes(event.winner)) {
+      if (index !== value.events.length - 1 || !["player", "enemy", "draw"].includes(event.winner)) {
         return false;
       }
       if (!hasExactKeys(event.loot, ["gold", "renown"])) return false;
@@ -660,7 +660,7 @@ export function isBattleScript(value) {
 
 function normalizeBattlePlayback(value) {
   return {
-    speed: value?.speed === 2 ? 2 : 1,
+    speed: [1, 2, 4].includes(value?.speed) ? value.speed : 1,
     skip: value?.skip === true
   };
 }
@@ -720,7 +720,7 @@ export function isValidState(value) {
   if (value.battleScript !== null && !isBattleScript(value.battleScript)) return false;
   if (
     !value.battlePlayback ||
-    ![1, 2].includes(value.battlePlayback.speed) ||
+    ![1, 2, 4].includes(value.battlePlayback.speed) ||
     typeof value.battlePlayback.skip !== "boolean"
   ) return false;
   return true;
