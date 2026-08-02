@@ -2434,7 +2434,9 @@ body.battle-stage-open #town-sheet {
   display: grid;
   overflow: hidden;
   width: min(680px, 100%);
-  height: min(48vh, 330px);
+  /* The battlefield is the main visual of a battle, so it takes the majority of
+     the viewport instead of a letterboxed strip. The cap keeps desktop sane. */
+  height: min(64vh, 560px);
   grid-template-rows: auto 1fr auto;
   background: var(--paper);
   color: var(--ink);
@@ -2487,8 +2489,12 @@ body.battle-stage-open #town-sheet {
 /* --mx/--my are the melee-band offsets: from contact onward each token drifts
    off its parade position so the two lines interleave instead of staying two
    tidy rows. They default to 0, so deployment is unaffected. */
+/* Anchored by the FEET, not the head: the rank line is a 0-height marker, so a
+   top-anchored token hung below it and the front row's legs were clipped by
+   .stage-world's overflow. bottom:0 puts the anchor under the figure. */
 .stage-token {
   position: absolute;
+  bottom: 0;
   width: 38px;
   height: 46px;
   color: var(--ink);
@@ -2565,6 +2571,15 @@ body.battle-stage-open #town-sheet {
    colour alone -- the silhouettes differ too. Enemies stay pure ink. */
 .stage-ranks-player .fig-accent { fill: var(--cinnabar); }
 .stage-ranks-enemy .fig-accent { display: none; }
+
+/* v1.1 lieutenant: a head taller than the line he leads, so he is findable in
+   a crowd before you read anything. Scaled from the feet so he still stands on
+   the rank line. */
+.stage-token.is-lieutenant {
+  width: 48px;
+  height: 58px;
+  z-index: 2;
+}
 
 /* -- wall archers ----------------------------------------------------------- */
 /* Terrain scenery for a town fight, not a unit: they stand on the wall, belong

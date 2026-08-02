@@ -1,5 +1,9 @@
 import { stampSeal } from "./seal.js";
-import { CONFIG_PRESENTATION as P } from "./presentation.js";
+import {
+  CONFIG_PRESENTATION as P,
+  FORMATION_LAYOUTS,
+  FORMATION_SHAPE
+} from "./presentation.js";
 
 /*
  * Battle cinematics — a full-screen paper stage that PLAYS a battleScript.
@@ -88,6 +92,7 @@ export function normalizeScript(raw) {
     sides,
     events: raw.events.slice().sort((first, second) => first.t - second.t)
   };
+  if (raw.lieutenant === "player") normalized.lieutenant = "player";
   if (raw.formations) {
     normalized.formations = {
       player: raw.formations.player || "line",
@@ -263,10 +268,44 @@ function banditFigure() {
   );
 }
 
+// 陈莽, the v1.1 lieutenant. He has to be findable in a crowd at a glance, so
+// every silhouette cue is pushed: tallest mass, a crested topknot breaking the
+// head outline, a cape falling behind the legs, a tall command banner, and a
+// guandao whose blade and shaft leave the body outline on both sides.
+//
+// Drawn in the same 32x34 box as everyone else but filling far more of it --
+// scaling a normal figure would just make a bigger militiaman, and the read
+// has to come from shape, not size alone.
+function lieutenantFigure() {
+  return (
+    // Command banner, tall and behind everything.
+    '<path d="M7.4 13 3.4 0.6 5.1 0.2 9.1 12.6Z"/>' +
+    '<path class="fig-accent" d="M4.1 1.1Q0.4 2.6 -1.8 0.9Q0 5.6 5.1 4.4Z"/>' +
+    // Cape: one heavy sweep from the shoulders past the knees.
+    '<path d="M8.4 9.6Q13 7.4 17.6 9.6L19.4 25.8Q13 28.6 6.4 25.8Z"/>' +
+    // Guandao held across the body, blade high and butt low.
+    '<g class="fig-melee">' +
+    '<path d="M5.6 30.4 25.8 3.4 27.6 4.8 7.4 31.8Z"/>' +
+    '<path d="M24.4 4.6Q30.4 1.2 30.8 -1.4Q32.4 3.6 27.2 8.2Z"/>' +
+    "</g>" +
+    // Head with a crested topknot.
+    '<circle cx="13" cy="5.2" r="3.5"/>' +
+    '<path d="M10.6 2.6Q13 -2.2 15.6 2.6Q13.4 1.2 10.6 2.6Z"/>' +
+    '<path d="M12.2 -0.6 13.9 -0.6 13.4 2.4 12.7 2.4Z"/>' +
+    // Torso: broader than a veteran, with a hard shoulder line.
+    '<path d="M7.6 9.8Q13 6.8 18.4 9.8L19.2 22.4Q13 25 6.8 22.4Z"/>' +
+    '<path d="M7.2 10.1Q13 6.6 18.8 10.1Q19.3 12.9 18.3 14Q13 11 7.7 14Q6.7 12.9 7.2 10.1Z"/>' +
+    '<path d="M9 22.8 7.4 32Q9 32.9 10.7 32L11.4 23.4Z"/>' +
+    '<path d="M14.6 23.4 16.4 32Q18.1 32.9 19.6 32L17.2 22.8Z"/>' +
+    '<path class="fig-accent" d="M8.2 18.6Q13 20.2 17.8 18.6L18.2 21Q13 22.6 7.8 21Z"/>'
+  );
+}
+
 const FIGURES = {
   militia: militiaFigure,
   veteran: veteranFigure,
-  bandit: banditFigure
+  bandit: banditFigure,
+  lieutenant: lieutenantFigure
 };
 
 function figureSvg(troopType) {
@@ -383,38 +422,28 @@ export function createBattleStage(host, options = {}) {
       let column = index % perRow;
       let formationX = null;
       let formationY = null;
-      if (formation === "wedge") {
-        const lanes = Math.min(5, Math.max(3, shown));
-        const lane = index % lanes;
-        const group = Math.floor(index / lanes);
-        const middle = (lanes - 1) / 2;
-        const distanceFromMiddle = Math.abs(lane - middle);
-        formationX = (group * spacing * 0.72 + (middle - distanceFromMiddle) * spacing * 0.82) * dir;
-        formationY = (lane - middle) * 19 - group * 3;
-        row = group;
-        column = lane;
-      } else if (formation === "line") {
-        const lanes = Math.min(6, Math.max(3, shown));
-        const lane = index % lanes;
-        const group = Math.floor(index / lanes);
-        formationX = group * spacing * 0.68 * dir;
-        formationY = (lane - (lanes - 1) / 2) * 17;
-        row = group;
-        column = lane;
-      } else if (formation === "circle") {
-        const angle = shown > 1 ? index / shown * Math.PI * 2 : 0;
-        const radiusX = Math.min(62, Math.max(30, shown * 4));
-        const radiusY = Math.min(48, Math.max(24, shown * 3));
-        formationX = (radiusX + Math.cos(angle) * radiusX) * dir;
-        formationY = Math.sin(angle) * radiusY;
-        row = Math.floor(index / Math.max(1, Math.ceil(shown / 3)));
+      // v1.1 only: the script carries `formations` solely under ?v=1.1, so the
+      // default build keeps its plain row packing untouched.
+      const layout = formation ? FORMATION_LAYOUTS[formation] : null;
+      if (layout) {
+        const placed = layout(index, shown, dir);
+        formationX = placed.x;
+        formationY = placed.y;
+        row = placed.rank;
         column = index;
       }
+      // The lieutenant takes the leading position of his own side. He replaces
+      // no soldier: the token keeps its troopType and capacity, only the drawn
+      // figure changes, so survivor accounting is unaffected.
+      const isLieutenant = script.lieutenant === sideKey && index === 0;
       const node = document.createElement("i");
-      node.className = `stage-token unit-${token.troopType || "militia"}`;
-      node.innerHTML = figureSvg(token.troopType);
-      const jx = (roll() - 0.5) * 14;
-      const jy = (roll() - 0.5) * 10;
+      node.className = isLieutenant
+        ? `stage-token unit-${token.troopType || "militia"} is-lieutenant`
+        : `stage-token unit-${token.troopType || "militia"}`;
+      node.innerHTML = figureSvg(isLieutenant ? "lieutenant" : token.troopType);
+      const scatter = layout ? FORMATION_SHAPE.JITTER_SCALE : 1;
+      const jx = (roll() - 0.5) * 14 * scatter;
+      const jy = (roll() - 0.5) * 10 * scatter;
       const scale = 1 + (rows - 1 - row) * 0.12;
       const tx = (formationX ?? ((column * spacing + row * spacing * 0.4) * dir)) + jx;
       node.style.setProperty("--tx", `${tx}px`);
@@ -872,7 +901,13 @@ export function createBattleStage(host, options = {}) {
     // Dock it to the paper's lower edge, measured rather than assumed, so it
     // rises into the empty space under the sheet at any viewport height.
     const paper = root.querySelector(".stage-paper");
-    if (paper) tally.style.top = `${Math.round(paper.getBoundingClientRect().bottom)}px`;
+    if (paper) {
+      // Clamp to the viewport: with a full-height battlefield the paper's lower
+      // edge can sit close enough to the bottom that the panel would slide off.
+      const below = paper.getBoundingClientRect().bottom;
+      const room = window.innerHeight - tally.offsetHeight - P.TALLY_VIEWPORT_MARGIN_PX;
+      tally.style.top = `${Math.round(Math.max(0, Math.min(below, room)))}px`;
+    }
     // The seal lands first; the tally slides up from under the field a beat
     // later, so it never covers the ranks it is reporting on.
     if (!skipped && !reducedMotion.matches) {

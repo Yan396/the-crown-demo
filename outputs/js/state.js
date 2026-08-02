@@ -457,7 +457,15 @@ function isScriptReference(value, sides) {
 export function isBattleScript(value) {
   const baseKeys = ["battleId", "terrain", "sides", "events"];
   const v11Keys = [...baseKeys, "formations"];
-  if (!hasExactKeys(value, baseKeys) && !hasExactKeys(value, v11Keys)) return false;
+  // v1.1 may additionally name the side its lieutenant rides with. Optional,
+  // because he is only present once hired.
+  const v11LieutenantKeys = [...v11Keys, "lieutenant"];
+  if (
+    !hasExactKeys(value, baseKeys) &&
+    !hasExactKeys(value, v11Keys) &&
+    !hasExactKeys(value, v11LieutenantKeys)
+  ) return false;
+  if (Object.hasOwn(value, "lieutenant") && value.lieutenant !== "player") return false;
   if (
     Object.hasOwn(value, "formations") &&
     (

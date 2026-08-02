@@ -236,7 +236,6 @@ export const CONFIG = Object.freeze({
     bold: Object.freeze([0.55, 0.27, 0.18])
   }),
   V11_LIEUTENANT_COST: 150,
-  V11_LIEUTENANT_ATTACK_BONUS: 0.1,
   V11_LIEUTENANT_PURSUIT_GOLD: 80,
   V11_LIEUTENANT_PURSUIT_TROOPS: 3,
   // Road movement. ROAD_MOVEMENT gates the whole feature so it can be turned
@@ -545,3 +544,21 @@ export const LORD_DATA = Object.freeze({
 
 export const LORD_START_FRACTIONS = Object.freeze([0.15, 0.36, 0.64, 0.85]);
 export const SUPPORTED_LANGUAGES = Object.freeze(["zh", "en"]);
+
+/*
+ * v1.1 lieutenant combat profile.
+ *
+ * Deliberately its own frozen object rather than more V11_ keys on CONFIG:
+ * these are the only numbers that change how a battle resolves under
+ * ?v=1.1, so they are kept where they cannot be reached by a v1.0 code path.
+ *
+ * The engine has no HP pool -- troops are lost by count, and incoming damage
+ * is divided by the defending party's defence. So the hitpoint and defence
+ * bonuses combine into the one lever that exists: a resistance divisor of
+ * (1 + HP) * (1 + DEF) applied to what the player takes.
+ */
+export const CONFIG_V11 = Object.freeze({
+  LIEUTENANT_ATTACK_BONUS: 0.3,
+  LIEUTENANT_HP_BONUS: 0.2,
+  LIEUTENANT_DEFENSE_BONUS: 0.1
+});
