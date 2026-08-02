@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>王冠 · 战斗舞台样板间</title>
+<link rel="stylesheet" href="css/ui.css">
+<style>
+  /* Dev harness only — never shipped into the game screens. */
+  body { background: var(--lacquer); margin: 0; font-family: var(--font-body); }
+  .bench {
+    position: fixed; z-index: 50; top: 10px; left: 50%; translate: -50%;
+    display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
+  }
+  .bench button {
+    min-height: 40px; padding: 8px 14px; border: 1px solid var(--rule-on-lacquer);
+    border-radius: 2px; background: transparent; color: var(--paper-on-lacquer);
+    font: 500 13px var(--font-body);
+  }
+  #verdict {
+    position: fixed; bottom: 10px; left: 50%; translate: -50%;
+    color: var(--paper-on-lacquer); font: 12px/1.6 ui-monospace, monospace;
+    white-space: pre; text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="bench">
+  <button id="run-field">野战</button>
+  <button id="run-town">守城战(volley)</button>
+  <button id="run-defeat">败仗</button>
+  <button id="check-skip">跳过一致性校验</button>
+</div>
+<code id="verdict"></code>
+
+<script type="module">
+import { createBattleStage, normalizeScript } from "./js/battle-stage.js";
+
+/*
+ * MOCK battleScript — flat event-list form, using the event names from the
+ * brief (battle_start / volley / round_start / strike / rout / battle_end).
+ * The real producer's schema replaces normalizeScript()'s input mapping only.
+ */
+function mockScript({ town = false, playerWins = true } = {}) {
+  const events = [{ type: "battle_start" }];
+  const rounds = 4;
+  for (let r = 0; r < rounds; r += 1) {
+    events.push({ type: "round_start", round: r + 1 });
+    if (town && r === 0) events.push({ type: "volley", arrows: 3 });
+    // Three beats; both sides trade blows, the loser bleeds harder.
+    events.push({ type: "strike", beat: 0, side: "attacker", hits: [
+      { damage: 3, kill: r > 0 }, { damage: 2, kill: r > 1 }
+    ]});
+    events.push({ type: "strike", beat: 1, side: "defender", hits: [
+      { damage: 2, kill: r === 2 }
+    ]});
+    events.push({ type: "strike", beat: 2, side: "attacker", hits: [
+      { damage: 4, kill: r > 0 }, { damage: 3, kill: r === 3 }, { damage: 2, kill: r === 3 }
+    ]});
+    if (r === 2) events.push({ type: "morale", side: "defender", level: "wavering" });
+  }
+  events.push({ type: "rout", side: playerWins ? "defender" : "attacker" });
+  events.push({ type: "battle_end" });
+  return {
+    meta: {
+      attacker: { name: playerWins ? "你的战团" : "溃败的战团", count: 14 },
+      defender: { name: town ? "金穗城守军" : "匪队", count: 11 },
+      terrain: town ? "town" : "field",
+      result: playerWins ? "attacker" : "defender",
+      loot: { gold: 46, renown: 3 }
+    },
+    events
+  };
+}
+
+const strings = {
+  "stage.march": "两军行进入场……",
+  "stage.standoff": "对峙。",
+  "stage.round": "第 {n} 轮",
+  "stage.volley": "城头齐射!",
+  "stage.rout": "阵线崩了——",
+  "stage.hint": "点按 = 2× 速度 · 长按 = 跳过",
+  "stage.tallyGold": "金币",
+  "stage.tallyRenown": "声望",
+  "stage.continue": "继 续",
+  "map.victorySeal": "大捷",
+  "map.defeatSeal": "败退"
+};
+
+let hintShown = false;
+const stage = createBattleStage(document.body, {
+  translate: (key) => strings[key] || key,
+  hintSeen: () => hintShown,
+  persistHint: () => { hintShown = true; }
+});
+
+const verdict = document.getElementById("verdict");
+document.getElementById("run-field").onclick = () => stage.play(mockScript(), () => verdict.textContent = "done: field");
+document.getElementById("run-town").onclick = () => stage.play(mockScript({ town: true }), () => verdict.textContent = "done: town");
+document.getElementById("run-defeat").onclick = () => stage.play(mockScript({ playerWins: false }), () => verdict.textContent = "done: defeat");
+
+/*
+ * Acceptance 2: a skipped battle must settle identically to a watched one.
+ * Play the same script twice — once skipped instantly, once at max speed to
+ * completion is too slow for a check, so instead compare the skip result to
+ * the counts derived directly from the script. Same array, two projections.
+ */
+document.getElementById("check-skip").onclick = async () => {
+  const raw = mockScript();
+  const script = normalizeScript(raw);
+  const expect = { attacker: script.attacker.count, defender: script.defender.count };
+  script.rounds.forEach((round) => round.strikes.forEach((strike) => {
+    const target = strike.side === "attacker" ? "defender" : "attacker";
+    strike.hits.forEach((hit) => { if (hit.kill) expect[target] -= 1; });
+  }));
+
+  stage.play(raw, () => {});
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  stage.skip();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const got = stage.counts;
+  const same = got.attacker === expect.attacker && got.defender === expect.defender;
+  verdict.textContent =
+    `skip => attacker ${got.attacker} defender ${got.defender}\n` +
+    `script => attacker ${expect.attacker} defender ${expect.defender}\n` +
+    (same ? "CONSISTENT" : "MISMATCH");
+};
+</script>
+</body>
+</html>

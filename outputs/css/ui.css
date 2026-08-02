@@ -2216,3 +2216,439 @@ body.demo-ended #town-sheet {
 .promise-range {
   opacity: 0.72;
 }
+
+/* ==== battle stage ======================================================== */
+/* Full-screen takeover. Sits BELOW the HUD (z-index 5) so the pause button is
+   never blocked; everything else the stage would collide with is hidden via
+   body.battle-stage-open. Hidden/absent state costs nothing: the node is
+   created on play() and removed on dispose(). */
+.battle-stage {
+  position: fixed;
+  z-index: 4;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: max(74px, calc(env(safe-area-inset-top) + 64px)) 12px max(16px, env(safe-area-inset-bottom));
+  background: rgba(28, 25, 22, 0.9);
+  animation: stage-fade 400ms ease both;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+/* P0 regression rule: any full-screen layer must be inert when hidden. */
+.battle-stage[hidden] {
+  display: none !important;
+  pointer-events: none !important;
+}
+
+@keyframes stage-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+body.battle-stage-open #ticker,
+body.battle-stage-open #legend,
+body.battle-stage-open #report,
+body.battle-stage-open #renown-gate,
+body.battle-stage-open #town-sheet {
+  display: none !important;
+}
+
+.stage-paper {
+  position: relative;
+  display: grid;
+  overflow: hidden;
+  width: min(680px, 100%);
+  height: min(48vh, 330px);
+  grid-template-rows: auto 1fr auto;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.stage-world {
+  position: relative;
+  overflow: hidden;
+  transform: scale(var(--zoom, 1));
+  transform-origin: 50% 62%;
+  transition: transform 1200ms ease;
+}
+
+.stage-stains {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.stage-wall {
+  position: absolute;
+  right: 4%;
+  bottom: 30%;
+  width: 30%;
+  max-width: 200px;
+  color: var(--ink);
+  opacity: 0.5;
+}
+
+/* -- ranks ----------------------------------------------------------------- */
+.stage-ranks {
+  position: absolute;
+  bottom: 16%;
+  display: grid;
+}
+
+.stage-ranks-attacker { left: 7%; }
+.stage-ranks-defender { right: 7%; }
+
+/* The defender faces the attacker. Flipping the glyph rather than the token
+   keeps position and facing in separate properties, so neither can clobber
+   the other. */
+.stage-ranks-defender .stage-token svg {
+  transform: scaleX(-1);
+}
+
+.stage-token {
+  position: absolute;
+  width: 38px;
+  height: 46px;
+  color: var(--ink);
+  transform: translate(var(--tx), var(--ty)) scale(var(--tscale));
+  will-change: transform, opacity;
+  animation: token-idle var(--sway, 2s) ease-in-out infinite alternate;
+}
+
+@keyframes token-idle {
+  from { rotate: -1.6deg; }
+  to { rotate: 1.8deg; }
+}
+
+/* Entrance: both armies walk in from their own side, steps out of phase via
+   the per-token idle duration already assigned. */
+.battle-stage.is-entering .stage-ranks-attacker .stage-token {
+  animation: token-march-l 600ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.battle-stage.is-entering .stage-ranks-defender .stage-token {
+  animation: token-march-r 600ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes token-march-l {
+  from { opacity: 0; transform: translate(calc(var(--tx) - 120px), var(--ty)) scale(var(--tscale)); }
+  to { opacity: 1; transform: translate(var(--tx), var(--ty)) scale(var(--tscale)); }
+}
+
+@keyframes token-march-r {
+  from { opacity: 0; transform: translate(calc(var(--tx) + 120px), var(--ty)) scale(var(--tscale)); }
+  to { opacity: 1; transform: translate(var(--tx), var(--ty)) scale(var(--tscale)); }
+}
+
+/* -- fight beats ------------------------------------------------------------ */
+.stage-token.is-striking {
+  animation: token-strike 220ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes token-strike {
+  0% { translate: 0 0; }
+  55% { translate: calc(20px * var(--facing, 1)) 0; }
+  100% { translate: 0 0; }
+}
+
+.stage-ranks-defender .stage-token.is-striking {
+  --facing: -1;
+}
+
+.stage-token.is-reeling {
+  animation: token-reel 260ms ease-out both;
+}
+
+@keyframes token-reel {
+  0% { rotate: 0deg; }
+  40% { rotate: calc(-14deg * var(--facing, 1)); translate: calc(-7px * var(--facing, 1)) 0; }
+  100% { rotate: 0deg; translate: 0 0; }
+}
+
+/* A kill melts into the paper; the canvas stain underneath is what remains. */
+.stage-token.is-dead {
+  animation: token-melt 420ms ease-in both;
+  pointer-events: none;
+}
+
+@keyframes token-melt {
+  0% { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--tx), calc(var(--ty) + 10px)) scale(var(--tscale)); }
+}
+
+/* Morale wavering: bigger idle sway, looser spacing. */
+.stage-ranks.is-wavering .stage-token {
+  animation-duration: calc(var(--sway) * 0.55);
+}
+
+@keyframes token-idle-wide {
+  from { rotate: -4deg; }
+  to { rotate: 4.5deg; }
+}
+
+.stage-ranks.is-wavering .stage-token:not(.is-dead):not(.is-fleeing) {
+  animation-name: token-idle-wide;
+}
+
+/* Rout: everyone breaks at their own pace, drifting apart as they run. */
+.stage-token.is-fleeing {
+  animation: token-flee var(--flee-dur, 900ms) ease-in both;
+}
+
+@keyframes token-flee {
+  0% { opacity: 1; }
+  100% {
+    opacity: 0;
+    transform: translate(calc(var(--tx) - 260px), calc(var(--ty) + var(--flee-drift, 0px))) scale(var(--tscale));
+  }
+}
+
+.stage-ranks-defender .stage-token.is-fleeing {
+  animation-name: token-flee-r;
+}
+
+@keyframes token-flee-r {
+  0% { opacity: 1; }
+  100% {
+    opacity: 0;
+    transform: translate(calc(var(--tx) + 260px), calc(var(--ty) + var(--flee-drift, 0px))) scale(var(--tscale));
+  }
+}
+
+.stage-token.is-cheering .arm {
+  animation: arm-raise 500ms ease-out both;
+}
+
+@keyframes arm-raise {
+  to { transform: rotate(-38deg); transform-origin: 12px 10.5px; }
+}
+
+/* -- projectiles, bursts, numbers ------------------------------------------ */
+.stage-arrow {
+  position: absolute;
+  top: 12%;
+  left: var(--from-x);
+  width: 16px;
+  height: 2px;
+  background: var(--ink);
+  opacity: 0.8;
+  animation: arrow-arc 640ms cubic-bezier(0.5, 0, 0.9, 0.6) var(--delay) both;
+  pointer-events: none;
+}
+
+.stage-arrow::after {
+  position: absolute;
+  top: 0;
+  right: 100%;
+  width: 22px;
+  height: 2px;
+  background: linear-gradient(to left, rgba(43, 38, 32, 0.5), transparent);
+  content: "";
+}
+
+@keyframes arrow-arc {
+  0% { opacity: 0; transform: translate(0, 0) rotate(12deg); }
+  12% { opacity: 0.9; }
+  100% { opacity: 0.9; transform: translate(calc(var(--to-x) - var(--from-x)), calc(var(--to-y) - 12%)) rotate(58deg); }
+}
+
+.stage-burst {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink);
+  transform: translate(-50%, -50%);
+  animation: burst-out 420ms ease-out both;
+  pointer-events: none;
+}
+
+.stage-burst::before,
+.stage-burst::after {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--ink);
+  content: "";
+  animation: inherit;
+}
+
+.stage-burst::before { translate: -7px -5px; }
+.stage-burst::after { translate: 6px -8px; }
+
+@keyframes burst-out {
+  0% { opacity: 0.85; scale: 0.4; }
+  100% { opacity: 0; scale: 2.1; }
+}
+
+.stage-damage {
+  position: absolute;
+  color: var(--ink);
+  font: 700 15px var(--font-display);
+  font-variant-numeric: tabular-nums;
+  transform: translateX(-50%);
+  animation: damage-rise 700ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  pointer-events: none;
+}
+
+.stage-damage.is-kill {
+  color: var(--cinnabar-deep);
+  font-size: 18px;
+}
+
+@keyframes damage-rise {
+  0% { opacity: 0; translate: 0 6px; }
+  18% { opacity: 1; }
+  100% { opacity: 0; translate: 0 -24px; }
+}
+
+.stage-banner-fall {
+  position: absolute;
+  width: 20px;
+  color: var(--ink);
+  opacity: 0.7;
+  animation: banner-fall 600ms ease-in both;
+  pointer-events: none;
+}
+
+@keyframes banner-fall {
+  to { rotate: 78deg; translate: 4px 8px; opacity: 0.45; }
+}
+
+/* -- stage chrome ----------------------------------------------------------- */
+.stage-plates {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 16px 0;
+}
+
+.stage-plate b {
+  display: block;
+  font: 700 15px var(--font-display);
+  letter-spacing: 0.08em;
+}
+
+.stage-plate:last-child { text-align: right; }
+
+.stage-plate .plate-count {
+  color: var(--ink);
+  font: 700 21px var(--font-display);
+  font-variant-numeric: tabular-nums;
+}
+
+.stage-log {
+  min-height: 1.5em;
+  margin: 0;
+  padding: 6px 14px 10px;
+  border-top: 1px solid var(--rule-on-paper);
+  color: var(--ink);
+  font: 11px/1.5 var(--font-body);
+  opacity: 0.78;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stage-hint {
+  position: absolute;
+  bottom: 46px;
+  left: 50%;
+  margin: 0;
+  padding: 5px 12px;
+  background: rgba(28, 25, 22, 0.82);
+  color: var(--paper-on-lacquer);
+  font: 11px var(--font-body);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+/* -- camera moods ----------------------------------------------------------- */
+.battle-stage.is-hit-paused .stage-world,
+.battle-stage.is-hit-paused .stage-token {
+  animation-play-state: paused !important;
+}
+
+.battle-stage.is-slowmo .stage-token {
+  animation-duration: calc(var(--sway) * 3) !important;
+}
+
+.battle-stage.is-fast .stage-token {
+  animation-duration: calc(var(--sway) * 0.5);
+}
+
+.battle-stage.is-shaking .stage-paper {
+  animation: stage-shake 260ms ease-out both;
+}
+
+@keyframes stage-shake {
+  0% { translate: 0 0; }
+  25% { translate: var(--shake, 6px) calc(var(--shake, 6px) * -0.6); }
+  50% { translate: calc(var(--shake, 6px) * -0.7) calc(var(--shake, 6px) * 0.4); }
+  75% { translate: calc(var(--shake, 6px) * 0.4) 0; }
+  100% { translate: 0 0; }
+}
+
+/* -- settlement -------------------------------------------------------------- */
+.stage-tally[hidden] {
+  display: none !important;
+}
+
+.stage-tally {
+  position: absolute;
+  bottom: 12%;
+  left: 50%;
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  padding: 18px 26px;
+  background: var(--paper);
+  transform: translateX(-50%);
+  box-shadow: 0 4px 18px rgba(28, 25, 22, 0.3);
+}
+
+.stage-tally dl {
+  display: flex;
+  gap: 28px;
+  margin: 0;
+}
+
+.stage-tally dt {
+  color: var(--ink);
+  font: 11px var(--font-body);
+  opacity: 0.72;
+}
+
+.stage-tally dd {
+  margin: 2px 0 0;
+  font: 700 24px var(--font-display);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.stage-continue {
+  min-height: 46px;
+  padding: 10px 34px;
+  border: 1px solid rgba(43, 38, 32, 0.55);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--ink);
+  font: 500 14px var(--font-body);
+}
+
+.stage-continue:active {
+  background: rgba(43, 38, 32, 0.09);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .battle-stage,
+  .stage-token,
+  .stage-world {
+    animation: none !important;
+    transition: none !important;
+  }
+}
