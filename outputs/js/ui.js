@@ -1,6 +1,6 @@
 import { stampSeal } from "./seal.js";
 import { getBattleEnemy } from "./battle.js";
-import { CONFIG, LIEUTENANT_EVENTS, ROAD_EVENTS } from "./data.js";
+import { CONFIG, CONFIG_V11, LIEUTENANT_EVENTS, ROAD_EVENTS } from "./data.js";
 import { buildChronicleEntries } from "./chronicle.js";
 import { actTroopCap, getDailyWage } from "./demo.js";
 import { getTavernContracts, townRecruitPrice } from "./sim.js";
@@ -448,7 +448,7 @@ export function createUi(callbacks) {
     refs.lieutenantOffer.disabled = state.player.gold < CONFIG.V11_LIEUTENANT_COST;
     refs.lieutenantOfferDetail.textContent = t("lieutenant.offerDetail", {
       cost: CONFIG.V11_LIEUTENANT_COST,
-      bonus: Math.round(CONFIG.V11_LIEUTENANT_ATTACK_BONUS * 100)
+      bonus: Math.round(CONFIG_V11.LIEUTENANT_ATTACK_BONUS * 100)
     });
     if (escort) {
       refs.contractEscort.dataset.contractId = escort.id;

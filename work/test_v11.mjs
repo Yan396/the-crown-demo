@@ -9,7 +9,7 @@ import {
   validateBattleScript
 } from "../outputs/js/battle.js";
 import { normalizeScript } from "../outputs/js/battle-stage.js";
-import { CONFIG, FORMATION_IDS, LIEUTENANT_EVENTS } from "../outputs/js/data.js";
+import { CONFIG, CONFIG_V11, FORMATION_IDS, LIEUTENANT_EVENTS } from "../outputs/js/data.js";
 import { CONFIG_PRESENTATION } from "../outputs/js/presentation.js";
 import { getRoadEventDefinitions } from "../outputs/js/casual.js";
 import {
@@ -144,7 +144,7 @@ test("Chen Mang hires in Act 2, buffs battle attack, logs his name, and leaves o
   assert.equal(state.telemetry.lieutenant.hireCount, 1);
 
   startBattle(state, bandit);
-  assert.equal(state.battle.playerAttackMultiplier, 1 + CONFIG.V11_LIEUTENANT_ATTACK_BONUS);
+  assert.equal(state.battle.playerAttackMultiplier, 1 + CONFIG_V11.LIEUTENANT_ATTACK_BONUS);
   assert.ok(state.eventLog.some((entry) => entry.key === "log.lieutenantBattle"));
   skipBattle(state);
 

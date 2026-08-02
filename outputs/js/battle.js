@@ -1,4 +1,4 @@
-import { CONFIG, FORMATION_IDS, TROOP_TYPES } from "./data.js";
+import { CONFIG, CONFIG_V11, FORMATION_IDS, TROOP_TYPES } from "./data.js";
 import { STRINGS } from "./strings.js";
 import {
   areBanditBattlesBlocked,
@@ -153,6 +153,12 @@ export function choosePlayerFormation(state, formation) {
     reportedEnemy: battle.formations.reportedEnemy,
     advantage: battle.formationModifiers.winner
   };
+}
+
+export function lieutenantResistance(state) {
+  const present = isV11State(state) && state?.player?.lieutenant?.id === "chen_mang";
+  if (!present) return 1;
+  return (1 + CONFIG_V11.LIEUTENANT_HP_BONUS) * (1 + CONFIG_V11.LIEUTENANT_DEFENSE_BONUS);
 }
 
 function calculateCasualties(attackStrength, defender, multiplier, terrain = CONFIG.FIELD_TERRAIN) {
@@ -856,8 +862,9 @@ export function resolveBattleRound(state) {
   );
   const playerDamage = playerAttack * playerMultiplier * CONFIG.FIELD_TERRAIN
     / formation.enemy.defense;
+  const playerResistance = lieutenantResistance(state);
   const enemyDamage = banditAttack * banditMultiplier * CONFIG.FIELD_TERRAIN
-    / formation.player.defense;
+    / (formation.player.defense * playerResistance);
   const banditLoss = calculateCasualties(
     playerAttack,
     bandit,
@@ -866,7 +873,7 @@ export function resolveBattleRound(state) {
   const playerLoss = calculateCasualties(
     banditAttack,
     state.player,
-    banditMultiplier / formation.player.defense
+    banditMultiplier / (formation.player.defense * playerResistance)
   );
 
   const actualBanditLoss = applyCasualties(bandit, banditLoss);
@@ -913,7 +920,7 @@ export function startBattle(state, bandit, options = {}) {
     ? prepareRiskyContractBattle(state, bandit) || prepareStarterBattle(state, bandit)
     : null;
   const lieutenantAttackMultiplier = isV11State(state) && state.player.lieutenant?.id === "chen_mang"
-    ? 1 + CONFIG.V11_LIEUTENANT_ATTACK_BONUS
+    ? 1 + CONFIG_V11.LIEUTENANT_ATTACK_BONUS
     : 1;
   const playerAttackMultiplier = consumePlayerAttackMultiplier(state) * lieutenantAttackMultiplier;
   const playerStart = getTroopCount(state.player);
