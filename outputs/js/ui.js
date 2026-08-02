@@ -1,12 +1,14 @@
 import { stampSeal } from "./seal.js";
 import { getBattleEnemy } from "./battle.js";
-import { CONFIG, CONFIG_V11, LIEUTENANT_EVENTS, ROAD_EVENTS } from "./data.js";
+import { CONFIG, CONFIG_V11, F4_LIEUTENANT_EVENTS, LIEUTENANT_ROSTER, ROAD_EVENTS } from "./data.js";
 import { buildChronicleEntries } from "./chronicle.js";
+import { lieutenantPortrait } from "./portraits.js";
 import { actTroopCap, getDailyWage } from "./demo.js";
 import { fiefGarrisonWage, getTavernContracts, townRecruitPrice } from "./sim.js";
 import {
   activeTown,
   getFaction,
+  getLieutenants,
   getLord,
   getPartyStrength,
   getTown,
@@ -15,12 +17,14 @@ import {
 } from "./state.js";
 import { buildResultCode } from "./telemetry.js";
 import { lordName, translate } from "./strings.js";
+import { isDesktopRuntime } from "./storage.js";
 
 const reducedMotion = typeof window.matchMedia === "function"
   ? window.matchMedia("(prefers-reduced-motion: reduce)")
   : { matches: false };
 const numberBudgetDiagnostics = new URLSearchParams(window.location.search).get("qa") === "1";
-const ALL_ROAD_EVENTS = [...ROAD_EVENTS, ...LIEUTENANT_EVENTS];
+const ALL_ROAD_EVENTS = [...ROAD_EVENTS, ...F4_LIEUTENANT_EVENTS];
+const desktopRuntime = isDesktopRuntime();
 
 function motionOff() {
   return reducedMotion.matches;
@@ -173,6 +177,8 @@ export function createUi(callbacks) {
     roadEventModal: element("road-event-modal"),
     roadEventKicker: element("road-event-kicker"),
     roadEventGlyphUse: element("road-event-glyph-use"),
+    roadEventGlyph: element("road-event-glyph"),
+    roadEventLieutenant: element("road-event-lieutenant"),
     roadEventText: element("road-event-text"),
     roadEventChoiceA: element("road-event-choice-a"),
     roadEventChoiceB: element("road-event-choice-b"),
@@ -224,6 +230,13 @@ export function createUi(callbacks) {
     lieutenantOffer: element("lieutenant-offer"),
     lieutenantOfferTitle: element("lieutenant-offer-title"),
     lieutenantOfferDetail: element("lieutenant-offer-detail"),
+    lieutenantOfferShen: element("lieutenant-offer-shen"),
+    lieutenantOfferShenTitle: element("lieutenant-offer-shen-title"),
+    lieutenantOfferShenDetail: element("lieutenant-offer-shen-detail"),
+    lieutenantOfferJia: element("lieutenant-offer-jia"),
+    lieutenantOfferJiaTitle: element("lieutenant-offer-jia-title"),
+    lieutenantOfferJiaDetail: element("lieutenant-offer-jia-detail"),
+    lieutenantOffers: [...document.querySelectorAll("[data-lieutenant-id]")],
     contractClose: element("contract-close"),
     ending: element("demo-ending"),
     endingSeal: element("ending-seal"),
@@ -311,6 +324,9 @@ export function createUi(callbacks) {
     }
     if (parameters.enemyFormation) {
       resolved.enemyFormation = t(`formation.${parameters.enemyFormation}`);
+    }
+    if (parameters.lieutenantId) {
+      resolved.lieutenant = t(`lieutenant.${parameters.lieutenantId}Name`);
     }
     if (parameters.townId && currentState) {
       const town = getTown(currentState, parameters.townId);
@@ -452,6 +468,10 @@ export function createUi(callbacks) {
       refs.roadEventModal.hidden = true;
       return;
     }
+    const owner = LIEUTENANT_ROSTER.find((profile) => eventId.startsWith(`${profile.id}_`));
+    refs.roadEventGlyph.hidden = Boolean(owner);
+    refs.roadEventLieutenant.hidden = !owner;
+    refs.roadEventLieutenant.innerHTML = owner ? lieutenantPortrait(owner.id, "event") : "";
     refs.roadEventGlyphUse.setAttribute("href", `#road-event-glyph-${definition.topic}`);
     refs.roadEventText.textContent = localizedRoadCopy(definition.text);
     refs.roadEventChoiceA.textContent = localizedRoadCopy(definition.choices[0]?.label);
@@ -506,7 +526,9 @@ export function createUi(callbacks) {
 
   function syncContractModal(state, town) {
     const activeContract = state.player.contract?.active === true;
-    const lieutenantAvailable = isV11State(state) && !state.player.lieutenant;
+    const hired = getLieutenants(state);
+    const slots = state.features?.f4 ? CONFIG.F4_LIEUTENANT_SLOTS : 1;
+    const lieutenantAvailable = isV11State(state) && hired.length < slots;
     const visible = Boolean(
       contractsOpen &&
       town &&
@@ -527,11 +549,25 @@ export function createUi(callbacks) {
     refs.contractWar.hidden = !war;
     refs.contractReinforce.hidden = !reinforce;
     refs.contractPatrol.hidden = !patrol;
-    refs.lieutenantOffer.hidden = !lieutenantAvailable;
-    refs.lieutenantOffer.disabled = state.player.gold < CONFIG.V11_LIEUTENANT_COST;
-    refs.lieutenantOfferDetail.textContent = t("lieutenant.offerDetail", {
-      cost: CONFIG.V11_LIEUTENANT_COST,
+    refs.lieutenantOffers.forEach((button) => {
+      const id = button.dataset.lieutenantId;
+      const f4Only = id !== "chen_mang";
+      const available = lieutenantAvailable && (!f4Only || state.features?.f4) && !hired.some((entry) => entry.id === id);
+      button.hidden = !available;
+      button.disabled = state.player.gold < (state.features?.f4 ? CONFIG.F4_LIEUTENANT_COST : CONFIG.V11_LIEUTENANT_COST);
+    });
+    const cost = state.features?.f4 ? CONFIG.F4_LIEUTENANT_COST : CONFIG.V11_LIEUTENANT_COST;
+    refs.lieutenantOfferDetail.textContent = t("lieutenant.chenDetail", {
+      cost,
       bonus: Math.round(CONFIG_V11.LIEUTENANT_ATTACK_BONUS * 100)
+    });
+    refs.lieutenantOfferShenDetail.textContent = t("lieutenant.shenDetail", {
+      cost,
+      bonus: Math.round(CONFIG.F4_SHEN_DEFENSE_BONUS * 100)
+    });
+    refs.lieutenantOfferJiaDetail.textContent = t("lieutenant.jiaDetail", {
+      cost,
+      bonus: Math.round(CONFIG.F4_JIA_INCOME_BONUS * 100)
     });
     if (escort) {
       refs.contractEscort.dataset.contractId = escort.id;
@@ -725,7 +761,9 @@ export function createUi(callbacks) {
     refs.contractReinforceTitle.textContent = t("contracts.reinforceTitle");
     refs.contractPatrolTitle.textContent = t("contracts.patrolTitle");
     refs.contractClose.textContent = t("contracts.close");
-    refs.lieutenantOfferTitle.textContent = t("lieutenant.offerTitle");
+    refs.lieutenantOfferTitle.innerHTML = `${lieutenantPortrait("chen_mang", "offer")}<span>${t("lieutenant.chenName")}</span>`;
+    refs.lieutenantOfferShenTitle.innerHTML = `${lieutenantPortrait("shen_wen", "offer")}<span>${t("lieutenant.shenName")}</span>`;
+    refs.lieutenantOfferJiaTitle.innerHTML = `${lieutenantPortrait("jia_duojin", "offer")}<span>${t("lieutenant.jiaName")}</span>`;
     refs.formationKicker.textContent = t("formation.kicker");
     refs.formationWedge.textContent = t("formation.wedge");
     refs.formationLine.textContent = t("formation.line");
@@ -986,7 +1024,9 @@ export function createUi(callbacks) {
           : "ending.lineMixed");
       refs.endingSeal.textContent = t("ending.fullSeal");
     }
-    refs.resultCode.textContent = buildResultCode(state);
+    refs.shareResult.hidden = desktopRuntime;
+    refs.resultCode.hidden = desktopRuntime;
+    refs.resultCode.textContent = desktopRuntime ? "" : buildResultCode(state);
   }
 
   function sync(state, runtime = {}) {
@@ -1003,10 +1043,11 @@ export function createUi(callbacks) {
     refs.wage.textContent = state.stats.days < CONFIG.WAGE_GRACE_DAYS
       ? t("hud.wageGrace", { day: CONFIG.WAGE_GRACE_DAYS })
       : t("hud.wages", { wage: getDailyWage(state.player) + fiefGarrisonWage(state) });
-    refs.lieutenantChip.hidden = !(isV11State(state) && state.player.lieutenant);
-    refs.lieutenantChip.textContent = state.player.lieutenant
-      ? t("lieutenant.hud")
-      : "";
+    const activeLieutenants = getLieutenants(state);
+    refs.lieutenantChip.hidden = !(isV11State(state) && activeLieutenants.length);
+    refs.lieutenantChip.innerHTML = activeLieutenants.map((entry) => (
+      `<span class="lieutenant-chip-entry">${lieutenantPortrait(entry.id, "hud")}<b>${t(`lieutenant.${entry.id}Short`)}</b></span>`
+    )).join("");
     refs.seed.textContent = t("legend.seed", { seed: state.seed });
     syncRenownGate(state);
     syncMirrorHud(state);
@@ -1034,7 +1075,10 @@ export function createUi(callbacks) {
     if (
       !town ||
       state.player.act < 2 ||
-      (state.player.contract?.active && (!isV11State(state) || state.player.lieutenant))
+      (state.player.contract?.active && (
+        !isV11State(state) ||
+        getLieutenants(state).length >= (state.features?.f4 ? CONFIG.F4_LIEUTENANT_SLOTS : 1)
+      ))
     ) contractsOpen = false;
     refs.townSheet.hidden = !town || contractsOpen;
     document.body.classList.toggle("town-open", Boolean(town) && !contractsOpen);
@@ -1124,7 +1168,10 @@ export function createUi(callbacks) {
       if (state.player.act >= 2) {
         const activeContract = state.player.contract?.active ? state.player.contract : null;
         refs.tavern.disabled = Boolean(
-          activeContract && (!isV11State(state) || state.player.lieutenant)
+          activeContract && (
+            !isV11State(state) ||
+            getLieutenants(state).length >= (state.features?.f4 ? CONFIG.F4_LIEUTENANT_SLOTS : 1)
+          )
         );
         refs.tavernDetail.textContent = activeContract
           ? t("townPanel.contractActive", {
@@ -1379,10 +1426,10 @@ export function createUi(callbacks) {
   refs.contractWar.addEventListener("click", () => selectContract(refs.contractWar));
   refs.contractReinforce.addEventListener("click", () => selectContract(refs.contractReinforce));
   refs.contractPatrol.addEventListener("click", () => selectContract(refs.contractPatrol));
-  refs.lieutenantOffer.addEventListener("click", () => {
+  refs.lieutenantOffers.forEach((button) => button.addEventListener("click", () => {
     contractsOpen = false;
-    callbacks.onHireLieutenant();
-  });
+    callbacks.onHireLieutenant(button.dataset.lieutenantId);
+  }));
   refs.contractClose.addEventListener("click", () => {
     contractsOpen = false;
     if (currentState) sync(currentState, { saveAvailable });
@@ -1466,7 +1513,7 @@ export function createUi(callbacks) {
     refs.contractWar,
     refs.contractReinforce,
     refs.contractPatrol,
-    refs.lieutenantOffer,
+    ...refs.lieutenantOffers,
     refs.contractClose,
     refs.skipBattle,
     refs.retreatBattle,

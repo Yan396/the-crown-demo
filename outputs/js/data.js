@@ -217,6 +217,12 @@ export const CONFIG = Object.freeze({
   }),
   F3_AUTOPLAY_COMMAND: "hold",
   F3_BALANCE_MAX_WIN_SPREAD: 0.15,
+  F4_LIEUTENANT_SLOTS: 2,
+  F4_LIEUTENANT_UNPAID_LEAVE_DAYS: 3,
+  F4_LIEUTENANT_COST: 150,
+  F4_CHEN_ATTACK_BONUS: 0.3,
+  F4_SHEN_DEFENSE_BONUS: 0.2,
+  F4_JIA_INCOME_BONUS: 0.15,
   STARTING_GOLD: 100,
   STARTING_MILITIA: 5,
   PLAYER_RECOVERY_RECRUIT_FLOOR: 5,
@@ -331,6 +337,12 @@ export const TROOP_TYPES = Object.freeze({
 
 export const ARM_IDS = Object.freeze(["spear", "archer", "cavalry"]);
 
+export const LIEUTENANT_ROSTER = Object.freeze([
+  Object.freeze({ id: "chen_mang", passive: "attack", bonus: CONFIG.F4_CHEN_ATTACK_BONUS }),
+  Object.freeze({ id: "shen_wen", passive: "defense", bonus: CONFIG.F4_SHEN_DEFENSE_BONUS }),
+  Object.freeze({ id: "jia_duojin", passive: "income", bonus: CONFIG.F4_JIA_INCOME_BONUS })
+]);
+
 export const FORMATION_IDS = Object.freeze(["wedge", "line", "circle"]);
 
 export const ROAD_EVENT_TOPICS = Object.freeze([
@@ -365,7 +377,13 @@ const ROAD_EVENT_TOPIC_BY_ID = Object.freeze({
   camp_drinks: "camp",
   chen_mang_pursuit: "traveler",
   chen_mang_banner: "omen",
-  chen_mang_wager: "camp"
+  chen_mang_wager: "camp",
+  shen_wen_watch: "camp",
+  shen_wen_bridge: "village",
+  shen_wen_letter: "traveler",
+  jia_duojin_ledger: "trade",
+  jia_duojin_mule: "animal",
+  jia_duojin_coin: "omen"
 });
 
 function casualEvent(id, prompt, choices) {
@@ -573,6 +591,52 @@ export const LIEUTENANT_EVENTS = Object.freeze([
       label: { zh: "让他留下刷碗", en: "Leave him to wash dishes" },
       effects: { relation: CONFIG.ROAD_EVENT_RELATION_MEDIUM, renown: CONFIG.ROAD_EVENT_RENOWN_SMALL }
     }
+  ])
+]);
+
+export const F4_LIEUTENANT_EVENTS = Object.freeze([
+  ...LIEUTENANT_EVENTS,
+  casualEvent("shen_wen_watch", {
+    zh: "沈稳查夜时发现哨兵都醒着——因为他每隔一刻钟就回来一次。弟兄们开始怀疑他根本不睡。",
+    en: "Shen Wen finds every guard awake—because he returns every quarter hour. The company suspects he never sleeps."
+  }, [
+    { label: { zh: "让他继续巡", en: "Let him keep patrolling" }, effects: { renown: CONFIG.ROAD_EVENT_RENOWN_SMALL, troops: -CONFIG.ROAD_EVENT_TROOPS_SMALL } },
+    { label: { zh: "替他守一更", en: "Take one watch for him" }, effects: { gold: -CONFIG.ROAD_EVENT_GOLD_SMALL, relation: CONFIG.ROAD_EVENT_RELATION_MEDIUM } }
+  ]),
+  casualEvent("shen_wen_bridge", {
+    zh: "一座小桥吱呀作响。沈稳说一次过一个人，陈莽不在场，所以这个主意居然被听见了。",
+    en: "A narrow bridge groans. Shen Wen suggests crossing one at a time; Chen Mang is absent, so the idea is actually heard."
+  }, [
+    { label: { zh: "按他说的过", en: "Cross as he says" }, effects: { relation: CONFIG.ROAD_EVENT_RELATION_SMALL, renown: CONFIG.ROAD_EVENT_RENOWN_SMALL } },
+    { label: { zh: "出钱加固桥", en: "Pay to brace the bridge" }, effects: { gold: -CONFIG.ROAD_EVENT_GOLD_LARGE, relation: CONFIG.ROAD_EVENT_RELATION_LARGE } }
+  ]),
+  casualEvent("shen_wen_letter", {
+    zh: "沈稳写了一封只有三行的军报，书记官读完感动得落泪：终于没有人把军报写成自传。",
+    en: "Shen Wen writes a three-line dispatch. The clerk weeps with joy: at last, a report that is not an autobiography."
+  }, [
+    { label: { zh: "照原样发出", en: "Send it unchanged" }, effects: { renown: CONFIG.ROAD_EVENT_RENOWN_MEDIUM } },
+    { label: { zh: "添两句威风话", en: "Add two grand lines" }, effects: { gold: -CONFIG.ROAD_EVENT_GOLD_TINY, relation: CONFIG.ROAD_EVENT_RELATION_MEDIUM } }
+  ]),
+  casualEvent("jia_duojin_ledger", {
+    zh: "贾多金发现账上少了三枚铜钱。他审了半天，最后逮住了昨天的自己。",
+    en: "Jia Duojin finds three coins missing from the ledger. After an inquiry, he arrests yesterday's version of himself."
+  }, [
+    { label: { zh: "罚他补上", en: "Make him repay it" }, effects: { gold: CONFIG.ROAD_EVENT_GOLD_SMALL, renown: CONFIG.ROAD_EVENT_RENOWN_SMALL } },
+    { label: { zh: "把账抹平", en: "Balance the books" }, effects: { relation: CONFIG.ROAD_EVENT_RELATION_MEDIUM } }
+  ]),
+  casualEvent("jia_duojin_mule", {
+    zh: "贾多金买下一头‘识路骡’，骡子径直走回原主人家。原主人称这正说明货真价实。",
+    en: "Jia Duojin buys a ‘homing mule.’ It walks straight back to its former owner, who calls that proof of quality."
+  }, [
+    { label: { zh: "再买一次", en: "Buy it again" }, effects: { gold: -CONFIG.ROAD_EVENT_GOLD_BIG, relation: CONFIG.ROAD_EVENT_RELATION_MEDIUM } },
+    { label: { zh: "改收租金", en: "Charge it rent" }, effects: { gold: CONFIG.ROAD_EVENT_GOLD_MEDIUM, renown: -CONFIG.ROAD_EVENT_RENOWN_SMALL } }
+  ]),
+  casualEvent("jia_duojin_coin", {
+    zh: "贾多金抛铜钱决定走哪条路，铜钱掉进沟里。他立刻宣布第三条路最吉利。",
+    en: "Jia Duojin flips a coin to choose the road; it falls into a ditch. He immediately declares a third road most auspicious."
+  }, [
+    { label: { zh: "把铜钱捞回来", en: "Recover the coin" }, effects: { troops: -CONFIG.ROAD_EVENT_TROOPS_SMALL, gold: CONFIG.ROAD_EVENT_GOLD_BIG } },
+    { label: { zh: "尊重天意", en: "Respect the omen" }, effects: { renown: CONFIG.ROAD_EVENT_RENOWN_MEDIUM, relation: -CONFIG.ROAD_EVENT_RELATION_SMALL } }
   ])
 ]);
 

@@ -1,10 +1,17 @@
-import { CASUAL_EVENTS, CONFIG, LIEUTENANT_EVENTS, TROOP_TYPES } from "./data.js";
+import {
+  CASUAL_EVENTS,
+  CONFIG,
+  F4_LIEUTENANT_EVENTS,
+  LIEUTENANT_EVENTS,
+  TROOP_TYPES
+} from "./data.js";
 import { nextFloat, randomBetween, randomInt } from "./rng.js";
 import {
   addEvent,
   applyCasualties,
   changePlayerRenown,
   clamp,
+  getLieutenants,
   getTroopCount,
   incrementTroop,
   isV11State,
@@ -12,9 +19,13 @@ import {
 } from "./state.js";
 
 export function getRoadEventDefinitions(state) {
-  return isV11State(state) && state.player?.lieutenant?.id === "chen_mang"
-    ? [...CASUAL_EVENTS, ...LIEUTENANT_EVENTS]
-    : CASUAL_EVENTS;
+  if (!isV11State(state)) return CASUAL_EVENTS;
+  const activeIds = new Set(getLieutenants(state).map((entry) => entry.id));
+  const deck = state.features?.f4 ? F4_LIEUTENANT_EVENTS : LIEUTENANT_EVENTS;
+  const personal = deck.filter((event) => (
+    [...activeIds].some((id) => event.id.startsWith(`${id}_`))
+  ));
+  return personal.length ? [...CASUAL_EVENTS, ...personal] : CASUAL_EVENTS;
 }
 
 function casualDefaults() {
@@ -283,7 +294,7 @@ export function chooseRoadEvent(state, choiceIndex) {
       delta: Object.fromEntries(Object.entries(delta).filter(([, value]) => value !== 0))
     });
     state.telemetry.eventChoices = state.telemetry.eventChoices.slice(-CONFIG.ROAD_EVENT_HISTORY_LIMIT);
-    if (event.id.startsWith("chen_mang_")) {
+    if (["chen_mang_", "shen_wen_", "jia_duojin_"].some((prefix) => event.id.startsWith(prefix))) {
       state.telemetry.lieutenantEventChoices = Array.isArray(state.telemetry.lieutenantEventChoices)
         ? state.telemetry.lieutenantEventChoices
         : [];

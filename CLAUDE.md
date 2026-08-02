@@ -4,7 +4,7 @@
 
 ## 当前架构
 
-`outputs/` 是可直接静态托管的无依赖 Vanilla JavaScript ES Modules 游戏：`main.js` 负责固定 500ms 逻辑步进、RAF 渲染与输入，`state/sim/battle/ai/kingdom` 管状态、合同、关系后果、建国与诏书规则，Canvas 绘制地图与战场、HTML/CSS overlay 承载界面；默认 URL 是 `DEMO=false` 的完整版并无条件启用 v1.1 阵型/陈莽，沿用版本 2 的 v1.1 隔离存档。`node work/build_variant.mjs demo` 可生成仍受支持的 Act 1–2 免费 demo，`full` 可切回默认构建；无框架、无后端。
+`outputs/` 是可直接静态托管的无依赖 Vanilla JavaScript ES Modules 游戏：`main.js` 负责固定 500ms 逻辑步进、RAF 渲染与输入，`state/sim/battle/ai/kingdom` 管状态、合同、关系后果、建国与诏书规则，Canvas 绘制地图与战场、HTML/CSS overlay 承载界面；默认 URL 是 `DEMO=false` 的完整版并无条件启用 v1.1 阵型/陈莽，沿用版本 2 的 v1.1 隔离存档。`node work/build_variant.mjs demo` 可生成仍受支持的 Act 1–2 免费 demo，`full` 可切回默认构建；网页无框架、无后端，`desktop/src-tauri` 仅以文件存档适配器包裹同一份 `outputs/`。
 
 ## 已实现
 
@@ -34,7 +34,9 @@
 - 完整版结果码升级为 `crown2`，包含身世、结局路径、王国统计、三次承诺和完整编年史；`decode.html` 同时兼容 `crown1`/`crown2`。demo 继续产生原 `crown1`。
 - F3 军团：原有 `militia/veteran/bandit` 阶级和公式保留，完整版额外给队伍栈增加枪/弓/骑 `arm` 维度；枪克骑、骑克弓、弓克枪的 ±20% 只从 CONFIG 读取。北境偏骑、南境偏枪、东境偏弓，城镇三池招募、领主补兵、民兵晋升、封地调兵与旧 v2 存档迁移均保留兵种。
 - F3 战术：领主按军团构成选锋矢/横列/圆阵；骑锋矢、野战弓列（占比至少 30%）、枪圆阵获得 +10% 协同。玩家布阵后再下「全线压上 / 稳住阵线 / 集火敌将」一道军令；军令、野战箭雨和 token 兵种写入确定性 `battleScript`，跳过/观看共用同一结算。舞台有弓手与骑乘剪影，骑兵冲锋提前 300ms 接敌。
-- 当前验收基线：demo 11/11 套件、full 9/9 套件、F3 6/6 专测。默认种子 F3 autoplay 为首战 6.5 秒、获封 37.77 分钟、建国 168.30 分钟、30 日诏书/止步结局 183.50 分钟（3.06 小时），223/223 战斗脚本对账；五策略矩阵胜率跨度不超过 15 个百分点。390×844 视口宽度/滚动宽度均为 390，三兵种招募控件已实页检查。
+- F4 部将：陈莽/沈稳/贾多金三人、两席，分别复用既有攻击/防御/封邑收入杠杆；各有 3 张双语个人事件、酒馆/HUD/事件卡内联朱砂印框肖像与编年史节点。连续欠饷 3 日确定性离队；旧单一陈莽存档迁移进双槽数组而不提升 `SAVE_VERSION`。
+- F4 交付：`storage.js` 在网页继续使用 localStorage，在本游戏 Tauri origin 通过 Rust command 将同一序列化字符串写入应用数据目录；F11 全屏，桌面运行时隐藏分享与结果码。`store/` 含中英商店文案、胶囊 brief、六张 1280×720 实机截图和 30 秒纯 gameplay 剪辑表；macOS/Windows Tauri 构建矩阵已定义。Pages 产物在根路径发布完整版、在 `/demo/` 发布 `DEMO=true` 免费试玩。没有友测码语料，因此未伪造 CONFIG 调优，`work/analyze_playtests.mjs` 可复现后续语料统计。
+- 当前验收基线：demo 11/11 套件、full 10/10 套件、F4 12/12 专测。默认种子 F4 autoplay 为首战 6.5 秒、Act 2 7.32 分钟、Act 3 43.35 分钟、建国 149.90 分钟、30 日诏书/止步结局 164.50 分钟（2.74 小时），203/203 战斗脚本对账；五策略矩阵胜率跨度不超过 15 个百分点。390×844 视口宽度/滚动宽度均为 390，三部将酒馆控件和六个 16:9 商店画面已实页检查。
 
 ## 完整版路线（F1–F4）
 
@@ -43,6 +45,7 @@
 - **F1 已完成**：v1.1 与完整版绑定；Act 3 授封、第三镜子、税收/驻军、真实围城信使、失城/收复及防务合同已可完整游玩。ship gate 已把默认 `DEMO` 翻为 `false`。
 - **F2 已完成**：身世、三城建国、30 日称王压力、周期诏书、声望冻结、三镜子真结局、完整编年史与 `crown2` 已可完整游玩；demo 的声望 100 结局保持不变。
 - **F3 已完成**：地区军团、枪弓骑克制、兵种阶级、构成驱动 AI 阵型、三军令、野战弓手/骑兵演出和五策略平衡门禁已合入完整版；demo 状态不携带 `arm`，冻结输出保持不变。
+- **F4 代码与页面素材已完成**：三部将、个人事件/离队/肖像、桌面存档适配器、Tauri 壳、Steam 中英文案/胶囊/六截图/30 秒 cut list 均已落盘。原生 `.app`/NSIS 产物及 Steamworks 提审仍须由有 Rust/Tauri 工具链和 Steamworks 权限的环境执行，未完成前不得称 ship gate 已关闭。
 - 存档仍沿用既有 `V11_SAVE_KEY` 和 `SAVE_VERSION=2`；新增的 `features.full/f2`、`player.origin`、`town.originalFactionId` 与根 `kingdom` 均有默认迁移，旧 v2 存档可继续加载。
 - v1.0 判定基线仍受保护：`test_v11_hp.mjs` 对非 v11 状态断言默认种子哈希 `af59599a…`。
 
@@ -54,7 +57,7 @@
 - `gate:demo` 独有 4 个套件，断言只对 demo 世界成立：`test_v11`（声望 100 结局）、
   `test_battle_script`（demo 世界 frozen 输出）、`test_phase25`（demo 节奏区间 + wallMs）、
   `test_v11_hp`（v1.0 字节一致哈希，只在 `CONFIG.DEMO` 种下初始战争时成立）。
-- `test_f2_act4` 与 `test_f3_armies` 仅进入 full 门禁，分别覆盖 F2 的两条王国路径，以及 F3 的地区兵源、克制矩阵、军令脚本、五策略胜率与全弧 autoplay。
+- `test_f2_act4`、`test_f3_armies` 与 `test_f4_final` 仅进入 full 门禁，依次覆盖王国双路径、地区兵源/军令/策略平衡，以及三部将/桌面壳/Steam 素材和 F4 全弧 autoplay。
 - `test_phase25` 含 wall-clock 性能采样（`wallMs`），机器有负载时会假红；单独红先重跑 3 次。
 - 规格增补与冻结清单见 `docs/full-version-spec.md`。
 

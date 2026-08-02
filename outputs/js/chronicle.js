@@ -17,6 +17,8 @@ const PRIORITY = Object.freeze({
   rebellion: 96,
   edictContinue: 88,
   edictStop: 100,
+  lieutenantHired: 76,
+  lieutenantLeft: 94,
   biggestBattle: 80,
   act3: 75,
   act2: 70,
@@ -103,6 +105,16 @@ function lineFor(language, entry) {
       return t("ending.chronicleEdictContinue", { day });
     case "edictStop":
       return t("ending.chronicleEdictStop", { day });
+    case "lieutenantHired":
+      return t("ending.chronicleLieutenantHired", {
+        day,
+        lieutenant: t(`lieutenant.${entry.lieutenantId || "chen_mang"}Name`)
+      });
+    case "lieutenantLeft":
+      return t("ending.chronicleLieutenantLeft", {
+        day,
+        lieutenant: t(`lieutenant.${entry.lieutenantId || "chen_mang"}Name`)
+      });
     case "biggestBattle":
       return t("ending.chronicleBiggestBattle", {
         day,

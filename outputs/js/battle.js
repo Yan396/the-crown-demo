@@ -30,15 +30,18 @@ import {
   ensurePartyHp,
   getAverageDefense,
   getArmShares,
+  getLieutenants,
   getLord,
   getPartyStrength,
   getTroopCount,
+  hasLieutenant,
   incrementTroop,
   isBattleScript,
   hpPerSoldierFor,
   isV11State,
   nearestTown,
-  partyHp
+  partyHp,
+  syncLieutenantAlias
 } from "./state.js";
 
 const FORMATION_BEATS = Object.freeze({
@@ -236,9 +239,14 @@ export function chooseBattleCommand(state, command) {
 }
 
 export function lieutenantResistance(state) {
-  const present = isV11State(state) && state?.player?.lieutenant?.id === "chen_mang";
-  if (!present) return 1;
-  return (1 + CONFIG_V11.LIEUTENANT_HP_BONUS) * (1 + CONFIG_V11.LIEUTENANT_DEFENSE_BONUS);
+  if (!isV11State(state)) return 1;
+  let resistance = hasLieutenant(state, "chen_mang")
+    ? (1 + CONFIG_V11.LIEUTENANT_HP_BONUS) * (1 + CONFIG_V11.LIEUTENANT_DEFENSE_BONUS)
+    : 1;
+  if (state.features?.f4 && hasLieutenant(state, "shen_wen")) {
+    resistance *= 1 + CONFIG.F4_SHEN_DEFENSE_BONUS;
+  }
+  return resistance;
 }
 
 /*
@@ -827,7 +835,7 @@ export function buildBattleScript(state, battle, result, winner) {
     // than a side field: a side's shape is fixed by the contract. It names the
     // side he rides with; he is not a troop and holds no token capacity, so
     // survivor accounting is untouched.
-    if (state.player.lieutenant?.id === "chen_mang") script.lieutenant = "player";
+    if (getLieutenants(state).length) script.lieutenant = "player";
   }
   if (state.features?.f3) script.command = battle.commands?.player || CONFIG.F3_AUTOPLAY_COMMAND;
   return script;
@@ -1030,16 +1038,30 @@ function finishBattle(state, winner, bandit) {
     ? playerBattleWinner(state, battle, bandit)
     : playerBattleLoser(state, battle, bandit);
   const playerWiped = battle.playerStart - battle.playerCasualties <= 0;
-  if (playerWiped && isV11State(state) && state.player.lieutenant?.id === "chen_mang") {
-    state.player.lieutenant = null;
+  if (playerWiped && isV11State(state) && getLieutenants(state).length) {
+    const lost = getLieutenants(state).map((entry) => entry.id);
+    if (state.features?.f4) {
+      state.player.lieutenants = [];
+      syncLieutenantAlias(state);
+    } else {
+      state.player.lieutenant = null;
+    }
     if (state.telemetry?.lieutenant) {
       state.telemetry.lieutenant.lostCount = Math.max(
         0,
         Number(state.telemetry.lieutenant.lostCount) || 0
-      ) + 1;
+      ) + lost.length;
     }
-    addEvent(state, "log.lieutenantLost", { lieutenantId: "chen_mang" }, "loss");
-    result.lieutenantLost = true;
+    if (state.features?.f4 && state.telemetry?.lieutenants) {
+      state.telemetry.lieutenants.lostCount = Math.max(
+        0,
+        Number(state.telemetry.lieutenants.lostCount) || 0
+      ) + lost.length;
+    }
+    lost.forEach((lieutenantId) => {
+      addEvent(state, "log.lieutenantLost", { lieutenantId }, "loss");
+    });
+    result.lieutenantLost = lost;
   }
   result.balance = battle.balance || null;
   result.playerAttackMultiplier = battle.playerAttackMultiplier || 1;
@@ -1197,7 +1219,7 @@ export function startBattle(state, bandit, options = {}) {
   const balance = enemyKind === "bandit"
     ? prepareRiskyContractBattle(state, bandit) || prepareStarterBattle(state, bandit)
     : null;
-  const lieutenantAttackMultiplier = isV11State(state) && state.player.lieutenant?.id === "chen_mang"
+  const lieutenantAttackMultiplier = isV11State(state) && hasLieutenant(state, "chen_mang")
     ? 1 + CONFIG_V11.LIEUTENANT_ATTACK_BONUS
     : 1;
   const playerAttackMultiplier = consumePlayerAttackMultiplier(state) * lieutenantAttackMultiplier;
@@ -1236,7 +1258,7 @@ export function startBattle(state, bandit, options = {}) {
     enemyStartRoster: cloneRoster(bandit),
     playerStartStrength: getPartyStrength(state.player),
     enemyStartStrength: getPartyStrength(bandit),
-    lieutenantHp: isV11State(state) && state.player.lieutenant?.id === "chen_mang"
+    lieutenantHp: isV11State(state) && hasLieutenant(state, "chen_mang")
       ? CONFIG_V11.LIEUTENANT_HP
       : null,
     startedAtTick: state.tick,
@@ -1289,7 +1311,7 @@ export function startBattle(state, bandit, options = {}) {
       : { playerCount: playerStart, banditCount: banditStart, elite },
     "round"
   );
-  if (isV11State(state) && state.player.lieutenant?.id === "chen_mang") {
+  if (isV11State(state) && hasLieutenant(state, "chen_mang")) {
     addEvent(state, "log.lieutenantBattle", { lieutenantId: "chen_mang" }, "round");
   }
 

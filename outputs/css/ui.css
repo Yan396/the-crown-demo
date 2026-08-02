@@ -738,7 +738,10 @@ body.battle-active #stats .promise-marker:not(.exceeded) {
 #fief-promise-options[hidden],
 #fief-threat-modal[hidden],
 #lieutenant-offer[hidden],
+#lieutenant-offer-shen[hidden],
+#lieutenant-offer-jia[hidden],
 #formation-modal[hidden],
+#battle-command-modal[hidden],
 #settings-sheet[hidden],
 #settings-scrim[hidden],
 #onboarding[hidden],
@@ -750,6 +753,52 @@ body.battle-active #stats .promise-marker:not(.exceeded) {
 #demo-ending[hidden] {
   display: none !important;
 }
+
+.lieutenant-portrait {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  color: currentColor;
+}
+
+.lieutenant-portrait .portrait-accent { fill: var(--cinnabar); }
+
+.contract-choice[data-lieutenant-id] {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  text-align: left;
+}
+
+.contract-choice[data-lieutenant-id] .lieutenant-portrait { grid-row: 1 / span 2; }
+.contract-choice[data-lieutenant-id] > strong { display: contents; }
+.contract-choice[data-lieutenant-id] > strong > span { align-self: end; }
+.contract-choice[data-lieutenant-id] > span { grid-column: 2; align-self: start; }
+
+#lieutenant-chip {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+#lieutenant-chip .lieutenant-portrait { width: 26px; height: 26px; }
+
+.lieutenant-chip-entry {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.lieutenant-event-portrait {
+  display: grid;
+  place-items: center;
+  margin: -4px auto 6px;
+}
+
+.lieutenant-event-portrait .lieutenant-portrait { width: 96px; height: 96px; }
+.lieutenant-event-portrait[hidden],
+.road-event-glyph[hidden] { display: none !important; }
 
 .fief-garrison {
   display: grid;

@@ -320,6 +320,7 @@
         <svg id="road-event-glyph" class="road-event-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <use id="road-event-glyph-use" href="#road-event-glyph-omen"></use>
         </svg>
+        <div id="road-event-lieutenant" class="lieutenant-event-portrait" hidden></div>
         <p id="road-event-text"></p>
         <div class="road-event-actions">
           <button id="road-event-choice-a" class="road-event-choice" type="button"></button>
@@ -377,9 +378,17 @@
             <strong id="contract-patrol-title"></strong>
             <span id="contract-patrol-detail"></span>
           </button>
-          <button id="lieutenant-offer" class="contract-choice" type="button" hidden>
+          <button id="lieutenant-offer" class="contract-choice" data-lieutenant-id="chen_mang" type="button" hidden>
             <strong id="lieutenant-offer-title"></strong>
             <span id="lieutenant-offer-detail"></span>
+          </button>
+          <button id="lieutenant-offer-shen" class="contract-choice" data-lieutenant-id="shen_wen" type="button" hidden>
+            <strong id="lieutenant-offer-shen-title"></strong>
+            <span id="lieutenant-offer-shen-detail"></span>
+          </button>
+          <button id="lieutenant-offer-jia" class="contract-choice" data-lieutenant-id="jia_duojin" type="button" hidden>
+            <strong id="lieutenant-offer-jia-title"></strong>
+            <span id="lieutenant-offer-jia-detail"></span>
           </button>
         </div>
         <button id="contract-close" class="ghost-button" type="button"></button>
@@ -415,6 +424,6 @@
     <div id="toast" role="status" aria-live="polite"></div>
   </main>
 
-  <script type="module" src="./js/main.js"></script>
+  <script type="module" src="./js/main.js?v=f4-final-3"></script>
 </body>
 </html>

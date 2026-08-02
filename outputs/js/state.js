@@ -5,6 +5,7 @@ import {
   FACTION_DATA,
   LORD_DATA,
   LORD_START_FRACTIONS,
+  LIEUTENANT_ROSTER,
   SUPPORTED_LANGUAGES,
   TOWN_DATA,
   TROOP_TYPES
@@ -42,6 +43,21 @@ export function getTroopCount(party) {
 
 export function isV11State(state) {
   return state?.features?.v11 === true;
+}
+
+export function getLieutenants(state) {
+  if (state?.features?.f4) return Array.isArray(state.player?.lieutenants) ? state.player.lieutenants : [];
+  return state?.player?.lieutenant ? [state.player.lieutenant] : [];
+}
+
+export function hasLieutenant(state, id) {
+  return getLieutenants(state).some((entry) => entry.id === id);
+}
+
+export function syncLieutenantAlias(state) {
+  if (!state?.features?.f4) return state?.player?.lieutenant || null;
+  state.player.lieutenant = state.player.lieutenants?.[0] || null;
+  return state.player.lieutenant;
 }
 
 export function getPartyStrength(party) {
@@ -518,7 +534,13 @@ export function createInitialState(seed = CONFIG.SEED, options = {}) {
   const demo = createDemoState({ ...options, fullVersion, f2 });
   const state = {
     saveVersion: CONFIG.SAVE_VERSION,
-    features: { v11: Boolean(options.v11), full: fullVersion, f2, f3: options.f3 === true },
+    features: {
+      v11: Boolean(options.v11),
+      full: fullVersion,
+      f2,
+      f3: options.f3 === true,
+      f4: options.f4 === true
+    },
     seed: normalizedSeed,
     rng: createRng(normalizedSeed),
     tick: 0,
@@ -539,6 +561,7 @@ export function createInitialState(seed = CONFIG.SEED, options = {}) {
       promises: [],
       contract: null,
       lieutenant: null,
+      ...(options.f4 === true ? { lieutenants: [] } : {}),
       origin: null,
       encounterCooldownUntil: 0
     },
@@ -803,20 +826,29 @@ export function isValidState(value) {
     typeof value.features.v11 !== "boolean" ||
     typeof value.features.full !== "boolean" ||
     typeof value.features.f2 !== "boolean" ||
-    typeof value.features.f3 !== "boolean"
+    typeof value.features.f3 !== "boolean" ||
+    typeof value.features.f4 !== "boolean"
   ) return false;
   if (!value.settings || !SUPPORTED_LANGUAGES.includes(value.settings.language)) return false;
   if (!Number.isSafeInteger(value.lastSavedTick) || value.lastSavedTick < -1) return false;
   if (!isParty(value.player) || !Number.isFinite(value.player.gold) || value.player.gold < 0) return false;
   if (!Number.isFinite(value.player.renown) || value.player.renown < 0) return false;
-  if (
+  const validLieutenant = (entry) => Boolean(
+    entry && LIEUTENANT_ROSTER.some((profile) => profile.id === entry.id) &&
+    Number.isSafeInteger(entry.hiredAtTick) && entry.hiredAtTick >= 0 &&
+    Number.isSafeInteger(entry.unpaidDays || 0) && (entry.unpaidDays || 0) >= 0
+  );
+  if (value.features.f4) {
+    if (
+      !Array.isArray(value.player.lieutenants) ||
+      value.player.lieutenants.length > CONFIG.F4_LIEUTENANT_SLOTS ||
+      !value.player.lieutenants.every(validLieutenant) ||
+      new Set(value.player.lieutenants.map((entry) => entry.id)).size !== value.player.lieutenants.length ||
+      value.player.lieutenant !== (value.player.lieutenants[0] || null)
+    ) return false;
+  } else if (
     value.player.lieutenant !== null &&
-    (
-      !isV11State(value) ||
-      value.player.lieutenant?.id !== "chen_mang" ||
-      !Number.isSafeInteger(value.player.lieutenant.hiredAtTick) ||
-      value.player.lieutenant.hiredAtTick < 0
-    )
+    (!isV11State(value) || value.player.lieutenant?.id !== "chen_mang" || !validLieutenant(value.player.lieutenant))
   ) return false;
   if (
     ![1, 2, 3, 4].includes(value.player.act) ||
@@ -888,7 +920,8 @@ function migrateState(state) {
     v11: state.features?.v11 === true,
     full: state.features?.full === true,
     f2: state.features?.f2 === true,
-    f3: state.features?.f3 === true
+    f3: state.features?.f3 === true,
+    f4: state.features?.f4 === true
   };
   state.player.act = state.player.act >= 4 ? 4 : state.player.act >= 3 ? 3 : state.player.act >= 2 ? 2 : 1;
   state.player.promises = (state.promises || state.player.promises || [])
@@ -900,12 +933,32 @@ function migrateState(state) {
     : [];
   state.player.contract ||= null;
   state.player.origin ||= null;
-  state.player.lieutenant = state.features.v11 && state.player.lieutenant?.id === "chen_mang"
-    ? {
-      id: "chen_mang",
-      hiredAtTick: Math.max(0, Math.floor(Number(state.player.lieutenant.hiredAtTick) || 0))
-    }
-    : null;
+  const legacyLieutenant = state.player.lieutenant;
+  if (state.features.f4) {
+    const sourceLieutenants = Array.isArray(state.player.lieutenants)
+      ? state.player.lieutenants
+      : legacyLieutenant ? [legacyLieutenant] : [];
+    state.player.lieutenants = sourceLieutenants
+      .filter((entry, index, entries) => (
+        LIEUTENANT_ROSTER.some((profile) => profile.id === entry?.id) &&
+        entries.findIndex((candidate) => candidate?.id === entry.id) === index
+      ))
+      .slice(0, CONFIG.F4_LIEUTENANT_SLOTS)
+      .map((entry) => ({
+        id: entry.id,
+        hiredAtTick: Math.max(0, Math.floor(Number(entry.hiredAtTick) || 0)),
+        unpaidDays: Math.max(0, Math.floor(Number(entry.unpaidDays) || 0))
+      }));
+    syncLieutenantAlias(state);
+  } else {
+    delete state.player.lieutenants;
+    state.player.lieutenant = state.features.v11 && legacyLieutenant?.id === "chen_mang"
+      ? {
+        id: "chen_mang",
+        hiredAtTick: Math.max(0, Math.floor(Number(legacyLieutenant.hiredAtTick) || 0))
+      }
+      : null;
+  }
   state.stats = {
     days: 0,
     battles: 0,
@@ -1072,6 +1125,7 @@ export function loadState(storage, options = {}) {
     source.features.full = options.fullVersion === true;
     source.features.f2 = options.f2 === true;
     source.features.f3 = options.f3 === true;
+    source.features.f4 = options.f4 === true;
     const parsed = migrateState(source);
     if (!parsed || isV11State(parsed) !== v11 || !isValidState(parsed)) return null;
     return prepareLoadedState(parsed);
@@ -1100,7 +1154,8 @@ export function createReplayState(previousState, options = {}) {
     v11: isV11State(previousState),
     fullVersion: previousState.features?.full === true,
     f2: previousState.features?.f2 === true,
-    f3: previousState.features?.f3 === true
+    f3: previousState.features?.f3 === true,
+    f4: previousState.features?.f4 === true
   });
 }
 

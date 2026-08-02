@@ -26,6 +26,12 @@ export function createTelemetry(options = {}) {
       lostCount: 0,
       firstHiredAt: null
     },
+    lieutenants: {
+      hiredIds: [],
+      hireCount: 0,
+      lostCount: 0,
+      unpaidLeaves: 0
+    },
     lieutenantEventChoices: [],
     promiseValues: { troops: null, gold: null },
     promiseFinalActuals: { troops: null, gold: null },
@@ -69,6 +75,7 @@ export function normalizeTelemetry(value, options = {}) {
       ? value.endingChronicle.slice(0, CONFIG.KINGDOM_CHRONICLE_MAX_LINES)
       : [],
     lieutenant: { ...fallback.lieutenant, ...(value.lieutenant || {}) },
+    lieutenants: { ...fallback.lieutenants, ...(value.lieutenants || {}) },
     lieutenantEventChoices: Array.isArray(value.lieutenantEventChoices)
       ? value.lieutenantEventChoices.slice(-CONFIG.ROAD_EVENT_HISTORY_LIMIT)
       : [],
@@ -93,6 +100,12 @@ export function normalizeTelemetry(value, options = {}) {
   normalized.lieutenant.hired = Boolean(normalized.lieutenant.hired);
   normalized.lieutenant.hireCount = Math.max(0, Number(normalized.lieutenant.hireCount) || 0);
   normalized.lieutenant.lostCount = Math.max(0, Number(normalized.lieutenant.lostCount) || 0);
+  normalized.lieutenants.hiredIds = Array.isArray(normalized.lieutenants.hiredIds)
+    ? [...new Set(normalized.lieutenants.hiredIds.filter((id) => typeof id === "string"))]
+    : [];
+  ["hireCount", "lostCount", "unpaidLeaves"].forEach((key) => {
+    normalized.lieutenants[key] = Math.max(0, Number(normalized.lieutenants[key]) || 0);
+  });
   return normalized;
 }
 
@@ -250,13 +263,17 @@ export function finalizeTelemetry(state, endedAt = nowIso()) {
 export function buildPlaytestPayload(state) {
   const battles = Math.max(0, Number(state.stats?.battles) || 0);
   const wins = Math.max(0, Number(state.stats?.wins) || 0);
+  const telemetry = { ...state.telemetry };
+  // Keep crown1's frozen size/shape. The plural roster fields only exist in
+  // F4 full saves and are local-only in the paid desktop build.
+  if (!state.features?.f4) delete telemetry.lieutenants;
   return {
     version: state.ending?.mode === "full" ? 2 : 1,
     build: state.features?.v11
       ? `${CONFIG.BUILD_VERSION}-${CONFIG.V11_BUILD_LABEL}`
       : CONFIG.BUILD_VERSION,
     seed: state.seed,
-    telemetry: { ...state.telemetry },
+    telemetry,
     promises: state.player.promises.map((entry) => ({
       act: entry.act,
       kind: entry.kind,
