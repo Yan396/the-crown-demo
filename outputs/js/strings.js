@@ -145,7 +145,7 @@ export const STRINGS = Object.freeze({
       lordDefected: "{lord}转投{faction}。",
       lordBattle: "{winner}击退了{loser}。",
       roadEvent: "路上遇到一桩小事，队伍停下来商量。",
-      roadEventResolved: "这桩路边小事有了结果。",
+      roadEventResolved: "{choice}{effects}",
       largeBanditNearby: "附近出现大股匪帮",
       banditParty: "匪队"
     }),
@@ -185,7 +185,15 @@ export const STRINGS = Object.freeze({
       act2: "酒馆里有雇佣合同"
     }),
     roadEvent: Object.freeze({
-      kicker: "路上 · 一桩小事"
+      kicker: "路上 · 一桩小事",
+      goldDelta: "{value} 金币",
+      renownDelta: "{value} 声望",
+      troopsDelta: "{value} 兵力",
+      relationDelta: "{value} 关系",
+      battlesBlocked: "今日不遇匪队",
+      attackBonus: "下一战攻击 +{value}%",
+      noDeserter: "无人离队",
+      noChange: "无变化"
     }),
     fx: Object.freeze({
       renown: "+{renown} 声望"
@@ -407,7 +415,7 @@ export const STRINGS = Object.freeze({
       lordDefected: "{lord} defected to {faction}.",
       lordBattle: "{winner} drove back {loser}.",
       roadEvent: "A small roadside matter brought the company to a halt.",
-      roadEventResolved: "The roadside matter was settled.",
+      roadEventResolved: "{choice}{effects}",
       largeBanditNearby: "A large bandit pack has appeared nearby.",
       banditParty: "bandits"
     }),
@@ -447,7 +455,15 @@ export const STRINGS = Object.freeze({
       act2: "Mercenary contracts wait in taverns"
     }),
     roadEvent: Object.freeze({
-      kicker: "On the road · A small matter"
+      kicker: "On the road · A small matter",
+      goldDelta: "{value} gold",
+      renownDelta: "{value} renown",
+      troopsDelta: "{value} troops",
+      relationDelta: "{value} relation",
+      battlesBlocked: "no bandit battle today",
+      attackBonus: "next battle attack +{value}%",
+      noDeserter: "no one deserted",
+      noChange: "no change"
     }),
     fx: Object.freeze({
       renown: "+{renown} renown"

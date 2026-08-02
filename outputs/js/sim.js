@@ -20,7 +20,7 @@ import {
   getActiveRoadEvent,
   processDailyRoadEvent as rollDailyRoadEvent
 } from "./casual.js";
-import { CONFIG, TROOP_TYPES } from "./data.js";
+import { CASUAL_EVENTS, CONFIG, TROOP_TYPES } from "./data.js";
 import {
   advanceActIfNeeded,
   advanceOnboarding,
@@ -32,7 +32,7 @@ import {
   ensureLivingState,
   spawnScaledBandit
 } from "./living.js";
-import { nextFloat, randomInt } from "./rng.js";
+import { createRng, nextFloat, randomInt } from "./rng.js";
 import { buildRoads, isOnRoad } from "./roads.js";
 import { recordChronicleMilestone } from "./telemetry.js";
 import {
@@ -556,6 +556,109 @@ export function chooseRoadEvent(state, choiceIndex) {
 
 export { getActiveRoadEvent };
 
+// URL-only autoplay preflight: every card/choice resolves against its own
+// state, so a stale closure or a missing declarative effect fails loudly.
+export function verifyRoadEventChoiceEffects() {
+  const failures = [];
+  let choicesChecked = 0;
+
+  CASUAL_EVENTS.forEach((event, eventIndex) => {
+    event.choices.forEach((choice, choiceIndex) => {
+      choicesChecked += 1;
+      const probe = createInitialState(0xe700 + eventIndex * 2 + choiceIndex, {
+        skipOnboarding: true,
+        startedAt: new Date(0).toISOString()
+      });
+      ensureCasualState(probe);
+      probe.player.gold = 1000;
+      probe.player.renown = 100;
+      incrementTroop(probe.player, "militia", 5);
+      probe.stats.days = 5;
+      const factionId = probe.factions[0]?.id;
+      probe.player.relations[factionId] = 0;
+      // Seed 7's first draw is below 5%, exercising the desertion branch.
+      probe.rng = createRng(7);
+      const active = {
+        id: event.id,
+        eventId: event.id,
+        day: probe.stats.days,
+        factionId,
+        resumePaused: false,
+        resumePauseReason: null
+      };
+      probe.demo.roadEvent = active;
+      probe.demo.activeRoadEvent = active;
+      probe.demo.modal = "roadEvent";
+      probe.demo.pauseReason = "roadEvent";
+      probe.paused = true;
+
+      const result = applyRoadEventChoice(probe, choiceIndex);
+      const expected = {
+        gold: Number(choice.effects.gold) || 0,
+        renown: Number(choice.effects.renown) || 0,
+        troops: Number(choice.effects.troops) || 0,
+        relation: Number(choice.effects.relation) || 0
+      };
+      if (Number(choice.effects.desertionChance) > 0) {
+        expected.troops -= CONFIG.ROAD_EVENT_DESERTER_COUNT;
+      }
+      for (const key of Object.keys(expected)) {
+        if (result?.delta?.[key] !== expected[key]) {
+          failures.push({
+            cardId: event.id,
+            choice: choiceIndex,
+            field: key,
+            expected: expected[key],
+            actual: result?.delta?.[key]
+          });
+        }
+      }
+      if (
+        choice.effects.blockBanditBattlesToday &&
+        result?.applied?.banditBattlesBlockedDay !== probe.stats.days
+      ) {
+        failures.push({ cardId: event.id, choice: choiceIndex, field: "blockBanditBattlesToday" });
+      }
+      if (
+        Number(choice.effects.nextBattleAttackBonus) > 0 &&
+        result?.applied?.nextBattleAttackMultiplier !== 1 + Number(choice.effects.nextBattleAttackBonus)
+      ) {
+        failures.push({ cardId: event.id, choice: choiceIndex, field: "nextBattleAttackBonus" });
+      }
+      if (
+        Number(choice.effects.desertionChance) > 0 &&
+        result?.applied?.deserterLost !== CONFIG.ROAD_EVENT_DESERTER_COUNT
+      ) {
+        failures.push({ cardId: event.id, choice: choiceIndex, field: "desertionChance" });
+      }
+
+      const telemetry = probe.telemetry.eventChoices.at(-1);
+      if (
+        telemetry?.cardId !== event.id ||
+        telemetry?.choice !== choiceIndex ||
+        !telemetry?.effectsApplied ||
+        telemetry.effectsApplied !== result?.effectsApplied
+      ) {
+        failures.push({ cardId: event.id, choice: choiceIndex, field: "telemetry" });
+      }
+      const report = probe.eventLog[0];
+      if (
+        report?.key !== "log.roadEventResolved" ||
+        report?.parameters?.effectsApplied !== result?.effectsApplied
+      ) {
+        failures.push({ cardId: event.id, choice: choiceIndex, field: "report" });
+      }
+    });
+  });
+
+  return {
+    ok: failures.length === 0,
+    cardsChecked: CASUAL_EVENTS.length,
+    choicesChecked,
+    failures
+  };
+}
+
 function progressionHook(state) {
   const target = state.player.act >= CONFIG.DEMO_MAX_ACT
     ? CONFIG.DEMO_END_RENOWN
@@ -899,6 +1002,10 @@ function resolveAutoplayModal(state) {
 }
 
 export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
+  const roadEventEffectAudit = verifyRoadEventChoiceEffects();
+  if (!roadEventEffectAudit.ok) {
+    throw new Error(`Autoplay road-event effect mismatch: ${JSON.stringify(roadEventEffectAudit.failures)}`);
+  }
   const state = createInitialState(seed, { startedAt: new Date(0).toISOString() });
   initializeLivingWorld(state);
   setAutoplay(state, true);
@@ -953,6 +1060,7 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
     act2Seconds,
     endingSeconds,
     battleScriptsChecked,
+    roadEventChoicesChecked: roadEventEffectAudit.choicesChecked,
     activeSeconds: state.telemetry.totalActiveSeconds,
     targets: {
       firstBattleMax: CONFIG.AUTOPLAY_FIRST_BATTLE_TARGET_SECONDS,

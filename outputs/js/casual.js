@@ -80,7 +80,8 @@ function snapshotDelta(before, after) {
   );
 }
 
-function applyRoadEffects(state, factionId, effects) {
+export function applyEffects(state, effects = {}, options = {}) {
+  const factionId = options.factionId || state.factions[0]?.id || null;
   const beforeTroops = getTroopCount(state.player);
   const beforeGold = state.player.gold;
   state.player.gold = Math.max(0, state.player.gold + (Number(effects.gold) || 0));
@@ -135,6 +136,23 @@ function applyRoadEffects(state, factionId, effects) {
   state.stats.peakGold = Math.max(state.stats.peakGold || 0, state.player.gold);
   state.stats.peakTroops = Math.max(state.stats.peakTroops || 0, getTroopCount(state.player));
   return special;
+}
+
+function compactAppliedEffects(effects, delta, special) {
+  const applied = Object.fromEntries(
+    Object.entries(delta).filter(([, value]) => Number(value) !== 0)
+  );
+  if (effects.blockBanditBattlesToday && special.banditBattlesBlockedDay !== null) {
+    applied.banditBattlesBlockedDay = special.banditBattlesBlockedDay;
+  }
+  if (Number(effects.nextBattleAttackBonus) > 0 && special.nextBattleAttackMultiplier !== null) {
+    applied.nextBattleAttackMultiplier = special.nextBattleAttackMultiplier;
+  }
+  if (Number(effects.desertionChance) > 0) {
+    applied.desertionChance = Number(effects.desertionChance);
+    applied.deserterLost = special.deserterLost;
+  }
+  return applied;
 }
 
 function nextEventDefinition(state) {
@@ -222,15 +240,17 @@ export function chooseRoadEvent(state, choiceIndex) {
 
   const choice = event.choices[index];
   const before = playerSnapshot(state, active.factionId);
-  const special = applyRoadEffects(state, active.factionId, choice.effects);
+  const special = applyEffects(state, choice.effects, { factionId: active.factionId });
   const after = playerSnapshot(state, active.factionId);
   const delta = snapshotDelta(before, after);
+  const effectsApplied = compactAppliedEffects(choice.effects, delta, special);
   const historyEntry = {
     eventId: event.id,
     choiceIndex: index,
     day: active.day,
     factionId: active.factionId,
-    delta
+    delta,
+    effectsApplied
   };
   state.casual.eventHistory.push(historyEntry);
   state.casual.eventHistory = state.casual.eventHistory.slice(-CONFIG.ROAD_EVENT_HISTORY_LIMIT);
@@ -239,6 +259,9 @@ export function chooseRoadEvent(state, choiceIndex) {
       ? state.telemetry.eventChoices
       : [];
     state.telemetry.eventChoices.push({
+      cardId: event.id,
+      choice: index,
+      effectsApplied,
       eventId: event.id,
       choiceIndex: index,
       day: active.day,
@@ -257,6 +280,8 @@ export function chooseRoadEvent(state, choiceIndex) {
     eventId: event.id,
     choiceIndex: index,
     factionId: active.factionId,
+    choiceLabel: choice.label,
+    effectsApplied,
     ...delta
   });
   return {
@@ -266,7 +291,8 @@ export function chooseRoadEvent(state, choiceIndex) {
     event,
     choice,
     effects: choice.effects,
-    applied: { delta, ...special },
+    effectsApplied,
+    applied: { delta, effectsApplied, ...special },
     before,
     after,
     delta,

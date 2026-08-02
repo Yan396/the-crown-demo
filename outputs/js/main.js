@@ -18,6 +18,7 @@ import {
   chooseRoadEvent,
   recruitMilitia,
   setAutoplay,
+  verifyRoadEventChoiceEffects,
   worldTick
 } from "./sim.js";
 import {
@@ -40,6 +41,7 @@ import { createUi } from "./ui.js";
 const canvas = document.getElementById("map");
 const query = new URLSearchParams(window.location.search);
 const autoplayEnabled = query.get("autoplay") === "1";
+const holdAutoplayRoadEvents = autoplayEnabled && query.get("qa") === "1" && query.get("holdEvents") === "1";
 const seedParameter = query.get("seed");
 const requestedSeed = seedParameter === null ? Number.NaN : Number(seedParameter);
 const autoplaySeed = Number.isFinite(requestedSeed) ? requestedSeed >>> 0 : CONFIG.SEED;
@@ -67,7 +69,9 @@ const autoplayMetrics = {
   firstBattleSeconds: null,
   act2Seconds: null,
   endingSeconds: null,
-  activeSeconds: 0
+  activeSeconds: 0,
+  roadEventCardsChecked: 0,
+  roadEventChoicesChecked: 0
 };
 window.__CROWN_AUTOPLAY__ = autoplayMetrics;
 
@@ -164,6 +168,7 @@ function recordAutoplayMilestone(name, seconds) {
 function resolveAutoplayModal() {
   if (!autoplayEnabled || !state.demo?.modal) return false;
   if (state.demo.modal === "roadEvent") {
+    if (holdAutoplayRoadEvents) return false;
     chooseRoadEvent(state, CONFIG.AUTOPLAY_ROAD_EVENT_CHOICE_INDEX);
     return true;
   }
@@ -188,6 +193,15 @@ function resolveAutoplayModal() {
 
 function finishAutoplaySetup() {
   if (!autoplayEnabled) return;
+  const eventAudit = verifyRoadEventChoiceEffects();
+  autoplayMetrics.roadEventCardsChecked = eventAudit.cardsChecked;
+  autoplayMetrics.roadEventChoicesChecked = eventAudit.choicesChecked;
+  if (!eventAudit.ok) {
+    throw new Error(`Autoplay road-event effect mismatch: ${JSON.stringify(eventAudit.failures)}`);
+  }
+  console.info(
+    `[CROWN autoplay] road-event effects ${eventAudit.choicesChecked}/${eventAudit.choicesChecked}: ok`
+  );
   setAutoplay(state, true);
   while (resolveAutoplayModal()) {
     // Tutorial taps and mirror answers intentionally consume no active time.
@@ -260,7 +274,7 @@ ui = createUi({
     updateSessionPeaks(state);
     persist(true);
     sync();
-    ui.showRoadEventResult(result.choice?.result);
+    ui.showRoadEventResult(result);
   },
   onSkipBattle() {
     if (state.paused) {

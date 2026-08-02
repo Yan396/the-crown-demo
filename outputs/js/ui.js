@@ -165,6 +165,7 @@ export function createUi(callbacks) {
   let promiseMode = null;
   let numberBudgetFrame = 0;
   let victoryFxTimer = 0;
+  let roadEventFxTimer = 0;
   let reportExpanded = false;
   let diagnosticsVisible = false;
   let titleTapCount = 0;
@@ -206,6 +207,10 @@ export function createUi(callbacks) {
 
   function resolveParameters(parameters = {}) {
     const resolved = { ...parameters };
+    if (parameters.choiceLabel) resolved.choice = localizedRoadCopy(parameters.choiceLabel);
+    if (parameters.effectsApplied) {
+      resolved.effects = formatRoadEventEffects(parameters.effectsApplied);
+    }
     if (parameters.townId && currentState) {
       const town = getTown(currentState, parameters.townId);
       if (town) resolved.town = t(town.nameKey);
@@ -282,7 +287,9 @@ export function createUi(callbacks) {
     entries.forEach((entry) => {
       const item = document.createElement("li");
       const copy = t(entry.key, resolveParameters(entry.parameters));
-      item.textContent = compactEventText(copy);
+      item.textContent = entry.key === "log.roadEventResolved"
+        ? copy
+        : compactEventText(copy);
       if (entry.tone) item.className = entry.tone;
       refs.battleLog.appendChild(item);
     });
@@ -294,6 +301,42 @@ export function createUi(callbacks) {
   function localizedRoadCopy(value) {
     if (typeof value === "string") return value;
     return value?.[language()] || value?.zh || value?.en || "";
+  }
+
+  function signedEffect(value) {
+    const number = Number(value) || 0;
+    return number > 0 ? `+${number}` : String(number);
+  }
+
+  function formatRoadEventEffects(effects = {}) {
+    const parts = [];
+    for (const key of ["gold", "renown", "troops", "relation"]) {
+      const value = Number(effects[key]) || 0;
+      if (value) parts.push(t(`roadEvent.${key}Delta`, { value: signedEffect(value) }));
+    }
+    if (Number.isInteger(effects.banditBattlesBlockedDay)) {
+      parts.push(t("roadEvent.battlesBlocked"));
+    }
+    if (Number(effects.nextBattleAttackMultiplier) > 1) {
+      parts.push(t("roadEvent.attackBonus", {
+        value: Math.round((Number(effects.nextBattleAttackMultiplier) - 1) * 100)
+      }));
+    }
+    if (Number(effects.desertionChance) > 0 && !Number(effects.deserterLost)) {
+      parts.push(t("roadEvent.noDeserter"));
+    }
+    if (!parts.length) parts.push(t("roadEvent.noChange"));
+    const separator = language() === "zh" ? "，" : ", ";
+    return `${separator}${parts.join(separator)}`;
+  }
+
+  function formatRoadEventResult(result) {
+    if (!result?.choice) return localizedRoadCopy(result);
+    const choice = localizedRoadCopy(result.choice.label);
+    const applied = result.effectsApplied || result.applied?.effectsApplied || result.delta || {};
+    const summary = `${choice}${formatRoadEventEffects(applied)}`;
+    const outcome = localizedRoadCopy(result.choice.result);
+    return outcome ? `${summary}。${outcome}` : summary;
   }
 
   function syncRoadEvent(state) {
@@ -666,10 +709,11 @@ export function createUi(callbacks) {
     }, 1600);
   }
 
-  function showRoadEventResult(copy) {
+  function showRoadEventResult(result) {
     if (!currentState) return;
-    const message = localizedRoadCopy(copy);
+    const message = formatRoadEventResult(result);
     if (!message) return;
+    playRoadEventFx(result?.effectsApplied || result?.applied?.effectsApplied || result?.delta);
     activeToast = null;
     refs.toast.textContent = message;
     refs.toast.classList.add("show");
@@ -708,6 +752,43 @@ export function createUi(callbacks) {
       node.remove();
       updateNumberBudget();
     }, delay);
+  }
+
+  function playRoadEventFx(effects = {}) {
+    const targets = {
+      gold: refs.gold,
+      troops: refs.troops,
+      renown: refs.renown,
+      relation: refs.renown
+    };
+    const entries = Object.entries(targets)
+      .map(([key, target]) => ({ key, target, value: Number(effects[key]) || 0 }))
+      .filter((entry) => entry.value !== 0);
+    if (!entries.length || motionOff()) return;
+
+    document.body.classList.add("road-event-fx-active");
+    if (roadEventFxTimer) clearTimeout(roadEventFxTimer);
+    roadEventFxTimer = window.setTimeout(() => {
+      roadEventFxTimer = 0;
+      document.body.classList.remove("road-event-fx-active");
+      updateNumberBudget();
+    }, 1500);
+
+    entries.forEach(({ key, target, value }, index) => {
+      window.setTimeout(() => {
+        const bounds = target.getBoundingClientRect();
+        const gain = document.createElement("span");
+        gain.className = "fx-renown fx-event-delta";
+        gain.dataset.effectType = key;
+        gain.textContent = t(`roadEvent.${key}Delta`, { value: signedEffect(value) });
+        gain.style.color = value > 0 ? "var(--green-ink)" : "var(--cinnabar-deep)";
+        gain.style.setProperty("--from-x", `${bounds.left + bounds.width * 0.5 - 18}px`);
+        gain.style.setProperty("--from-y", `${bounds.bottom + 6}px`);
+        refs.fxLayer.appendChild(gain);
+        removeFx(gain, 900);
+        updateNumberBudget();
+      }, index * 360);
+    });
   }
 
   function playVictoryFx(loot, renown) {

@@ -395,8 +395,16 @@ test("events: specified special effects execute through the seeded production re
     assert.equal(state.telemetry.eventChoices.length, 1, "event choices must be recorded in telemetry");
     assert.deepEqual(
       state.telemetry.eventChoices[0],
-      { eventId: deserter.id, choiceIndex: 0, day: state.stats.days, delta: { troops: 1 } },
-      "event telemetry must stay compact and preserve the chosen card, button, day, and applied delta"
+      {
+        cardId: deserter.id,
+        choice: 0,
+        effectsApplied: { troops: 1 },
+        eventId: deserter.id,
+        choiceIndex: 0,
+        day: state.stats.days,
+        delta: { troops: 1 }
+      },
+      "event telemetry must preserve the card, choice, and effects actually applied"
     );
   }
   {
@@ -557,6 +565,34 @@ test("battle onboarding: first two encounters are 0.4–0.6 strength and 2x loot
     const baseLoot = semanticNumber(result, [/(?:base|raw).*loot/i])?.[1];
     assert.ok(resultMultiplier === 2 || (Number.isFinite(baseLoot) && result.loot === baseLoot * 2), `starter battle ${ordinal} result must prove its payout was doubled`);
   }
+});
+
+test("events: autoplay preflight executes all 20 cards and all 40 choices in isolation", () => {
+  assert.equal(typeof casual.applyEffects, "function", "event choices need one exported live-state applyEffects path");
+  assert.equal(typeof sim.verifyRoadEventChoiceEffects, "function", "autoplay needs the permanent all-card effect audit");
+  const audit = sim.verifyRoadEventChoiceEffects();
+  assert.equal(audit.cardsChecked, 20);
+  assert.equal(audit.choicesChecked, 40);
+  assert.deepEqual(audit.failures, []);
+  assert.equal(audit.ok, true);
+
+  const autoplay = sim.simulateAutoplay(CONFIG.SEED, { maxActiveSeconds: 1 });
+  assert.equal(autoplay.roadEventChoicesChecked, 40, "every autoplay run must execute the forty-choice preflight");
+});
+
+test("events: every tap emits exact feedback, a numeric report, and effectsApplied telemetry", () => {
+  const casualSource = read("js/casual.js");
+  const main = read("js/main.js");
+  const ui = read("js/ui.js");
+  const zh = strings.STRINGS?.zh;
+  assert.match(casualSource, /addEvent\(state,\s*["']log\.roadEventResolved["'][\s\S]{0,260}choiceLabel[\s\S]{0,160}effectsApplied/);
+  assert.equal(zh?.log?.roadEventResolved, "{choice}{effects}");
+  assert.match(main, /onRoadEventChoice[\s\S]{0,260}showRoadEventResult\(result\)/);
+  assert.match(ui, /function\s+playRoadEventFx\s*\([\s\S]{0,1600}fx-event-delta/);
+  assert.match(ui, /entry\.key\s*===\s*["']log\.roadEventResolved["'][\s\S]{0,100}\?\s*copy/);
+  assert.match(ui, /refs\.recruit\.addEventListener\(["']click["'][^\n]*onRecruit/);
+  assert.match(ui, /refs\.roadEventChoiceA\.addEventListener\(["']click["'][^\n]*onRoadEventChoice\(0\)/);
+  assert.match(ui, /refs\.roadEventChoiceB\.addEventListener\(["']click["'][^\n]*onRoadEventChoice\(1\)/);
 });
 
 test("rubber band: two consecutive losses cap the next two encounters at 0.7x", () => {
