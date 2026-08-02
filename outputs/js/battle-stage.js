@@ -89,14 +89,105 @@ export function survivorsOf(side) {
 
 /* ---- ink figure as a DOM token ------------------------------------------- */
 
-function figureSvg() {
-  // Same brush vocabulary as the map figures: head, spine, legs, one arm.
+// Filled calligraphic silhouettes, not line figures: every part is a tapering
+// closed shape so a token reads as one brush mass at 24px tall. Variants are
+// keyed off the troop types the engine already emits -- no type is invented
+// here, and nothing below feeds back into the simulation.
+//
+// All figures are drawn facing +x; the enemy rank flips the <svg> in CSS.
+// Props (spear, bow, banner, saber) deliberately cross the body outline,
+// because that overhang is what makes the class readable at a glance.
+
+// The town's own archers, standing on the crenellations of a `town` fight.
+//
+// These are NOT troop tokens and never reuse one. The contract's `volley`
+// carries side: 'defender', which is an environmental cue -- it does NOT say
+// the enemy side is the defender -- so no unit's figure is ever swapped for a
+// bow. The wall garrison is scenery that belongs to the terrain.
+function archerFigure() {
   return (
-    '<svg viewBox="0 0 24 30" aria-hidden="true" focusable="false">' +
-    '<circle cx="12" cy="5" r="2.6" fill="currentColor"/>' +
-    '<path d="M12 8v9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/>' +
-    '<path d="M12 17l-4 9M12 17l4 9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/>' +
-    '<path class="arm" d="M12 10.5l7 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>' +
+    '<svg viewBox="0 0 32 34" aria-hidden="true" focusable="false">' +
+    '<g class="fig-pose" fill="currentColor">' +
+    '<path d="M20.4 4.2Q26.4 15 20.4 25.8L18.9 24.9Q24.4 15 18.9 5.1Z"/>' +
+    '<path class="archer-string" d="M19.5 4.9 13.5 15.3 19.5 25.1 19.1 25.1 13.1 15.3 19.1 4.9Z"/>' +
+    '<path class="archer-arrow" d="M13.8 14.7 22.4 14.5 22.4 15.5 13.8 15.9Z"/>' +
+    '<circle cx="12.2" cy="5.4" r="3"/>' +
+    '<path d="M9.2 9Q12.2 7.4 15.2 9L16.8 21.8Q12.2 23.6 7.6 21.8Z"/>' +
+    '<path d="M10 22.2 8.8 30.6Q10.1 31.3 11.4 30.6L11.8 22.6Z"/>' +
+    '<path d="M13 22.6 14.8 30.6Q16.1 31.3 17.3 30.6L15.2 22.2Z"/>' +
+    '<path d="M14.6 11.4Q17.4 12.6 18.6 14.2L17.2 15.4Q15.6 13.8 13.4 13.2Z"/>' +
+    "</g></svg>"
+  );
+}
+
+// Cloth levy: narrow shoulders, a robe hem flaring over thin legs, and a spear
+// whose shaft leaves the outline at both ends.
+function militiaFigure() {
+  return (
+    '<g class="fig-melee">' +
+    '<path d="M8.2 25.6 23.8 5.2 25.4 6.4 9.8 26.8Z"/>' +
+    '<path d="M23.4 5.8 28.6 1.4 26.6 7.6Z"/>' +
+    "</g>" +
+    '<circle cx="12.2" cy="5.4" r="3"/>' +
+    '<path d="M9.2 9Q12.2 7.4 15.2 9L16.8 21.8Q12.2 23.6 7.6 21.8Z"/>' +
+    '<path d="M10 22.2 8.8 30.6Q10.1 31.3 11.4 30.6L11.8 22.6Z"/>' +
+    '<path d="M13 22.6 14.8 30.6Q16.1 31.3 17.3 30.6L15.2 22.2Z"/>' +
+    '<path class="fig-accent" d="M9.1 18.2Q12.4 19.4 15.9 18.2L16.2 20.2Q12.4 21.4 8.8 20.2Z"/>' +
+    '<path class="fig-melee" d="M14.6 10.4Q18 11.4 20.4 13.4L19 15Q16.6 13.2 13.6 12.6Z"/>'
+  );
+}
+
+// Line trooper: broader mass, a pauldron cap reading as the armour line, round
+// shield, raised blade and a small back banner. Drawn ~15% larger in its own
+// coordinates rather than scaled, so no transform can fight the pose keyframes.
+function veteranFigure() {
+  return (
+    '<path d="M8.4 12 5.4 0.8 6.9 0.4 9.9 11.8Z"/>' +
+    '<path class="fig-accent" d="M6.2 1.4Q3.2 2.8 1.2 1.4Q2.8 5 6.9 4Z"/>' +
+    '<g class="fig-melee"><path d="M16.6 9.2 24.6 0.6 26.2 1.8 18.2 10.4Z"/></g>' +
+    '<circle cx="12.8" cy="4.8" r="3.3"/>' +
+    '<path d="M7.6 9.4Q12.8 6.9 18 9.4L18.8 21.6Q12.8 23.8 6.8 21.6Z"/>' +
+    '<path d="M7.3 9.7Q12.8 6.7 18.3 9.7Q18.7 12.1 17.8 13Q12.8 10.4 7.8 13Q6.9 12.1 7.3 9.7Z"/>' +
+    '<path d="M9.4 22 8 31Q9.5 31.8 11 31L11.6 22.6Z"/>' +
+    '<path d="M14 22.6 15.6 31Q17.1 31.8 18.5 31L16.2 22Z"/>' +
+    // The shield carries clear of the torso: overlapping it would fuse both
+    // into one unreadable mass at 24px.
+    '<g class="fig-melee">' +
+    '<path d="M17.4 13.4Q20 13.8 21.6 15.2L20.4 17Q18.6 15.4 16.6 15.2Z"/>' +
+    '<circle cx="22.8" cy="17" r="4.5"/>' +
+    "</g>"
+  );
+}
+
+// Brigand: hunched spine, unkempt hair breaking the head outline, no armour
+// line at all, and a crescent saber.
+function banditFigure() {
+  return (
+    '<g class="fig-melee"><path d="M17.2 13.4Q23 11 25.2 5.2L23.3 4.5Q21.4 9.8 16.4 12Z"/></g>' +
+    // Head sits low and forward of the hips, and the upper back bulges: that
+    // curve is the whole read, so it is exaggerated well past anatomy.
+    '<circle cx="14.6" cy="8.6" r="2.9"/>' +
+    '<path d="M11.6 7.6 9.4 4.6 12.2 6.4 11.2 3 13.6 5.8 14.2 2.6 15.8 6 17.8 4 17 6.8 19.4 6.2 17.4 8.4Z"/>' +
+    '<path d="M11 12.4Q14.4 10 17.2 12.6L17.8 21.6Q13.6 23.4 9.4 21.6Q7.6 16 11 12.4Z"/>' +
+    '<path d="M10.8 22 8.8 29.4Q9.8 30.4 11.4 29.9L12.4 22.4Z"/>' +
+    '<path d="M13.8 22.4 15.6 29.6Q17 30.2 18 29.4L16.2 22Z"/>' +
+    '<path class="fig-melee" d="M16.2 13.2Q18.8 13.2 20.8 12L21.4 13.7Q18.8 15.2 15.8 15Z"/>'
+  );
+}
+
+const FIGURES = {
+  militia: militiaFigure,
+  veteran: veteranFigure,
+  bandit: banditFigure
+};
+
+function figureSvg(troopType) {
+  const draw = FIGURES[troopType] || FIGURES.militia;
+  // `fig-pose` carries the lean/turn keyframes so the <svg> keeps facing as its
+  // own untouched property.
+  return (
+    '<svg viewBox="0 0 32 34" aria-hidden="true" focusable="false">' +
+    '<g class="fig-pose" fill="currentColor">' + draw() + "</g>" +
     "</svg>"
   );
 }
@@ -156,6 +247,7 @@ export function createBattleStage(host, options = {}) {
       '<div class="stage-world">' +
       '<canvas class="stage-stains"></canvas>' +
       '<div class="stage-wall" hidden>' + crenellationSvg() + "</div>" +
+      '<div class="stage-archers" hidden></div>' +
       '<div class="stage-ranks stage-ranks-player"></div>' +
       '<div class="stage-ranks stage-ranks-enemy"></div>' +
       "</div>" +
@@ -198,8 +290,8 @@ export function createBattleStage(host, options = {}) {
       const row = Math.floor(index / perRow);
       const column = index % perRow;
       const node = document.createElement("i");
-      node.className = "stage-token";
-      node.innerHTML = figureSvg();
+      node.className = `stage-token unit-${token.troopType || "militia"}`;
+      node.innerHTML = figureSvg(token.troopType);
       const jx = (roll() - 0.5) * 14;
       const jy = (roll() - 0.5) * 10;
       const scale = 1 + (rows - 1 - row) * 0.12;
@@ -210,6 +302,26 @@ export function createBattleStage(host, options = {}) {
       rankHost.appendChild(node);
       token.node = node;
     });
+  }
+
+  // Scenery for a town fight: a fixed row of archers standing on the wall.
+  // Deterministic count and placement, and no relation to either side's roster.
+  const WALL_ARCHERS = 5;
+
+  function spawnWallArchers() {
+    const host = root.querySelector(".stage-archers");
+    if (!host) return;
+    host.hidden = false;
+    for (let index = 0; index < WALL_ARCHERS; index += 1) {
+      const archer = document.createElement("i");
+      archer.className = "wall-archer";
+      archer.innerHTML = archerFigure();
+      // Spread across the wall box itself, so the garrison reads as standing
+      // on the crenellations rather than floating behind the enemy rank.
+      archer.style.setProperty("--ax", `${6 + index * 20}%`);
+      archer.style.setProperty("--adelay", `${index * 55}ms`);
+      host.appendChild(archer);
+    }
   }
 
   function syncCounts() {
@@ -311,6 +423,19 @@ export function createBattleStage(host, options = {}) {
       arrow.style.setProperty("--delay", `${Math.round(roll() * 200)}ms`);
       ephemeral(arrow, TIMING.ARROW_FLIGHT + 260);
       pending.push(window.setTimeout(() => paintStain(to.x, to.y, false), TIMING.ARROW_FLIGHT));
+    }
+
+    // The wall's own archers loose the volley. No troop token is touched: the
+    // contract's `defender` is terrain, not a side.
+    const archers = root.querySelector(".stage-archers");
+    if (archers) {
+      archers.classList.remove("is-loosing");
+      void archers.offsetWidth;
+      archers.classList.add("is-loosing");
+      pending.push(window.setTimeout(
+        () => archers && archers.classList.remove("is-loosing"),
+        TIMING.ARROW_FLIGHT + 260
+      ));
     }
   }
 
@@ -534,7 +659,10 @@ export function createBattleStage(host, options = {}) {
     };
     names[0].textContent = script.sides.player.label;
     names[1].textContent = script.sides.enemy.label;
-    if (script.terrain === "town") root.querySelector(".stage-wall").hidden = false;
+    if (script.terrain === "town") {
+      root.querySelector(".stage-wall").hidden = false;
+      spawnWallArchers();
+    }
 
     spawnSide("player");
     spawnSide("enemy");

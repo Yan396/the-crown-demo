@@ -67,7 +67,9 @@ export const STRINGS = Object.freeze({
       hint: "点按 2× · 长按跳过",
       tallyGold: "缴获",
       tallyRenown: "声望",
-      continue: "继 续"
+      continue: "继 续",
+      sidePlayer: "我军",
+      sideEnemy: "匪队"
     }),
     report: Object.freeze({
       march: "行军战报",
@@ -339,7 +341,9 @@ export const STRINGS = Object.freeze({
       hint: "Tap 2x · hold to skip",
       tallyGold: "Loot",
       tallyRenown: "Renown",
-      continue: "Continue"
+      continue: "Continue",
+      sidePlayer: "Player",
+      sideEnemy: "Bandits"
     }),
     report: Object.freeze({
       march: "Campaign Report",
