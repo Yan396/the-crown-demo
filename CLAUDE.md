@@ -39,6 +39,17 @@
 - 存档不新增键：完整版状态本身 `features.v11 === true`，因此沿用既有 `V11_SAVE_KEY`，存档格式零变更。
 - v1.0 判定基线仍受保护：`test_v11_hp.mjs` 对非 v11 状态断言默认种子哈希 `af59599a…`。
 
+## 门禁：两个构建，两条门禁（常设规则）
+
+- `node work/gate.mjs full` = **上线物**（`DEMO=false`）。`node work/gate.mjs demo` = demo 变体。
+  **每次合并两条都必须绿。** 一个套件在一个构建绿、另一个红，是关于那个构建的结论，
+  不是忽略它的许可。
+- `gate:demo` 独有 4 个套件，断言只对 demo 世界成立：`test_v11`（声望 100 结局）、
+  `test_battle_script`（demo 世界 frozen 输出）、`test_phase25`（demo 节奏区间 + wallMs）、
+  `test_v11_hp`（v1.0 字节一致哈希，只在 `CONFIG.DEMO` 种下初始战争时成立）。
+- `test_phase25` 含 wall-clock 性能采样（`wallMs`），机器有负载时会假红；单独红先重跑 3 次。
+- 规格增补与冻结清单见 `docs/full-version-spec.md`。
+
 ## 不可动项
 
 - **代码是真相来源。** 旧 prompt/spec 与代码冲突时保留代码；不得为迎合旧文字而简化或回退既有功能、视觉、动画或反馈；删除任何内容前先问。
