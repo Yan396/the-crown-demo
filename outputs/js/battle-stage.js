@@ -2,7 +2,8 @@ import { stampSeal } from "./seal.js";
 import {
   CONFIG_PRESENTATION as P,
   FORMATION_LAYOUTS,
-  FORMATION_SHAPE
+  FORMATION_SHAPE,
+  depthPlacement
 } from "./presentation.js";
 
 /*
@@ -474,14 +475,14 @@ export function createBattleStage(host, options = {}) {
       let row = Math.floor(index / perRow);
       let column = index % perRow;
       let formationX = null;
-      let formationY = null;
       // v1.1 only: the script carries `formations` solely under ?v=1.1, so the
       // default build keeps its plain row packing untouched.
       const layout = formation ? FORMATION_LAYOUTS[formation] : null;
+      let depth = rows > 1 ? row / (rows - 1) : 0.42;
       if (layout) {
         const placed = layout(index, shown, dir);
         formationX = placed.x;
-        formationY = placed.y;
+        depth = placed.depth;
         row = placed.rank;
         column = index;
       }
@@ -505,14 +506,17 @@ export function createBattleStage(host, options = {}) {
       token.damageBudget = budgets.get(`${sideKey}:${token.idx}`) || 0;
       token.hpMax = hpMaxes.get(`${sideKey}:${token.idx}`) || 0;
       token.hpCurrent = token.hpMax;
+      // Lateral scatter only. A random VERTICAL nudge would lift a man off the
+      // ground line for no reason the camera can justify.
       const scatter = layout ? FORMATION_SHAPE.JITTER_SCALE : 1;
       const jx = (roll() - 0.5) * 14 * scatter;
-      const jy = (roll() - 0.5) * 10 * scatter;
-      const scale = 1 + (rows - 1 - row) * 0.12;
+      const cam = depthPlacement(depth);
       const tx = (formationX ?? ((column * spacing + row * spacing * 0.4) * dir)) + jx;
       node.style.setProperty("--tx", `${tx}px`);
-      node.style.setProperty("--ty", `${(formationY ?? row * -42) + jy}px`);
-      node.style.setProperty("--tscale", scale.toFixed(2));
+      node.style.setProperty("--ty", `${cam.ty.toFixed(1)}px`);
+      node.style.setProperty("--tscale", cam.scale.toFixed(3));
+      node.style.setProperty("--fade", cam.fade.toFixed(2));
+      node.style.zIndex = String(cam.z);
       node.style.setProperty("--sway", `${(1.6 + roll() * 1.2).toFixed(2)}s`);
       // Back ranks lag into the charge, so the advance has depth.
       node.style.setProperty("--lag", `${row * P.CHARGE_BACK_RANK_LAG_MS}ms`);
@@ -635,7 +639,8 @@ export function createBattleStage(host, options = {}) {
         const jitter = token.jitterX * P.MELEE_JITTER_PX * ratio;
         token.melee = Math.round(travel + jitter);
         token.node.style.setProperty("--mx", `${token.melee}px`);
-        token.node.style.setProperty("--my", `${Math.round(token.jitterX * 14 * ratio)}px`);
+        // No vertical component: closing on the centreline happens along the
+        // ground, so depth (and therefore height and scale) is unchanged.
       });
     });
   }

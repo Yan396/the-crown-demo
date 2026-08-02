@@ -82,16 +82,45 @@ export const CONFIG_PRESENTATION = Object.freeze({
  * These exist only when the script carries a `formations` block, which only
  * happens under ?v=1.1 -- v1.0 keeps the plain row packing untouched.
  *
- * Each layout returns a parade position in stage pixels for one token:
- *   x  along the approach axis, already multiplied by `dir`
- *      (+1 = the player's side advancing right, -1 = the enemy advancing left)
- *   y  vertical offset, negative is further up the sheet
- *   rank  depth index, used for the charge lag and the draw scale
+ * Each layout returns one token's place in the cross-section:
+ *   x      along the approach axis, already multiplied by `dir`
+ *          (+1 = the player advancing right, -1 = the enemy advancing left)
+ *   depth  0 = nearest the camera, 1 = far side of the field. Never raw pixels:
+ *          depthPlacement turns it into rise, scale and haze together.
+ *   rank   used for the charge lag
  *
  * The shapes have to differ at a GLANCE on a 390px screen, so they are pushed
  * well past anatomical sense: a wedge is a hard V, a line is one flat row, a
  * circle is a ring with a man in the middle.
  */
+/*
+ * The camera is a side-on cross-section of the field, and it has to stay
+ * internally consistent: the ONLY way a figure moves up the frame is by
+ * standing further from the camera, and anything further away is also smaller
+ * and paler. A token that rises without shrinking reads as floating, which is
+ * exactly what the ranks looked like before.
+ *
+ * Every placement below is expressed as (lateral x, depth 0..1), never as raw
+ * vertical pixels, so the three cues can never disagree.
+ */
+export const CAMERA = Object.freeze({
+  DEPTH_RISE_PX: 58,   // how far the far rank sits up the sheet
+  NEAR_SCALE: 1.18,    // front of the field
+  FAR_SCALE: 0.74,     // back of the field
+  FAR_FADE: 0.42       // atmospheric haze on the far rank
+});
+
+export function depthPlacement(depth) {
+  const d = Math.max(0, Math.min(1, depth));
+  return {
+    ty: -d * CAMERA.DEPTH_RISE_PX,
+    scale: CAMERA.NEAR_SCALE - d * (CAMERA.NEAR_SCALE - CAMERA.FAR_SCALE),
+    fade: 1 - d * (1 - CAMERA.FAR_FADE),
+    // Nearer figures occlude further ones, or the cross-section falls apart.
+    z: Math.round((1 - d) * 100)
+  };
+}
+
 export const FORMATION_SHAPE = Object.freeze({
   WEDGE_DEPTH_PX: 26,   // how far each rank falls back from the tip
   WEDGE_LIFT_PX: 21,    // how far each rank steps off the spine
@@ -103,39 +132,44 @@ export const FORMATION_SHAPE = Object.freeze({
 });
 
 export const FORMATION_LAYOUTS = Object.freeze({
-  // 锋矢 — a spearhead. One man at the point, the rest falling back in two
-  // symmetrical arms.
+  // 锋矢 — a spearhead. The point stands nearest the camera; the two arms fall
+  // back AND recede into the field, so the V is a wedge in depth, not a V
+  // painted flat on the sheet.
   wedge(index, count, dir) {
     const rank = Math.ceil(index / 2);
     const arm = index === 0 ? 0 : (index % 2 === 1 ? -1 : 1);
-    const deepest = Math.ceil((count - 1) / 2);
+    const deepest = Math.max(1, Math.ceil((count - 1) / 2));
+    // The two arms sit at slightly different depths so they never overlap.
+    const spread = arm === 0 ? 0.5 : arm < 0 ? 0.24 : 0.76;
     return {
       x: (deepest - rank) * FORMATION_SHAPE.WEDGE_DEPTH_PX * dir,
-      y: arm * rank * FORMATION_SHAPE.WEDGE_LIFT_PX,
+      depth: Math.min(1, (rank / (deepest + 1)) * 0.55 + spread * 0.45),
       rank
     };
   },
 
-  // 横列 — one flat rank, shoulder to shoulder, no depth at all.
+  // 横列 — one flat rank. Every man at the SAME depth, which is what makes it
+  // read as a single clean line standing on one ground line.
   line(index, count, dir) {
     const gap = Math.min(FORMATION_SHAPE.LINE_GAP_PX, 190 / Math.max(1, count));
     return {
       x: index * gap * dir,
-      y: (index % 2 ? 1 : -1) * FORMATION_SHAPE.LINE_WAVER_PX,
+      depth: 0.5 + (index % 2 ? 0.03 : -0.03),
       rank: 0
     };
   },
 
-  // 圆阵 — a ring facing outward with one man held in the middle.
+  // 圆阵 — a ring seen side-on is an ellipse: the near arc sits low and large,
+  // the far arc high and small, with one man held in the middle.
   circle(index, count, dir) {
     const centre = FORMATION_SHAPE.CIRCLE_RX_PX;
-    if (index === 0 || count < 3) return { x: centre * dir, y: 0, rank: 1 };
+    if (index === 0 || count < 3) return { x: centre * dir, depth: 0.5, rank: 1 };
     const onRing = count - 1;
     const angle = ((index - 1) / onRing) * Math.PI * 2;
     return {
       x: (centre + Math.cos(angle) * FORMATION_SHAPE.CIRCLE_RX_PX) * dir,
-      y: Math.sin(angle) * FORMATION_SHAPE.CIRCLE_RY_PX,
-      rank: Math.sin(angle) > 0 ? 0 : 1
+      depth: (1 + Math.sin(angle)) / 2,
+      rank: Math.sin(angle) > 0 ? 1 : 0
     };
   }
 });
