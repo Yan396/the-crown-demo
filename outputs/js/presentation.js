@@ -59,6 +59,10 @@ export const CONFIG_PRESENTATION = Object.freeze({
   SEAL_TO_TALLY_MS: 400,      // the tally must not land on top of the field
   TALLY_VIEWPORT_MARGIN_PX: 8,
 
+  /* -- health bars (v1.1 only) --------------------------------------------- */
+  HP_LOW_RATIO: 0.3,          // below this the cinnabar deepens and pulses once
+  HP_FLASH_MS: 260,           // the single flash a bar gives as its token dies
+
   /* -- shared -------------------------------------------------------------- */
   ARROW_FLIGHT_MS: 620,
   LONG_PRESS_MS: 600,
