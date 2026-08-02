@@ -164,13 +164,23 @@
         <p id="town-faction"></p>
       </div>
       <div class="town-actions">
+        <div class="town-spend-grid">
+          <button id="recruit-button" type="button">
+            <strong id="recruit-label"></strong>
+            <span id="recruit-cost"></span>
+          </button>
+          <button id="veteran-button" type="button">
+            <strong id="veteran-label"></strong>
+            <span id="veteran-cost"></span>
+          </button>
+          <button id="battle-buff-button" type="button">
+            <strong id="battle-buff-label"></strong>
+            <span id="battle-buff-cost"></span>
+          </button>
+        </div>
         <button id="tavern-button" type="button" hidden>
-          <span id="tavern-label"></span>
+          <strong id="tavern-label"></strong>
           <span id="tavern-detail"></span>
-        </button>
-        <button id="recruit-button" type="button">
-          <span id="recruit-label"></span>
-          <span id="recruit-cost"></span>
         </button>
       </div>
     </section>
@@ -242,6 +252,28 @@
           <button id="road-event-choice-a" class="road-event-choice" type="button"></button>
           <button id="road-event-choice-b" class="road-event-choice" type="button"></button>
         </div>
+      </article>
+    </section>
+
+    <section id="contract-modal" class="modal-layer contract-layer" hidden>
+      <article class="contract-card paper-sheet" role="dialog" aria-modal="true">
+        <small id="contract-kicker"></small>
+        <h2 id="contract-title"></h2>
+        <div class="contract-offers">
+          <button id="contract-offer-escort" class="contract-choice" type="button">
+            <strong id="contract-escort-title"></strong>
+            <span id="contract-escort-detail"></span>
+          </button>
+          <button id="contract-offer-risky" class="contract-choice" type="button">
+            <strong id="contract-risky-title"></strong>
+            <span id="contract-risky-detail"></span>
+          </button>
+          <button id="contract-offer-war" class="contract-choice" type="button">
+            <strong id="contract-war-title"></strong>
+            <span id="contract-war-detail"></span>
+          </button>
+        </div>
+        <button id="contract-close" class="ghost-button" type="button"></button>
       </article>
     </section>
 

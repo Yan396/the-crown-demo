@@ -138,6 +138,7 @@ function ensureLordFields(lord) {
   lord.aiStateSinceTick ??= 0;
   lord.defeatedUntilTick ??= lord.defeatedUntil || 0;
   lord.defeatedUntil = lord.defeatedUntilTick;
+  lord.playerPursuitCooldownUntil ??= 0;
 }
 
 // Implements the ordered Phase 2 state machine and adds a strategic town target
@@ -148,6 +149,23 @@ export function reevaluateLordAi(state, lord) {
   const previousState = lord.aiState;
   const troopCount = getTroopCount(lord);
   const ownTown = nearestOwnTown(state, lord);
+  const playerRelation = Number(state.player.relations?.[lord.factionId]) || 0;
+  const hostilePlayer = state.player.act >= 2 && playerRelation < 0 &&
+    (lord.playerPursuitCooldownUntil || 0) <= state.tick &&
+    distance(lord.pos, state.player.pos) <= CONFIG.HOSTILE_LORD_PLAYER_SCAN_RADIUS;
+
+  if (hostilePlayer) {
+    const alreadyPursuing = lord.aiState === "attack" && lord.targetKind === "player";
+    setLordIntent(lord, "attack", { id: "player", pos: state.player.pos }, "player");
+    if (!alreadyPursuing) {
+      addEvent(state, "log.hostileLordPursuit", {
+        lordId: lord.id,
+        factionId: lord.factionId
+      }, "danger");
+    }
+    if (lord.aiState !== previousState) lord.aiStateSinceTick = state.tick;
+    return lord.aiState;
+  }
 
   if (
     troopCount < CONFIG.LORD_TROOP_CAP * CONFIG.LORD_RECRUIT_THRESHOLD_RATIO &&
@@ -219,7 +237,9 @@ function recruitLordAtTown(state, lord, town) {
   const affordable = Math.max(0, Math.floor(
     (lord.gold - CONFIG.LORD_RECRUIT_GOLD_RESERVE) / TROOP_TYPES.militia.cost
   ));
-  const quantity = Math.min(capacity, town.recruitPool, affordable);
+  const playerReserve = Math.max(0, CONFIG.PLAYER_TOWN_RECRUIT_RESERVE);
+  const availableToLord = Math.max(0, town.recruitPool - playerReserve);
+  const quantity = Math.min(capacity, availableToLord, affordable);
   if (quantity <= 0) return 0;
   incrementTroop(lord, "militia", quantity);
   town.recruitPool -= quantity;
@@ -236,6 +256,7 @@ function resolveDynamicTarget(state, lord) {
   if (lord.targetKind === "lord") return state.lords.find((party) => party.id === lord.targetId) || null;
   if (lord.targetKind === "bandit") return state.bandits.find((party) => party.id === lord.targetId) || null;
   if (lord.targetKind === "town") return getTown(state, lord.targetId);
+  if (lord.targetKind === "player") return state.player;
   return null;
 }
 

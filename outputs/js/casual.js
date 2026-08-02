@@ -302,7 +302,8 @@ export function chooseRoadEvent(state, choiceIndex) {
 
 export function areBanditBattlesBlocked(state) {
   ensureCasualState(state);
-  return state.casual.banditBattlesBlockedDay === state.stats.days;
+  const escortActive = state.player.contract?.active === true && state.player.contract.type === "escort";
+  return escortActive || state.casual.banditBattlesBlockedDay === state.stats.days;
 }
 
 export function consumePlayerAttackMultiplier(state) {

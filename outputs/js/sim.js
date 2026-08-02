@@ -8,6 +8,7 @@ import {
 } from "./ai.js";
 import {
   checkForEncounter,
+  checkForHostileLordEncounter,
   resolveAiBattle,
   resolveBattleRound,
   skipBattle,
@@ -322,6 +323,74 @@ function processDailyEconomy(state) {
   return { fiefTax, playerWage, lordWagesPaid, recruitPoolsGrew: recruitDay };
 }
 
+function processDailyContract(state) {
+  const contract = state.player.contract;
+  if (!contract?.active || contract.type !== "escort") return null;
+  contract.daysRemaining = Math.max(0, (Number(contract.daysRemaining) || 0) - 1);
+  if (contract.daysRemaining > 0) {
+    addEvent(state, "log.escortDay", { days: contract.daysRemaining }, "world");
+    return { type: "escort", complete: false, daysRemaining: contract.daysRemaining };
+  }
+  const reward = Math.max(0, Number(contract.reward) || CONFIG.CONTRACT_ESCORT_REWARD);
+  state.player.gold += reward;
+  state.stats.goldEarned += reward;
+  state.stats.contractGold += reward;
+  contract.goldEarned = (contract.goldEarned || 0) + reward;
+  contract.active = false;
+  state.mechanics.contractBattles += 1;
+  addEvent(state, "log.escortComplete", { reward }, "win");
+  return { type: "escort", complete: true, reward, daysRemaining: 0 };
+}
+
+function warZoneTowns(state) {
+  return state.towns.filter((town) => {
+    const faction = getFaction(state, town.factionId);
+    return Boolean(faction?.alive && faction.atWarWith?.some((id) => getFaction(state, id)?.alive));
+  }).sort((first, second) => first.id.localeCompare(second.id));
+}
+
+function spawnWarDeserters(state) {
+  if (state.bandits.length >= CONFIG.WAR_ZONE_MAX_BANDITS) return null;
+  const towns = warZoneTowns(state);
+  if (!towns.length || nextFloat(state.rng) >= CONFIG.DESERTER_BANDIT_DAILY_CHANCE) return null;
+  const town = towns[randomInt(state.rng, 0, towns.length)];
+  const bandit = spawnScaledBandit(state, {
+    townId: town.id,
+    maximum: CONFIG.WAR_ZONE_MAX_BANDITS
+  });
+  if (!bandit) return null;
+  const balance = applyCasualSpawnBalance(state, bandit);
+  addEvent(state, "log.warBandits", {
+    factionId: town.factionId,
+    townId: town.id,
+    banditId: bandit.id
+  }, "danger");
+  return { bandit, townId: town.id, factionId: town.factionId, balance };
+}
+
+function surfaceTownPriceEffects(state) {
+  const town = activeTown(state);
+  if (!town) return;
+  const price = townRecruitPrice(state, town);
+  const noticeKey = `${price.hostile ? 1 : 0}:${price.warZone ? 1 : 0}`;
+  if (town.playerPriceNoticeKey === noticeKey) return;
+  town.playerPriceNoticeKey = noticeKey;
+  if (price.hostile) {
+    addEvent(state, "log.hostileTownPrices", {
+      factionId: town.factionId,
+      townId: town.id,
+      percent: Math.round((CONFIG.HOSTILE_TOWN_RECRUIT_PRICE_MULTIPLIER - 1) * 100)
+    }, "danger");
+  }
+  if (price.warZone) {
+    addEvent(state, "log.warTownPrices", {
+      factionId: town.factionId,
+      townId: town.id,
+      percent: Math.round((CONFIG.WAR_ZONE_RECRUIT_PRICE_MULTIPLIER - 1) * 100)
+    }, "danger");
+  }
+}
+
 function resetSiege(state, town, lifted = true, preserveProgress = false) {
   if (lifted && town.underSiege) {
     addEvent(state, "log.siegeLifted", {
@@ -490,9 +559,14 @@ function partyStillPresent(state, party, kind) {
 }
 
 function resolveAiEncounters(state) {
-  const engagedBanditId = state.battle?.banditId || null;
+  const engagedBanditId = state.battle && state.battle.enemyKind !== "lord"
+    ? state.battle.banditId
+    : null;
+  const engagedLordId = state.battle?.enemyKind === "lord" ? state.battle.banditId : null;
   const pairs = [];
-  const availableLords = state.lords.filter((lord) => (lord.defeatedUntilTick || 0) <= state.tick);
+  const availableLords = state.lords.filter((lord) => (
+    (lord.defeatedUntilTick || 0) <= state.tick && lord.id !== engagedLordId
+  ));
 
   availableLords.forEach((lord) => {
     state.bandits.forEach((bandit) => {
@@ -700,9 +774,15 @@ function autoplayDecision(state) {
   const town = activeTown(state);
   const troopCap = state.player.act >= 2 ? CONFIG.ACT2_TROOP_CAP : CONFIG.ACT1_TROOP_CAP;
   const troops = getTroopCount(state.player);
+  const contract = activeContract(state);
 
-  if (state.player.act >= 2 && !state.player.contract) {
-    if (town) acceptMercenaryContract(state, town.id);
+  if (contract?.type === "escort") {
+    state.player.moveTarget = null;
+    return;
+  }
+
+  if (state.player.act >= 2 && !contract) {
+    if (town) acceptMercenaryContract(state, town.id, "risky");
     else {
       const destination = nearestTown(state, state.player.pos);
       state.player.moveTarget = copyPosition(destination.pos);
@@ -713,7 +793,7 @@ function autoplayDecision(state) {
   const canRecruitHere = Boolean(
     town &&
     troops < troopCap &&
-    state.player.gold - CONFIG.RECRUIT_COST >= CONFIG.AUTOPLAY_GOLD_RESERVE &&
+    state.player.gold - townRecruitPrice(state, town).cost >= CONFIG.AUTOPLAY_GOLD_RESERVE &&
     town.recruitPool > 0
   );
   if (canRecruitHere) {
@@ -724,7 +804,7 @@ function autoplayDecision(state) {
 
   if (
     troops < troopCap * CONFIG.AUTOPLAY_RETREAT_TROOP_RATIO &&
-    state.player.gold >= CONFIG.RECRUIT_COST &&
+    state.player.gold >= Math.min(...state.towns.map((entry) => townRecruitPrice(state, entry).cost)) &&
     state.towns.some((entry) => entry.recruitPool > 0)
   ) {
     const recruitable = state.towns.filter((entry) => entry.recruitPool > 0);
@@ -806,11 +886,17 @@ export function worldTick(state) {
   if (!state.battle) {
     movePartyToward(state.player, movementSpeed(state, state.player, CONFIG.PLAYER_SPEED));
   }
+  surfaceTownPriceEffects(state);
+  const engagedLordId = state.battle?.enemyKind === "lord" ? state.battle.banditId : null;
   state.lords.forEach((lord) => {
-    updateLordMovement(state, lord, movementSpeed(state, lord, CONFIG.LORD_SPEED));
+    if (lord.id !== engagedLordId) {
+      updateLordMovement(state, lord, movementSpeed(state, lord, CONFIG.LORD_SPEED));
+    }
   });
 
-  const engagedBanditId = state.battle?.banditId || null;
+  const engagedBanditId = state.battle && state.battle.enemyKind !== "lord"
+    ? state.battle.banditId
+    : null;
   state.bandits.slice().forEach((bandit) => {
     if (bandit.id !== engagedBanditId) {
       updateBanditRoam(state, bandit, movementSpeed(state, bandit, CONFIG.BANDIT_SPEED));
@@ -828,7 +914,7 @@ export function worldTick(state) {
     battleResult = resolveBattleRound(state);
   }
   if (!battleAtTickStart && !state.battle) {
-    battleResult = checkForEncounter(state) || battleResult;
+    battleResult = checkForHostileLordEncounter(state) || checkForEncounter(state) || battleResult;
   }
   let battleScriptCheck = null;
   if (
@@ -878,17 +964,25 @@ export function worldTick(state) {
 
   const dayAdvanced = state.tick % CONFIG.TICKS_PER_DAY === 0;
   let dailyEconomyResult = null;
+  let dailyContractResult = null;
   let spawnBalance = null;
+  let warSpawnResult = null;
   let roadEventResult = null;
   if (dayAdvanced) {
     state.stats.days += 1;
     dailyEconomyResult = processDailyEconomy(state);
+    dailyContractResult = processDailyContract(state);
     if (state.bandits.length < CONFIG.MAX_BANDITS) {
       const spawned = spawnScaledBandit(state);
       spawnBalance = applyCasualSpawnBalance(state, spawned);
     }
     roadEventResult = processDailyRoadEvent(state);
+    warSpawnResult = spawnWarDeserters(state);
   }
+  // Roll once on the first road tick of a day, not only at the exact day
+  // boundary. A player who leaves town just after dawn must still be eligible
+  // for that day's card and the three-minute first-event pity.
+  if (!roadEventResult?.triggered) roadEventResult = processDailyRoadEvent(state);
   if (state.tick % CONFIG.DIPLOMACY_INTERVAL_TICKS === 0) updateDiplomacy(state);
   ensureEliteBandit(state);
 
@@ -898,7 +992,9 @@ export function worldTick(state) {
     battleResult,
     aiBattleResults,
     dailyEconomyResult,
+    dailyContractResult,
     spawnBalance,
+    warSpawnResult,
     roadEventResult,
     battleScriptCheck,
     progression: progressionHook(state),
@@ -917,39 +1013,172 @@ export function recruitMilitia(state) {
   if (troops >= cap) return { ok: false, reason: "cap", cap };
   const recoveryRecruit = town.recruitPool <= 0 && troops < CONFIG.PLAYER_RECOVERY_RECRUIT_FLOOR;
   if (town.recruitPool <= 0 && !recoveryRecruit) return { ok: false, reason: "pool" };
-  if (state.player.gold < CONFIG.RECRUIT_COST) return { ok: false, reason: "gold" };
+  const price = townRecruitPrice(state, town, CONFIG.RECRUIT_COST);
+  if (state.player.gold < price.cost) return { ok: false, reason: "gold", cost: price.cost };
 
-  state.player.gold -= CONFIG.RECRUIT_COST;
+  state.player.gold -= price.cost;
   if (!recoveryRecruit) town.recruitPool -= 1;
   incrementTroop(state.player, "militia", 1);
   state.stats.peakTroops = Math.max(state.stats.peakTroops || 0, getTroopCount(state.player));
-  addEvent(state, "log.recruit", { townId: town.id, cost: CONFIG.RECRUIT_COST });
-  return { ok: true, townId: town.id, cap, recruitPool: town.recruitPool };
+  addEvent(state, "log.recruit", { townId: town.id, cost: price.cost });
+  return { ok: true, townId: town.id, cap, recruitPool: town.recruitPool, cost: price.cost, price };
 }
 
-export function getTavernContract(state, townId = null) {
-  if (state.player.act < 2 || state.demo?.ended) return null;
-  const town = townId ? getTown(state, townId) : activeTown(state);
-  if (!town) return null;
+export function townRecruitPrice(state, townOrId = null, baseCost = CONFIG.RECRUIT_COST) {
+  const town = typeof townOrId === "string"
+    ? getTown(state, townOrId)
+    : townOrId || activeTown(state);
+  if (!town) return { cost: Math.ceil(baseCost), hostile: false, warZone: false, multiplier: 1 };
   const faction = getFaction(state, town.factionId);
-  if (!faction?.alive) return null;
+  const hostile = (Number(state.player.relations?.[town.factionId]) || 0) < 0;
+  const warZone = Boolean(faction?.alive && faction.atWarWith?.some((id) => getFaction(state, id)?.alive));
+  const hostileSurcharge = hostile
+    ? CONFIG.HOSTILE_TOWN_RECRUIT_PRICE_MULTIPLIER - 1
+    : 0;
+  const warSurcharge = warZone
+    ? CONFIG.WAR_ZONE_RECRUIT_PRICE_MULTIPLIER - 1
+    : 0;
+  const multiplier = 1 + hostileSurcharge + warSurcharge;
   return {
-    id: `mercenary:${faction.id}`,
-    type: "mercenary",
-    factionId: faction.id,
-    townId: town.id,
-    payPerBattle: CONFIG.MERCENARY_PAY_PER_BATTLE,
-    reward: CONFIG.MERCENARY_PAY_PER_BATTLE
+    cost: Math.ceil(Math.max(0, baseCost) * multiplier),
+    hostile,
+    warZone,
+    multiplier
   };
 }
 
-export function acceptMercenaryContract(state, townId = null) {
+function townSpendGate(state) {
+  if (state.paused) return { ok: false, reason: "paused" };
+  if (state.battle) return { ok: false, reason: "battle" };
+  const town = activeTown(state);
+  if (!town) return { ok: false, reason: "outsideTown" };
+  const troops = getTroopCount(state.player);
+  const cap = state.player.act >= 2 ? CONFIG.ACT2_TROOP_CAP : CONFIG.ACT1_TROOP_CAP;
+  if (troops >= cap) return { ok: false, reason: "cap", cap, town };
+  return { ok: true, town, troops, cap };
+}
+
+export function replenishVeteran(state) {
+  const gate = townSpendGate(state);
+  if (!gate.ok) return gate;
+  const veteran = state.player.troops.find((stack) => stack.type === "veteran" && stack.count > 0);
+  if (!veteran) return { ok: false, reason: "noVeterans" };
+  if (gate.town.recruitPool <= 0) return { ok: false, reason: "pool" };
+  const price = townRecruitPrice(state, gate.town, CONFIG.VETERAN_REPLENISH_COST);
+  if (state.player.gold < price.cost) return { ok: false, reason: "gold", cost: price.cost };
+
+  state.player.gold -= price.cost;
+  gate.town.recruitPool -= 1;
+  incrementTroop(state.player, "veteran", 1);
+  state.stats.peakTroops = Math.max(state.stats.peakTroops || 0, getTroopCount(state.player));
+  addEvent(state, "log.veteranReplenished", { townId: gate.town.id, cost: price.cost });
+  return {
+    ok: true,
+    townId: gate.town.id,
+    cap: gate.cap,
+    recruitPool: gate.town.recruitPool,
+    cost: price.cost,
+    price,
+    preservedXp: veteran.xp
+  };
+}
+
+export function buyTownBattleBuff(state) {
+  if (state.paused) return { ok: false, reason: "paused" };
+  if (state.battle) return { ok: false, reason: "battle" };
+  const town = activeTown(state);
+  if (!town) return { ok: false, reason: "outsideTown" };
+  ensureCasualState(state);
+  if (state.casual.nextBattleAttackMultiplier > 1) return { ok: false, reason: "active" };
+  if (state.player.gold < CONFIG.TAVERN_ATTACK_BUFF_COST) {
+    return { ok: false, reason: "gold", cost: CONFIG.TAVERN_ATTACK_BUFF_COST };
+  }
+  state.player.gold -= CONFIG.TAVERN_ATTACK_BUFF_COST;
+  state.casual.nextBattleAttackMultiplier = 1 + CONFIG.TAVERN_ATTACK_BUFF_BONUS;
+  addEvent(state, "log.battleBuffPurchased", {
+    townId: town.id,
+    cost: CONFIG.TAVERN_ATTACK_BUFF_COST,
+    bonus: Math.round(CONFIG.TAVERN_ATTACK_BUFF_BONUS * 100)
+  });
+  return {
+    ok: true,
+    townId: town.id,
+    cost: CONFIG.TAVERN_ATTACK_BUFF_COST,
+    multiplier: state.casual.nextBattleAttackMultiplier
+  };
+}
+
+function activeContract(state) {
+  return state.player.contract?.active === true ? state.player.contract : null;
+}
+
+function warTargetForTown(state, town) {
+  const faction = getFaction(state, town.factionId);
+  return (faction?.atWarWith || [])
+    .map((id) => getFaction(state, id))
+    .filter((candidate) => candidate?.alive)
+    .sort((first, second) => first.id.localeCompare(second.id))[0] || null;
+}
+
+export function getTavernContracts(state, townId = null) {
+  if (state.player.act < 2 || state.demo?.ended) return null;
+  const town = townId ? getTown(state, townId) : activeTown(state);
+  if (!town) return [];
+  const faction = getFaction(state, town.factionId);
+  if (!faction?.alive) return [];
+  const offers = [
+    {
+      id: `escort:${town.id}`,
+      type: "escort",
+      factionId: faction.id,
+      townId: town.id,
+      reward: CONFIG.CONTRACT_ESCORT_REWARD,
+      days: CONFIG.CONTRACT_ESCORT_DAYS
+    },
+    {
+      id: `risky:${town.id}`,
+      type: "risky",
+      factionId: faction.id,
+      townId: town.id,
+      reward: CONFIG.CONTRACT_RISKY_REWARD,
+      payPerBattle: CONFIG.CONTRACT_RISKY_REWARD,
+      enemyStrengthMultiplier: CONFIG.CONTRACT_RISKY_ENEMY_STRENGTH_MULTIPLIER,
+      failureRenown: CONFIG.CONTRACT_RISKY_FAILURE_RENOWN
+    }
+  ];
+  const target = warTargetForTown(state, town);
+  if (target) {
+    offers.push({
+      id: `war:${faction.id}:${target.id}`,
+      type: "war",
+      factionId: faction.id,
+      targetFactionId: target.id,
+      townId: town.id,
+      reward: CONFIG.CONTRACT_WAR_REWARD,
+      renownReward: CONFIG.CONTRACT_WAR_RENOWN,
+      relationPenalty: CONFIG.CONTRACT_WAR_RELATION_PENALTY
+    });
+  }
+  return offers;
+}
+
+// Compatibility singular: existing callers and saves receive the combat offer.
+export function getTavernContract(state, townId = null) {
+  const offers = getTavernContracts(state, townId) || [];
+  return offers.find((offer) => offer.type === "risky") || offers[0] || null;
+}
+
+export function acceptMercenaryContract(state, townId = null, contractId = null) {
   initializeLivingWorld(state);
   if (state.paused) return { ok: false, reason: "paused" };
   if (state.battle) return { ok: false, reason: "battle" };
   const town = activeTown(state);
   if (!town || (townId && town.id !== townId)) return { ok: false, reason: "outsideTown" };
-  const offer = getTavernContract(state, town.id);
+  if (activeContract(state)) return { ok: false, reason: "active", contract: state.player.contract };
+  const offers = getTavernContracts(state, town.id);
+  const offer = contractId
+    ? offers.find((entry) => entry.id === contractId || entry.type === contractId)
+    : getTavernContract(state, town.id);
   if (!offer) return { ok: false, reason: "unavailable" };
   state.player.contract = {
     ...offer,
@@ -959,17 +1188,31 @@ export function acceptMercenaryContract(state, townId = null) {
     battlesWon: 0,
     goldEarned: 0
   };
+  if (offer.type === "escort") {
+    state.player.contract.daysRemaining = offer.days;
+    addEvent(state, "log.escortAccepted", { days: offer.days }, "world");
+  } else if (offer.type === "risky") {
+    addEvent(state, "log.riskyAccepted", {
+      ratio: offer.enemyStrengthMultiplier
+    }, "danger");
+  } else if (offer.type === "war") {
+    const before = Number(state.player.relations[offer.targetFactionId]) || 0;
+    state.player.relations[offer.targetFactionId] = clamp(
+      before - offer.relationPenalty,
+      CONFIG.ROAD_EVENT_RELATION_MIN,
+      CONFIG.ROAD_EVENT_RELATION_MAX
+    );
+    addEvent(state, "log.warContractAccepted", {
+      factionId: offer.factionId,
+      targetFactionId: offer.targetFactionId,
+      relation: offer.relationPenalty
+    }, "danger");
+  }
   state.mechanics.contractsAccepted += 1;
-  addEvent(state, "log.contractAccepted", {
-    contractId: offer.id,
-    factionId: offer.factionId,
-    townId: offer.townId,
-    payPerBattle: offer.payPerBattle,
-    reward: offer.reward
-  }, "win");
   recordChronicleMilestone(state, "firstContract", {
     townId: offer.townId,
-    factionId: offer.factionId
+    factionId: offer.factionId,
+    contractType: offer.type
   });
   return { ok: true, contract: state.player.contract };
 }
@@ -1040,7 +1283,10 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
         firstEventSeconds = activeSeconds;
       }
       const transition = advanceActIfNeeded(state, deterministicTimestamp(state));
-      if (transition?.type === "act2" && act2Seconds === null) act2Seconds = activeSeconds;
+      if (transition?.type === "act2") {
+        state.autoplay.nextHuntTick = state.tick + CONFIG.AUTOPLAY_ACT2_RECOVERY_TICKS;
+        if (act2Seconds === null) act2Seconds = activeSeconds;
+      }
       if (transition?.type === "ending") endingSeconds = activeSeconds;
       while (resolveAutoplayModal(state)) {
         // Resolve the Act 2 promise before advancing more ticks.

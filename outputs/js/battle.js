@@ -1,4 +1,4 @@
-import { CONFIG } from "./data.js";
+import { CONFIG, TROOP_TYPES } from "./data.js";
 import { STRINGS } from "./strings.js";
 import {
   areBanditBattlesBlocked,
@@ -25,6 +25,7 @@ import {
   copyPosition,
   distance,
   getAverageDefense,
+  getLord,
   getPartyStrength,
   getTroopCount,
   incrementTroop,
@@ -114,6 +115,46 @@ function visualTerrain(state) {
   return town && distance(state.player.pos, town.pos) <= CONFIG.TOWN_INTERACTION_RADIUS
     ? "town"
     : "field";
+}
+
+export function getBattleEnemy(state, battle = state.battle) {
+  if (!battle) return null;
+  return battle.enemyKind === "lord"
+    ? getLord(state, battle.banditId)
+    : state.bandits.find((entry) => entry.id === battle.banditId) || null;
+}
+
+function prepareRiskyContractBattle(state, bandit) {
+  const contract = state.player.contract;
+  if (
+    !contract?.active ||
+    contract.type !== "risky" ||
+    bandit.elite ||
+    bandit.isElite
+  ) return null;
+  const multiplier = Number(contract.enemyStrengthMultiplier)
+    || CONFIG.CONTRACT_RISKY_ENEMY_STRENGTH_MULTIPLIER;
+  const playerStrength = Math.max(TROOP_TYPES.militia.atk, getPartyStrength(state.player));
+  const oldCount = Math.max(1, getTroopCount(bandit));
+  const newCount = Math.max(1, Math.round(
+    playerStrength * multiplier / TROOP_TYPES.bandit.atk
+  ));
+  const stack = bandit.troops.find((entry) => entry.type === "bandit");
+  if (stack) stack.count = newCount;
+  else bandit.troops = [{ type: "bandit", count: newCount, xp: 0 }];
+  const oldLoot = Number.isFinite(bandit.lootValue)
+    ? bandit.lootValue
+    : Math.floor((bandit.gold || 0) * CONFIG.LOOT_SHARE);
+  bandit.lootValue = Math.max(1, Math.round(oldLoot * newCount / oldCount));
+  bandit.gold = Math.ceil(bandit.lootValue / CONFIG.LOOT_SHARE);
+  contract.engaged = true;
+  return {
+    type: "contractRisk",
+    applied: true,
+    targetRatio: multiplier,
+    actualRatio: getPartyStrength(bandit) / playerStrength,
+    troopCount: newCount
+  };
 }
 
 function battleScriptId(state, bandit) {
@@ -244,9 +285,12 @@ function ensureBattleCapture(state, battle, bandit) {
 // The script contract keeps `label` a plain string, but the copy itself lives
 // in strings.js like every other display string -- no module outside strings.js
 // carries hardcoded copy.
-function sideLabels(state) {
+function sideLabels(state, battle = null) {
   const stage = (STRINGS[state.settings?.language] || STRINGS.zh).stage;
-  return { player: stage.sidePlayer, enemy: stage.sideEnemy };
+  return {
+    player: stage.sidePlayer,
+    enemy: battle?.enemyKind === "lord" ? stage.sideLord : stage.sideEnemy
+  };
 }
 
 function buildStrikeDrafts(rng, round, playerBuckets, enemyBuckets) {
@@ -295,7 +339,7 @@ export function buildBattleScript(state, battle, result, winner) {
   const enemyRoster = battle.enemyStartRoster || [{ type: "bandit", count: battle.banditStart }];
   const playerSide = buildTokenBuckets(playerRoster, battle.playerStart, "militia");
   const enemySide = buildTokenBuckets(enemyRoster, battle.banditStart, "bandit");
-  const labels = sideLabels(state);
+  const labels = sideLabels(state, battle);
   const rng = createRng(presentationSeed(state.seed, battle.battleId));
   const events = [{ t: 0, type: "battle_start" }];
 
@@ -437,9 +481,17 @@ function incrementTelemetry(state, key, amount = 1) {
   state.telemetry[key] = Math.max(0, Number(state.telemetry[key]) || 0) + amount;
 }
 
-function playerContractPayment(state) {
+function playerContractPayment(state, battle, enemy) {
   const contract = state.player.contract;
   if (!contract || contract.active === false || state.player.act < 2) return 0;
+  const enemyKind = battle.enemyKind || "bandit";
+  if (contract.type === "risky" && (enemyKind !== "bandit" || battle.contractType !== "risky")) {
+    return 0;
+  }
+  if (
+    contract.type === "war" &&
+    (enemyKind !== "lord" || enemy.factionId !== contract.targetFactionId)
+  ) return 0;
   const pay = Math.max(
     0,
     Number(contract.reward ?? contract.payPerBattle) || CONFIG.MERCENARY_PAY_PER_BATTLE
@@ -450,64 +502,113 @@ function playerContractPayment(state) {
   contract.battlesWon = (contract.battlesWon || 0) + 1;
   contract.goldEarned = (contract.goldEarned || 0) + pay;
   state.mechanics.contractBattles += 1;
-  const oldRelation = Number(state.player.relations[contract.factionId]) || 0;
-  state.player.relations[contract.factionId] = oldRelation + CONFIG.MERCENARY_RELATION_PER_WIN;
-  addEvent(state, "log.contractPaid", {
-    contractId: contract.id,
-    factionId: contract.factionId,
-    reward: pay,
-    battlesWon: contract.battlesWon
-  }, "win");
+  if (contract.type === "war") {
+    const renown = Math.max(0, Number(contract.renownReward) || CONFIG.CONTRACT_WAR_RENOWN);
+    state.player.renown += renown;
+    contract.renownEarned = (contract.renownEarned || 0) + renown;
+    contract.active = false;
+    addEvent(state, "log.warContractPaid", {
+      targetFactionId: contract.targetFactionId,
+      reward: pay,
+      renown
+    }, "win");
+  } else {
+    if (contract.type === "risky") contract.active = false;
+    const oldRelation = Number(state.player.relations[contract.factionId]) || 0;
+    state.player.relations[contract.factionId] = oldRelation + CONFIG.MERCENARY_RELATION_PER_WIN;
+    addEvent(state, "log.contractPaid", {
+      contractId: contract.id,
+      factionId: contract.factionId,
+      reward: pay,
+      battlesWon: contract.battlesWon
+    }, "win");
+  }
   return pay;
 }
 
-function playerBattleWinner(state, battle, bandit) {
-  const elite = Boolean(bandit.elite || bandit.isElite);
-  const loot = Math.max(0, Number.isFinite(bandit.lootValue)
-    ? bandit.lootValue
-    : Math.floor(bandit.gold * CONFIG.LOOT_SHARE));
+function playerContractFailure(state, battle) {
+  const contract = state.player.contract;
+  if (
+    !contract?.active ||
+    contract.type !== "risky" ||
+    battle.contractType !== "risky"
+  ) return 0;
+  const penalty = Math.min(
+    state.player.renown,
+    Math.max(0, Number(contract.failureRenown) || CONFIG.CONTRACT_RISKY_FAILURE_RENOWN)
+  );
+  state.player.renown -= penalty;
+  contract.active = false;
+  contract.failed = true;
+  addEvent(state, "log.riskyFailed", { renown: penalty }, "loss");
+  return penalty;
+}
+
+function playerBattleWinner(state, battle, enemy) {
+  const enemyKind = battle.enemyKind || "bandit";
+  const elite = enemyKind === "bandit" && Boolean(enemy.elite || enemy.isElite);
+  const loot = enemyKind === "lord"
+    ? defeatAiParty(state, enemy, "lord", state.player, "player")
+    : Math.max(0, Number.isFinite(enemy.lootValue)
+      ? enemy.lootValue
+      : Math.floor(enemy.gold * CONFIG.LOOT_SHARE));
+  if (enemyKind === "lord") {
+    enemy.playerPursuitCooldownUntil = state.tick + CONFIG.LORD_PLAYER_PURSUIT_COOLDOWN_TICKS;
+  }
   const renown = battle.banditCasualties * CONFIG.RENOWN_PER_ENEMY_CASUALTY;
-  state.player.gold += loot;
+  if (enemyKind === "bandit") state.player.gold += loot;
   state.player.renown += renown;
   state.stats.goldEarned += loot;
   state.stats.wins += 1;
-  if (bandit.jackpot) state.stats.jackpots += 1;
+  if (enemyKind === "bandit" && enemy.jackpot) state.stats.jackpots += 1;
   if (elite) state.stats.eliteWins += 1;
   incrementTelemetry(state, "battlesWon");
   if (getTroopCount(state.player) <= 0) incrementTroop(state.player, "militia", 1);
-  awardSurvivorXp(state.player);
-  removeBanditAndMaintainElite(state, bandit.id);
-  const contractPay = playerContractPayment(state);
+  if (enemyKind === "bandit") {
+    awardSurvivorXp(state.player);
+    removeBanditAndMaintainElite(state, enemy.id);
+  }
+  const contractPay = playerContractPayment(state, battle, enemy);
 
   addEvent(state, "log.victory", { loot, renown }, "win");
-  if (bandit.jackpot) {
-    addEvent(state, "log.jackpot", { banditId: bandit.id, bonus: loot, elite }, "win");
+  if (enemyKind === "bandit" && enemy.jackpot) {
+    addEvent(state, "log.jackpot", { banditId: enemy.id, bonus: loot, elite }, "win");
   }
-  if (elite) addEvent(state, "log.eliteVictory", { banditId: bandit.id, loot }, "win");
+  if (elite) addEvent(state, "log.eliteVictory", { banditId: enemy.id, loot }, "win");
   const casualOutcome = recordPlayerBattleOutcome(state, "win");
   return {
     type: "victory",
     loot,
     renown,
     elite,
-    jackpot: Boolean(bandit.jackpot),
+    jackpot: enemyKind === "bandit" && Boolean(enemy.jackpot),
     contractPay,
     casualOutcome,
     progressionCheck: true
   };
 }
 
-function playerBattleLoser(state, bandit) {
+function playerBattleLoser(state, battle, enemy) {
+  const enemyKind = battle.enemyKind || "bandit";
   const goldAfterLoss = Math.floor(state.player.gold * CONFIG.PLAYER_GOLD_RETAINED_ON_LOSS);
   const lostGold = state.player.gold - goldAfterLoss;
   state.player.gold = goldAfterLoss;
 
-  if (getTroopCount(bandit) > 0) {
-    bandit.gold += lostGold;
-    awardSurvivorXp(bandit);
-    assignBanditMoveTarget(state, bandit);
+  if (getTroopCount(enemy) > 0) {
+    enemy.gold += lostGold;
+    awardSurvivorXp(enemy);
+    if (enemyKind === "bandit") assignBanditMoveTarget(state, enemy);
+  } else if (enemyKind === "bandit") {
+    removeBanditAndMaintainElite(state, enemy.id);
   } else {
-    removeBanditAndMaintainElite(state, bandit.id);
+    restoreMinimumSurvivor(enemy, "lord");
+  }
+  if (enemyKind === "lord") {
+    enemy.playerPursuitCooldownUntil = state.tick + CONFIG.LORD_PLAYER_PURSUIT_COOLDOWN_TICKS;
+    enemy.aiState = "patrol";
+    enemy.targetKind = null;
+    enemy.targetId = null;
+    enemy.moveTarget = null;
   }
 
   if (getTroopCount(state.player) <= 0) incrementTroop(state.player, "militia", 1);
@@ -517,8 +618,16 @@ function playerBattleLoser(state, bandit) {
   state.player.moveTarget = null;
   state.player.encounterCooldownUntil = state.tick + CONFIG.RESPAWN_GRACE_TICKS;
   addEvent(state, "log.defeat", { lostGold, townId: refuge.id }, "loss");
+  const contractRenownLost = playerContractFailure(state, battle);
   const casualOutcome = recordPlayerBattleOutcome(state, "loss");
-  return { type: "defeat", lostGold, townId: refuge.id, casualOutcome, progressionCheck: false };
+  return {
+    type: "defeat",
+    lostGold,
+    townId: refuge.id,
+    contractRenownLost,
+    casualOutcome,
+    progressionCheck: false
+  };
 }
 
 function finishBattle(state, winner, bandit) {
@@ -532,7 +641,7 @@ function finishBattle(state, winner, bandit) {
   state.stats.kills += battle.banditCasualties;
   const result = winner === "player"
     ? playerBattleWinner(state, battle, bandit)
-    : playerBattleLoser(state, bandit);
+    : playerBattleLoser(state, battle, bandit);
   result.balance = battle.balance || null;
   result.playerAttackMultiplier = battle.playerAttackMultiplier || 1;
   recordBattleOutcome(state, {
@@ -575,7 +684,7 @@ export function resolveBattleRound(state) {
   ensureLivingState(state);
   const battle = state.battle;
   if (!battle) return null;
-  const bandit = state.bandits.find((entry) => entry.id === battle.banditId);
+  const bandit = getBattleEnemy(state, battle);
   if (!bandit) {
     state.battle = null;
     return null;
@@ -628,16 +737,21 @@ export function resolveBattleRound(state) {
   return null;
 }
 
-export function startBattle(state, bandit) {
+export function startBattle(state, bandit, options = {}) {
   ensureLivingState(state);
   if (state.battle) return null;
+  const enemyKind = options.enemyKind === "lord" || state.lords.some((lord) => lord.id === bandit.id)
+    ? "lord"
+    : "bandit";
   if (areBanditBattlesBlocked(state)) {
     return { type: "blocked", reason: "escort", day: state.stats.days, banditId: bandit.id };
   }
-  if (isStarterBattleProtected(state, bandit)) {
+  if (enemyKind === "bandit" && isStarterBattleProtected(state, bandit)) {
     return { type: "blocked", reason: "starterProtection", banditId: bandit.id };
   }
-  const balance = prepareStarterBattle(state, bandit);
+  const balance = enemyKind === "bandit"
+    ? prepareRiskyContractBattle(state, bandit) || prepareStarterBattle(state, bandit)
+    : null;
   const playerAttackMultiplier = consumePlayerAttackMultiplier(state);
   const playerStart = getTroopCount(state.player);
   const banditStart = getTroopCount(bandit);
@@ -650,6 +764,8 @@ export function startBattle(state, bandit) {
   if (state.demo && state.demo.firstBattleTick === null) state.demo.firstBattleTick = state.tick;
   state.battle = {
     banditId: bandit.id,
+    enemyKind,
+    enemyFactionId: bandit.factionId || null,
     battleId: battleScriptId(state, bandit),
     terrain,
     playerStart,
@@ -668,6 +784,11 @@ export function startBattle(state, bandit) {
     nextRoundTick: state.tick + CONFIG.BATTLE_ROUND_TICKS,
     counted: true,
     balance,
+    contractType: balance?.type === "contractRisk"
+      ? "risky"
+      : state.player.contract?.active && state.player.contract.type === "war" && enemyKind === "lord"
+        ? "war"
+        : null,
     playerAttackMultiplier
   };
   state.battleScript = null;
@@ -682,11 +803,14 @@ export function startBattle(state, bandit) {
     enemyStart: banditStart,
     elite
   });
-  addEvent(state, "log.encounter", {
-    playerCount: playerStart,
-    banditCount: banditStart,
-    elite
-  }, "round");
+  addEvent(
+    state,
+    enemyKind === "lord" ? "log.lordEncounter" : "log.encounter",
+    enemyKind === "lord"
+      ? { playerCount: playerStart, enemyCount: banditStart, factionId: bandit.factionId }
+      : { playerCount: playerStart, banditCount: banditStart, elite },
+    "round"
+  );
 
   if (getTroopCount(state.player) <= 0) return finishBattle(state, "bandit", bandit);
   return null;
@@ -706,6 +830,27 @@ export function checkForEncounter(state) {
     ))
     .sort((first, second) => first.separation - second.separation || first.bandit.id.localeCompare(second.bandit.id));
   return candidates.length ? startBattle(state, candidates[0].bandit) : null;
+}
+
+export function checkForHostileLordEncounter(state) {
+  if (
+    state.battle ||
+    state.player.act < 2 ||
+    areBanditBattlesBlocked(state) ||
+    state.tick < state.player.encounterCooldownUntil
+  ) return null;
+  const candidates = state.lords
+    .filter((lord) => (
+      (lord.defeatedUntilTick || 0) <= state.tick &&
+      (lord.playerPursuitCooldownUntil || 0) <= state.tick &&
+      (Number(state.player.relations?.[lord.factionId]) || 0) < 0
+    ))
+    .map((lord) => ({ lord, separation: distance(state.player.pos, lord.pos) }))
+    .filter((entry) => entry.separation <= CONFIG.ENCOUNTER_RADIUS)
+    .sort((first, second) => (
+      first.separation - second.separation || first.lord.id.localeCompare(second.lord.id)
+    ));
+  return candidates.length ? startBattle(state, candidates[0].lord, { enemyKind: "lord" }) : null;
 }
 
 export function skipBattle(state) {
@@ -729,7 +874,7 @@ export function attemptFlee(state) {
   if (state.paused) return { ok: false, reason: "paused" };
   if (!state.battle) return { ok: false, reason: "noBattle" };
   const battle = state.battle;
-  const bandit = state.bandits.find((entry) => entry.id === battle.banditId) || null;
+  const bandit = getBattleEnemy(state, battle);
   const success = nextFloat(state.rng) < CONFIG.PLAYER_FLEE_SUCCESS_CHANCE;
   if (!success) {
     addEvent(state, "log.retreatFailed", { banditId: battle.banditId }, "loss");
@@ -753,7 +898,14 @@ export function attemptFlee(state) {
       y: clamp(state.player.pos.y + dy * fleeDistance, 0, CONFIG.WORLD_SIZE)
     };
     state.player.prevPos = copyPosition(state.player.pos);
-    assignBanditMoveTarget(state, bandit);
+    if ((battle.enemyKind || "bandit") === "bandit") assignBanditMoveTarget(state, bandit);
+    else {
+      bandit.playerPursuitCooldownUntil = state.tick + CONFIG.LORD_PLAYER_PURSUIT_COOLDOWN_TICKS;
+      bandit.aiState = "patrol";
+      bandit.targetKind = null;
+      bandit.targetId = null;
+      bandit.moveTarget = null;
+    }
   }
   state.player.moveTarget = null;
   state.player.encounterCooldownUntil = state.tick + CONFIG.RESPAWN_GRACE_TICKS;
@@ -767,9 +919,16 @@ export function attemptFlee(state) {
     elite: battle.elite ?? Boolean(bandit?.elite || bandit?.isElite)
   });
   incrementTelemetry(state, "battlesFled");
+  const contractRenownLost = playerContractFailure(state, battle);
   addEvent(state, "log.retreatSuccess", { banditId: battle.banditId }, "win");
   ensureBattleCapture(state, battle, bandit);
-  const result = { ok: true, success: true, type: "fled", banditId: battle.banditId };
+  const result = {
+    ok: true,
+    success: true,
+    type: "fled",
+    banditId: battle.banditId,
+    contractRenownLost
+  };
   const resolved = {
     casualties: {
       player: Math.max(0, battle.playerCasualties || 0),

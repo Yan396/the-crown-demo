@@ -1,7 +1,9 @@
 import { stampSeal } from "./seal.js";
+import { getBattleEnemy } from "./battle.js";
 import { CONFIG, ROAD_EVENTS } from "./data.js";
 import { buildChronicleEntries } from "./chronicle.js";
 import { actTroopCap, getDailyWage } from "./demo.js";
+import { getTavernContracts, townRecruitPrice } from "./sim.js";
 import {
   activeTown,
   getFaction,
@@ -96,6 +98,12 @@ export function createUi(callbacks) {
     recruit: element("recruit-button"),
     recruitLabel: element("recruit-label"),
     recruitCost: element("recruit-cost"),
+    veteran: element("veteran-button"),
+    veteranLabel: element("veteran-label"),
+    veteranCost: element("veteran-cost"),
+    battleBuff: element("battle-buff-button"),
+    battleBuffLabel: element("battle-buff-label"),
+    battleBuffCost: element("battle-buff-cost"),
     tavern: element("tavern-button"),
     tavernLabel: element("tavern-label"),
     tavernDetail: element("tavern-detail"),
@@ -137,6 +145,19 @@ export function createUi(callbacks) {
     roadEventText: element("road-event-text"),
     roadEventChoiceA: element("road-event-choice-a"),
     roadEventChoiceB: element("road-event-choice-b"),
+    contractModal: element("contract-modal"),
+    contractKicker: element("contract-kicker"),
+    contractTitle: element("contract-title"),
+    contractEscort: element("contract-offer-escort"),
+    contractEscortTitle: element("contract-escort-title"),
+    contractEscortDetail: element("contract-escort-detail"),
+    contractRisky: element("contract-offer-risky"),
+    contractRiskyTitle: element("contract-risky-title"),
+    contractRiskyDetail: element("contract-risky-detail"),
+    contractWar: element("contract-offer-war"),
+    contractWarTitle: element("contract-war-title"),
+    contractWarDetail: element("contract-war-detail"),
+    contractClose: element("contract-close"),
     ending: element("demo-ending"),
     endingSeal: element("ending-seal"),
     mirrorTitle: element("mirror-title"),
@@ -158,6 +179,7 @@ export function createUi(callbacks) {
   const counterValues = new WeakMap();
   let currentState = null;
   let settingsOpen = false;
+  let contractsOpen = false;
   let saveAvailable = true;
   let toastTimer = null;
   let activeToast = null;
@@ -217,6 +239,7 @@ export function createUi(callbacks) {
     }
     const factionMappings = [
       ["factionId", "faction"],
+      ["targetFactionId", "target"],
       ["firstFactionId", "first"],
       ["secondFactionId", "second"],
       ["attackerFactionId", "attackerFaction"]
@@ -356,6 +379,61 @@ export function createUi(callbacks) {
     refs.roadEventChoiceB.textContent = localizedRoadCopy(definition.choices[1]?.label);
   }
 
+  function contractSummary(contract) {
+    if (!contract?.active) return "";
+    if (contract.type === "escort") {
+      return t("contracts.activeEscort", { days: contract.daysRemaining });
+    }
+    if (contract.type === "war") {
+      return t("contracts.activeWar", {
+        faction: translatedFaction(contract.factionId),
+        target: translatedFaction(contract.targetFactionId)
+      });
+    }
+    return t("contracts.activeRisky");
+  }
+
+  function syncContractModal(state, town) {
+    const visible = Boolean(contractsOpen && town && state.player.act >= 2 && !state.player.contract?.active);
+    refs.contractModal.hidden = !visible;
+    document.body.classList.toggle("contract-open", visible);
+    if (!visible) return;
+    const offers = getTavernContracts(state, town.id) || [];
+    const escort = offers.find((offer) => offer.type === "escort");
+    const risky = offers.find((offer) => offer.type === "risky");
+    const war = offers.find((offer) => offer.type === "war");
+    refs.contractEscort.hidden = !escort;
+    refs.contractRisky.hidden = !risky;
+    refs.contractWar.hidden = !war;
+    if (escort) {
+      refs.contractEscort.dataset.contractId = escort.id;
+      refs.contractEscortDetail.textContent = t("contracts.escortDetail", {
+        reward: escort.reward,
+        days: escort.days
+      });
+    }
+    if (risky) {
+      refs.contractRisky.dataset.contractId = risky.id;
+      refs.contractRiskyDetail.textContent = t("contracts.riskyDetail", {
+        reward: risky.reward,
+        ratio: risky.enemyStrengthMultiplier,
+        penalty: risky.failureRenown
+      });
+    }
+    if (war) {
+      refs.contractWar.dataset.contractId = war.id;
+      refs.contractWarTitle.textContent = t("contracts.warTitle", {
+        faction: translatedFaction(war.factionId)
+      });
+      refs.contractWarDetail.textContent = t("contracts.warDetail", {
+        reward: war.reward,
+        renown: war.renownReward,
+        target: translatedFaction(war.targetFactionId),
+        penalty: war.relationPenalty
+      });
+    }
+  }
+
   function syncRenownGate(state) {
     const renown = Math.max(0, state.player.renown);
     const gate = state.player.act >= 2 ? CONFIG.DEMO_END_RENOWN : CONFIG.ACT2_RENOWN;
@@ -374,9 +452,7 @@ export function createUi(callbacks) {
   }
 
   function battleVerdict(state) {
-    const bandit = state.battle
-      ? state.bandits.find((entry) => entry.id === state.battle.banditId)
-      : null;
+    const bandit = getBattleEnemy(state);
     if (!bandit) return null;
     const playerStrength = getPartyStrength(state.player);
     const enemyStrength = getPartyStrength(bandit);
@@ -433,6 +509,8 @@ export function createUi(callbacks) {
     refs.report.setAttribute("aria-label", t("aria.report"));
     refs.reportToggle.setAttribute("aria-label", t("aria.toggleReport"));
     refs.townSheet.setAttribute("aria-label", t("aria.town"));
+    refs.contractModal.setAttribute("aria-label", t("aria.contracts"));
+    refs.contractClose.setAttribute("aria-label", t("aria.closeContracts"));
     refs.settingsSheet.setAttribute("aria-label", t("aria.settings"));
     refs.settingsScrim.setAttribute("aria-label", t("aria.closeSettings"));
     refs.onboarding.setAttribute("aria-label", t("aria.onboarding"));
@@ -462,8 +540,15 @@ export function createUi(callbacks) {
     refs.retreatBattle.setAttribute("aria-label", t("aria.retreat"));
     refs.townKicker.textContent = t("townPanel.entered");
     refs.recruitLabel.textContent = t("townPanel.recruit");
+    refs.veteranLabel.textContent = t("townPanel.replenish");
+    refs.battleBuffLabel.textContent = t("townPanel.battleBuff");
     refs.tavernLabel.textContent = t("townPanel.tavern");
     refs.tavern.setAttribute("aria-label", t("aria.tavern"));
+    refs.contractKicker.textContent = t("contracts.kicker");
+    refs.contractTitle.textContent = t("contracts.title");
+    refs.contractEscortTitle.textContent = t("contracts.escortTitle");
+    refs.contractRiskyTitle.textContent = t("contracts.riskyTitle");
+    refs.contractClose.textContent = t("contracts.close");
     refs.settingsTitle.textContent = t("settings.title");
     refs.settingsClose.setAttribute("aria-label", t("aria.closeSettings"));
     refs.languageLabel.textContent = t("settings.language");
@@ -630,39 +715,75 @@ export function createUi(callbacks) {
     renderEventLog();
     syncBattleComparison(state);
 
-    const town = !state.paused && !state.battle && !settingsOpen && !state.demo.modal ? activeTown(state) : null;
-    refs.townSheet.hidden = !town;
-    document.body.classList.toggle("town-open", Boolean(town));
+    const town = !state.paused && !state.battle && !settingsOpen && !state.demo.modal
+      ? activeTown(state)
+      : null;
+    if (!town || state.player.act < 2 || state.player.contract?.active) contractsOpen = false;
+    refs.townSheet.hidden = !town || contractsOpen;
+    document.body.classList.toggle("town-open", Boolean(town) && !contractsOpen);
     if (town) {
       const faction = getFaction(state, town.factionId);
       const cap = actTroopCap(state);
       const troops = getTroopCount(state.player);
       const capped = troops >= cap;
+      const militiaPrice = townRecruitPrice(state, town, CONFIG.RECRUIT_COST);
+      const veteranPrice = townRecruitPrice(state, town, CONFIG.VETERAN_REPLENISH_COST);
+      const priceStatus = [];
+      if (militiaPrice.hostile) {
+        priceStatus.push(t("townPanel.territoryHostile", {
+          percent: Math.round((CONFIG.HOSTILE_TOWN_RECRUIT_PRICE_MULTIPLIER - 1) * 100)
+        }));
+      }
+      if (militiaPrice.warZone) {
+        priceStatus.push(t("townPanel.territoryWar", {
+          percent: Math.round((CONFIG.WAR_ZONE_RECRUIT_PRICE_MULTIPLIER - 1) * 100)
+        }));
+      }
       refs.townName.textContent = t(town.nameKey);
-      refs.townFaction.textContent = t("townPanel.territory", { faction: t(faction.nameKey) });
+      refs.townFaction.textContent = [
+        t("townPanel.territory", { faction: t(faction.nameKey) }),
+        ...priceStatus
+      ].join(" · ");
       const recruitsEmpty = (
         town.recruitPool <= 0 && troops >= CONFIG.PLAYER_RECOVERY_RECRUIT_FLOOR
       );
-      refs.recruit.disabled = capped || state.player.gold < CONFIG.RECRUIT_COST || recruitsEmpty;
+      refs.recruit.disabled = capped || state.player.gold < militiaPrice.cost || recruitsEmpty;
       refs.recruitCost.textContent = capped
         ? t("townPanel.recruitCapped", { cap })
         : recruitsEmpty
           ? t("townPanel.recruitEmpty")
-          : t("townPanel.recruitCost", { cost: CONFIG.RECRUIT_COST });
+          : t("townPanel.recruitCost", { cost: militiaPrice.cost });
+      const veteranAvailable = state.player.troops.some((stack) => stack.type === "veteran" && stack.count > 0);
+      refs.veteran.hidden = state.player.act < 2;
+      refs.veteran.disabled = capped || !veteranAvailable || town.recruitPool <= 0 || state.player.gold < veteranPrice.cost;
+      refs.veteranCost.textContent = capped
+        ? t("townPanel.recruitCapped", { cap })
+        : !veteranAvailable
+          ? t("townPanel.replenishUnavailable")
+          : town.recruitPool <= 0
+            ? t("townPanel.recruitEmpty")
+            : t("townPanel.replenishCost", { cost: veteranPrice.cost });
+      const buffActive = state.casual?.nextBattleAttackMultiplier > 1;
+      refs.battleBuff.hidden = state.player.act < 2;
+      refs.battleBuff.disabled = buffActive || state.player.gold < CONFIG.TAVERN_ATTACK_BUFF_COST;
+      refs.battleBuffCost.textContent = buffActive
+        ? t("townPanel.battleBuffActive")
+        : t("townPanel.battleBuffCost", {
+          cost: CONFIG.TAVERN_ATTACK_BUFF_COST,
+          bonus: Math.round(CONFIG.TAVERN_ATTACK_BUFF_BONUS * 100)
+        });
       refs.tavern.hidden = state.player.act < 2;
       if (state.player.act >= 2) {
-        const activeContract = state.player.contract;
+        const activeContract = state.player.contract?.active ? state.player.contract : null;
+        refs.tavern.disabled = Boolean(activeContract);
         refs.tavernDetail.textContent = activeContract
           ? t("townPanel.contractActive", {
-            faction: translatedFaction(activeContract.factionId),
-            reward: activeContract.reward
+            contract: contractSummary(activeContract)
           })
-          : t("townPanel.contractOffer", {
-            faction: t(faction.nameKey),
-            reward: CONFIG.MERCENARY_PAY_PER_BATTLE
-          });
+          : t("townPanel.contractOffer");
       }
     }
+    syncContractModal(state, town);
 
     refs.settingsSheet.hidden = !settingsOpen;
     refs.settingsScrim.hidden = !settingsOpen;
@@ -872,7 +993,25 @@ export function createUi(callbacks) {
   refs.languageZh.addEventListener("click", () => callbacks.onLanguageChange("zh"));
   refs.languageEn.addEventListener("click", () => callbacks.onLanguageChange("en"));
   refs.recruit.addEventListener("click", () => callbacks.onRecruit());
-  refs.tavern.addEventListener("click", () => callbacks.onAcceptContract());
+  refs.veteran.addEventListener("click", () => callbacks.onReplenishVeteran());
+  refs.battleBuff.addEventListener("click", () => callbacks.onBuyBattleBuff());
+  refs.tavern.addEventListener("click", () => {
+    contractsOpen = true;
+    if (currentState) sync(currentState, { saveAvailable });
+  });
+  const selectContract = (button) => {
+    const contractId = button.dataset.contractId;
+    if (!contractId) return;
+    contractsOpen = false;
+    callbacks.onSelectContract(contractId);
+  };
+  refs.contractEscort.addEventListener("click", () => selectContract(refs.contractEscort));
+  refs.contractRisky.addEventListener("click", () => selectContract(refs.contractRisky));
+  refs.contractWar.addEventListener("click", () => selectContract(refs.contractWar));
+  refs.contractClose.addEventListener("click", () => {
+    contractsOpen = false;
+    if (currentState) sync(currentState, { saveAvailable });
+  });
   refs.skipBattle.addEventListener("click", () => callbacks.onSkipBattle());
   refs.retreatBattle.addEventListener("click", () => callbacks.onRetreat());
   refs.onboarding.addEventListener("click", () => callbacks.onAdvanceOnboarding());
@@ -903,7 +1042,13 @@ export function createUi(callbacks) {
     refs.languageZh,
     refs.languageEn,
     refs.recruit,
+    refs.veteran,
+    refs.battleBuff,
     refs.tavern,
+    refs.contractEscort,
+    refs.contractRisky,
+    refs.contractWar,
+    refs.contractClose,
     refs.skipBattle,
     refs.retreatBattle,
     refs.titleNewSeed,
