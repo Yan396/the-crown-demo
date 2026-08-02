@@ -59,6 +59,16 @@ export const STRINGS = Object.freeze({
       items: "朱印 我军　旌旗 领主　墨点 匪队",
       seed: "世界种子 {seed}"
     }),
+    stage: Object.freeze({
+      march: "两军入场",
+      round: "第 {n} 轮",
+      volley: "城头齐射",
+      rout: "阵线崩了",
+      hint: "点按 2× · 长按跳过",
+      tallyGold: "缴获",
+      tallyRenown: "声望",
+      continue: "继 续"
+    }),
     report: Object.freeze({
       march: "行军战报",
       battle: "交战记录",
@@ -310,6 +320,16 @@ export const STRINGS = Object.freeze({
     legend: Object.freeze({
       items: "Seal you   Banner lord   Blot bandits",
       seed: "World seed {seed}"
+    }),
+    stage: Object.freeze({
+      march: "The lines advance",
+      round: "Round {n}",
+      volley: "Volley from the wall",
+      rout: "The line breaks",
+      hint: "Tap 2x · hold to skip",
+      tallyGold: "Loot",
+      tallyRenown: "Renown",
+      continue: "Continue"
     }),
     report: Object.freeze({
       march: "Campaign Report",

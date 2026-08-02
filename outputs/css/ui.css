@@ -2299,13 +2299,13 @@ body.battle-stage-open #town-sheet {
   display: grid;
 }
 
-.stage-ranks-attacker { left: 7%; }
-.stage-ranks-defender { right: 7%; }
+.stage-ranks-player { left: 7%; }
+.stage-ranks-enemy { right: 7%; }
 
 /* The defender faces the attacker. Flipping the glyph rather than the token
    keeps position and facing in separate properties, so neither can clobber
    the other. */
-.stage-ranks-defender .stage-token svg {
+.stage-ranks-enemy .stage-token svg {
   transform: scaleX(-1);
 }
 
@@ -2326,11 +2326,11 @@ body.battle-stage-open #town-sheet {
 
 /* Entrance: both armies walk in from their own side, steps out of phase via
    the per-token idle duration already assigned. */
-.battle-stage.is-entering .stage-ranks-attacker .stage-token {
+.battle-stage.is-entering .stage-ranks-player .stage-token {
   animation: token-march-l 600ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
-.battle-stage.is-entering .stage-ranks-defender .stage-token {
+.battle-stage.is-entering .stage-ranks-enemy .stage-token {
   animation: token-march-r 600ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
@@ -2355,7 +2355,7 @@ body.battle-stage-open #town-sheet {
   100% { translate: 0 0; }
 }
 
-.stage-ranks-defender .stage-token.is-striking {
+.stage-ranks-enemy .stage-token.is-striking {
   --facing: -1;
 }
 
@@ -2407,7 +2407,7 @@ body.battle-stage-open #town-sheet {
   }
 }
 
-.stage-ranks-defender .stage-token.is-fleeing {
+.stage-ranks-enemy .stage-token.is-fleeing {
   animation-name: token-flee-r;
 }
 
@@ -2651,4 +2651,16 @@ body.battle-stage-open #town-sheet {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* The seal is centred on the viewport and the tally is centred on the stage,
+   so on a battle they land on each other. Lift the seal clear while the stage
+   is open; the tally keeps the lower third. */
+body.battle-stage-open #seal-layer {
+  align-items: flex-start;
+  padding-top: 20vh;
+}
+
+body.battle-stage-open .stage-tally {
+  bottom: 6%;
 }

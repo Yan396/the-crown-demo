@@ -1,4 +1,5 @@
 import { attemptFlee, skipBattle } from "./battle.js";
+import { createBattleStage } from "./battle-stage.js";
 import { CONFIG, SUPPORTED_LANGUAGES } from "./data.js";
 import {
   advanceActIfNeeded,
@@ -86,14 +87,39 @@ function persist(showFailure = false) {
   return saveAvailable;
 }
 
+const STAGE_HINT_KEY = "the-crown.stage-hint-seen";
+
+let battleStage = null;
+
+function getBattleStage() {
+  if (battleStage) return battleStage;
+  battleStage = createBattleStage(document.body, {
+    translate: (key) => ui.text(key),
+    hintSeen: () => {
+      try { return localStorage.getItem(STAGE_HINT_KEY) === "1"; } catch (error) { return false; }
+    },
+    persistHint: () => {
+      try { localStorage.setItem(STAGE_HINT_KEY, "1"); } catch (error) { /* private mode */ }
+    },
+    // The brief's playback controls write to the engine's own playback record.
+    onSpeedChange: (speed) => {
+      if (state.battlePlayback) state.battlePlayback.speed = speed;
+    },
+    onSkip: () => {
+      if (state.battlePlayback) state.battlePlayback.skip = true;
+    }
+  });
+  return battleStage;
+}
+
 function handleBattleResult(result, options = {}) {
   if (!result) return;
   if (result.type === "victory") {
-    if (!options.transition) stampSeal(ui.text("map.victorySeal"));
+    if (!options.transition && !options.staged) stampSeal(ui.text("map.victorySeal"));
     ui.playVictoryFx(result.loot, result.renown);
     ui.showToast("toast.victory", { loot: result.loot });
   } else if (result.type === "defeat") {
-    stampSeal(ui.text("map.defeatSeal"), { tone: "loss" });
+    if (!options.staged) stampSeal(ui.text("map.defeatSeal"), { tone: "loss" });
     ui.showToast("toast.defeat", { townId: result.townId });
   }
 }
@@ -244,11 +270,25 @@ ui = createUi({
     const result = skipBattle(state);
     updateSessionPeaks(state);
     const transition = advanceActIfNeeded(state);
-    handleBattleResult(result, { transition: Boolean(transition) });
-    if (transition?.type === "ending") stampSeal(ui.text("ending.seal"));
-    if (transition?.type === "act2") scheduleAct2Intro();
+    const script = result?.battleScript || state.battleScript;
+
+    const settle = (staged) => {
+      handleBattleResult(result, { transition: Boolean(transition), staged });
+      if (transition?.type === "ending") stampSeal(ui.text("ending.seal"));
+      if (transition?.type === "act2") scheduleAct2Intro();
+      persist(true);
+      sync();
+    };
+
+    if (!script) {
+      settle(false);
+      return;
+    }
+    // The stage is a replay of an already-resolved battle: state is settled
+    // before a single frame plays, so a mid-playback reload loses no progress.
     persist(true);
     sync();
+    getBattleStage().play(script, () => settle(true));
   },
   onRetreat() {
     const result = attemptFlee(state);

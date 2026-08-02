@@ -1,4 +1,3 @@
-import { createBattlefield } from "./battlefield.js";
 import { CONFIG, TOKENS, TOWN_DATA } from "./data.js";
 import { buildRoads, distanceToRoad } from "./roads.js";
 import { activeTown, clamp } from "./state.js";
@@ -408,7 +407,6 @@ export function createMapRenderer(canvas) {
   const trails = new Map();
   let trailTick = -1;
 
-  const battlefield = createBattlefield();
 
   const frameSamples = [];
   let perfLoggedAt = 0;
@@ -1082,7 +1080,6 @@ export function createMapRenderer(canvas) {
     state.lords.forEach((lord) => drawLord(state, lord, alpha, language));
     state.bandits.forEach((bandit) => drawBandit(state, bandit, alpha, language));
     drawPlayer(state, alpha, now, language);
-    battlefield.draw(context, state, now, viewportWidth, viewportHeight, language, translate);
 
     // Grain and vignette last, so every element shares one sheet of paper.
     if (screenLayer) {
