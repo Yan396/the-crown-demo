@@ -39,8 +39,10 @@ const MAX_SCRIPT_TOKENS = 24; // mirrors the engine's bucketing constant
 
 // Kept as the module's local names; the values now live in presentation.js so
 // the whole performance can be retimed from one place.
+// The hit pause is no longer here: it is the tier's own contact hold, read from
+// WEIGHT_TIERS at the moment of the blow. P.STRIKE_PAUSE_MS stays in the
+// presentation config as the untiered default it always was.
 const TIMING = Object.freeze({
-  HIT_PAUSE: P.STRIKE_PAUSE_MS,
   ROUT_SLOWMO: P.ROUT_SLOWMO_MS,
   LONG_PRESS: P.LONG_PRESS_MS,
   ARROW_FLIGHT: P.ARROW_FLIGHT_MS
