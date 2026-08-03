@@ -1,3 +1,5 @@
+import { crownAudio } from "./audio.js";
+
 /*
  * 朱印 — the signature mark.
  *
@@ -34,6 +36,7 @@ export function stampSeal(text, options = {}) {
   if (!characters.length) return;
 
   const layer = ensureHost();
+  crownAudio.seal();
   const seal = document.createElement("div");
   seal.className = "seal";
   if (characters.length > 2) seal.classList.add("seal-quad");

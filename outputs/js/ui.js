@@ -79,6 +79,8 @@ export function createUi(callbacks) {
     renown: element("renown-value"),
     dayLabel: element("day-label"),
     day: element("day-value"),
+    helpButton: element("help-button"),
+    soundButton: element("sound-button"),
     pause: element("pause-button"),
     settingsButton: element("settings-button"),
     hint: element("hint"),
@@ -134,8 +136,21 @@ export function createUi(callbacks) {
     languageLabel: element("language-label"),
     languageZh: element("language-zh"),
     languageEn: element("language-en"),
+    soundLabel: element("sound-label"),
+    soundToggle: element("sound-toggle"),
     autosaveTitle: element("autosave-title"),
     autosaveStatus: element("autosave-status"),
+    helpCard: element("help-card"),
+    helpTitle: element("help-title"),
+    helpClose: element("help-close"),
+    helpGoalLabel: element("help-goal-label"),
+    helpGoal: element("help-goal"),
+    helpFightLabel: element("help-fight-label"),
+    helpFight: element("help-fight"),
+    helpMoneyLabel: element("help-money-label"),
+    helpMoney: element("help-money"),
+    helpRenownLabel: element("help-renown-label"),
+    helpRenown: element("help-renown"),
     renownGate: element("renown-gate"),
     renownGateFill: element("renown-gate-fill"),
     renownGateLabel: element("renown-gate-label"),
@@ -147,6 +162,9 @@ export function createUi(callbacks) {
     onboardingStory: element("onboarding-story"),
     onboardingLine: element("onboarding-line"),
     onboardingTap: element("onboarding-tap"),
+    onboardingCopy: document.querySelector(".onboarding-copy"),
+    titleStart: element("title-start"),
+    titleRules: element("title-rules"),
     titleNewSeed: element("title-new-seed"),
     titleDiagnostics: element("title-diagnostics"),
     originModal: element("origin-modal"),
@@ -259,6 +277,7 @@ export function createUi(callbacks) {
   const counterValues = new WeakMap();
   let currentState = null;
   let settingsOpen = false;
+  let helpOpen = false;
   let contractsOpen = false;
   let saveAvailable = true;
   let toastTimer = null;
@@ -717,6 +736,7 @@ export function createUi(callbacks) {
     refs.fiefThreatModal.setAttribute("aria-label", t("aria.fiefThreat"));
     refs.contractClose.setAttribute("aria-label", t("aria.closeContracts"));
     refs.settingsSheet.setAttribute("aria-label", t("aria.settings"));
+    refs.helpCard.setAttribute("aria-label", t("aria.openHelp"));
     refs.settingsScrim.setAttribute("aria-label", t("aria.closeSettings"));
     refs.onboarding.setAttribute("aria-label", t("aria.onboarding"));
     refs.originModal.setAttribute("aria-label", t("aria.origin"));
@@ -733,6 +753,9 @@ export function createUi(callbacks) {
     refs.renownLabel.textContent = t("hud.renown");
     refs.dayLabel.textContent = t("hud.day");
     refs.settingsButton.setAttribute("aria-label", t("aria.openSettings"));
+    refs.helpButton.setAttribute("aria-label", t("aria.openHelp"));
+    refs.soundButton.setAttribute("aria-label", t("aria.toggleSound"));
+    refs.helpClose.setAttribute("aria-label", t("aria.closeHelp"));
     refs.legendText.replaceChildren(...t("legend.items")
       .split(/\u3000+|\s{2,}/)
       .map((part) => part.trim())
@@ -778,10 +801,22 @@ export function createUi(callbacks) {
     refs.languageLabel.textContent = t("settings.language");
     refs.languageZh.textContent = t("settings.chinese");
     refs.languageEn.textContent = t("settings.english");
+    refs.soundLabel.textContent = t("settings.sound");
     refs.autosaveTitle.textContent = t("settings.autosave");
+    refs.helpTitle.textContent = t("help.title");
+    refs.helpGoalLabel.textContent = t("help.goalLabel");
+    refs.helpGoal.textContent = t(CONFIG.DEMO ? "help.goalDemo" : "help.goalFull");
+    refs.helpFightLabel.textContent = t("help.fightLabel");
+    refs.helpFight.textContent = t("help.fight");
+    refs.helpMoneyLabel.textContent = t("help.moneyLabel");
+    refs.helpMoney.textContent = t("help.money");
+    refs.helpRenownLabel.textContent = t("help.renownLabel");
+    refs.helpRenown.textContent = t(CONFIG.DEMO ? "help.renownDemo" : "help.renownFull");
     refs.onboardingSeal.textContent = t("onboarding.seal");
     refs.onboardingTitle.textContent = t("onboarding.title");
     refs.onboardingTap.textContent = t("onboarding.tap");
+    refs.titleStart.textContent = t("onboarding.start");
+    refs.titleRules.textContent = t("onboarding.rules");
     refs.titleNewSeed.textContent = t("onboarding.newSeed");
     refs.titleNewSeed.setAttribute("aria-label", t("aria.newSeed"));
     refs.originKicker.textContent = t("origin.kicker");
@@ -823,11 +858,19 @@ export function createUi(callbacks) {
     const visible = state.demo.modal === "onboarding";
     refs.onboarding.hidden = !visible;
     if (!visible) return;
+    const title = state.demo.onboardingStep < 0;
     const current = state.demo.onboardingStep + 1;
-    refs.onboardingStep.textContent = t("onboarding.step", { current });
-    refs.onboardingStory.hidden = current !== 1;
-    refs.onboardingStory.textContent = current === 1 ? t("story.opening") : "";
-    refs.onboardingLine.textContent = t(`onboarding.step${current}`);
+    refs.onboardingStep.hidden = title;
+    refs.onboardingStep.textContent = title ? "" : t("onboarding.step", { current });
+    refs.onboardingStory.hidden = !title;
+    refs.onboardingStory.textContent = title ? t("story.opening") : "";
+    refs.onboardingLine.hidden = title;
+    refs.onboardingLine.textContent = title ? "" : t(`onboarding.step${current}`);
+    refs.onboardingTap.hidden = title;
+    refs.titleStart.hidden = !title;
+    refs.titleRules.hidden = !title;
+    refs.titleNewSeed.hidden = !title;
+    refs.titleDiagnostics.hidden = !title;
   }
 
   function syncOrigin(state) {
@@ -1196,12 +1239,19 @@ export function createUi(callbacks) {
 
     refs.settingsSheet.hidden = !settingsOpen;
     refs.settingsScrim.hidden = !settingsOpen;
+    refs.helpCard.hidden = !helpOpen;
     document.body.classList.toggle("settings-open", settingsOpen);
+    document.body.classList.toggle("help-open", helpOpen);
     document.body.classList.toggle("act-two", state.player.act >= 2);
     document.body.classList.toggle("paused", state.paused);
     document.body.classList.toggle("demo-modal-open", Boolean(state.demo.modal) && !state.demo.ended);
     refs.languageZh.setAttribute("aria-pressed", String(language() === "zh"));
     refs.languageEn.setAttribute("aria-pressed", String(language() === "en"));
+    const soundEnabled = state.settings.soundEnabled !== false;
+    refs.soundButton.textContent = soundEnabled ? "声" : "静";
+    refs.soundButton.setAttribute("aria-pressed", String(soundEnabled));
+    refs.soundToggle.textContent = t(soundEnabled ? "settings.soundOn" : "settings.soundOff");
+    refs.soundToggle.setAttribute("aria-pressed", String(soundEnabled));
     refs.autosaveStatus.textContent = saveAvailable
       ? t("settings.autosaveOn", { day: Math.floor(Math.max(0, state.lastSavedTick) / CONFIG.TICKS_PER_DAY) + 1 })
       : t("settings.autosaveUnavailable");
@@ -1232,6 +1282,19 @@ export function createUi(callbacks) {
   function setSettingsOpen(nextOpen) {
     if (currentState?.demo.modal) return;
     settingsOpen = Boolean(nextOpen);
+    if (currentState) sync(currentState, { saveAvailable });
+  }
+
+  function setHelpOpen(nextOpen, source = "hud") {
+    const opening = Boolean(nextOpen);
+    if (opening === helpOpen) return;
+    helpOpen = opening;
+    if (opening) {
+      settingsOpen = false;
+      callbacks.onHelpOpen(source);
+    } else {
+      callbacks.onHelpClose();
+    }
     if (currentState) sync(currentState, { saveAvailable });
   }
 
@@ -1391,6 +1454,8 @@ export function createUi(callbacks) {
     }
   }
 
+  refs.helpButton.addEventListener("click", () => setHelpOpen(true, "hud"));
+  refs.soundButton.addEventListener("click", () => callbacks.onSoundChange(currentState?.settings.soundEnabled === false));
   refs.pause.addEventListener("click", () => callbacks.onTogglePause());
   refs.settingsButton.addEventListener("click", () => setSettingsOpen(true));
   refs.settingsClose.addEventListener("click", () => setSettingsOpen(false));
@@ -1406,6 +1471,8 @@ export function createUi(callbacks) {
   });
   refs.languageZh.addEventListener("click", () => callbacks.onLanguageChange("zh"));
   refs.languageEn.addEventListener("click", () => callbacks.onLanguageChange("en"));
+  refs.soundToggle.addEventListener("click", () => callbacks.onSoundChange(currentState?.settings.soundEnabled === false));
+  refs.helpClose.addEventListener("click", () => setHelpOpen(false));
   refs.recruit.addEventListener("click", () => callbacks.onRecruit("spear"));
   refs.recruitArcher.addEventListener("click", () => callbacks.onRecruit("archer"));
   refs.recruitCavalry.addEventListener("click", () => callbacks.onRecruit("cavalry"));
@@ -1436,12 +1503,22 @@ export function createUi(callbacks) {
   });
   refs.skipBattle.addEventListener("click", () => callbacks.onSkipBattle());
   refs.retreatBattle.addEventListener("click", () => callbacks.onRetreat());
-  refs.onboarding.addEventListener("click", () => callbacks.onAdvanceOnboarding());
+  refs.onboardingCopy.addEventListener("click", () => {
+    if ((currentState?.demo.onboardingStep ?? -1) >= 0) callbacks.onAdvanceOnboarding();
+  });
   refs.originButtons.forEach((button) => {
     button.addEventListener("click", () => callbacks.onSelectOrigin(button.dataset.origin));
   });
   refs.onboardingTitle.addEventListener("click", toggleDiagnosticsFromTitle);
   refs.brandTitle.addEventListener("click", toggleDiagnosticsFromTitle);
+  refs.titleStart.addEventListener("click", (event) => {
+    event.stopPropagation();
+    callbacks.onAdvanceOnboarding();
+  });
+  refs.titleRules.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setHelpOpen(true, "title");
+  });
   refs.titleNewSeed.addEventListener("click", (event) => {
     event.stopPropagation();
     callbacks.onNewSeed(false);
@@ -1498,12 +1575,16 @@ export function createUi(callbacks) {
   document.fonts?.ready?.then(updateNumberBudget);
 
   [
+    refs.helpButton,
+    refs.soundButton,
     refs.pause,
     refs.settingsButton,
     refs.settingsClose,
     refs.reportToggle,
     refs.languageZh,
     refs.languageEn,
+    refs.soundToggle,
+    refs.helpClose,
     refs.recruit,
     refs.veteran,
     refs.battleBuff,
@@ -1517,6 +1598,8 @@ export function createUi(callbacks) {
     refs.contractClose,
     refs.skipBattle,
     refs.retreatBattle,
+    refs.titleStart,
+    refs.titleRules,
     refs.titleNewSeed,
     ...refs.originButtons,
     refs.promiseSlider,
@@ -1548,6 +1631,7 @@ export function createUi(callbacks) {
     playVictoryFx,
     playRecruitFx,
     isSettingsOpen: () => settingsOpen,
+    isHelpOpen: () => helpOpen,
     closeSettings: () => setSettingsOpen(false)
   };
 }

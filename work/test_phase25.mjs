@@ -413,7 +413,7 @@ test("static: no forbidden technology or content leakage", () => {
     ["alternate persistence", /sessionStorage|indexedDB/i],
     ["quests", /\bquests?\b/i],
     ["difficulty modes", /\bdifficult(?:y|ies)\b/i],
-    ["sound/audio", /new\s+Audio\b|AudioContext|<audio\b/i],
+    ["audio files/elements", /new\s+Audio\b|<audio\b|\.(?:mp3|wav|ogg|m4a|aac)(?:["'?#])/i],
     ["accounts/auth", /\b(?:login|logout|signIn|signUp|accountId|authentication)\b/i],
     ["third-party SDK", /\b(?:firebase|supabase|sentry|mixpanel|amplitude|gtag)\b/i],
     ["unseeded randomness", /Math\.random\s*\(/],
@@ -601,8 +601,10 @@ test("onboarding: three exact steps, troop promise bounds, and persistence", () 
   const beforeTick = state.tick;
   worldTick(state);
   assert.equal(state.tick, beforeTick, "simulation must not advance behind first-launch onboarding");
-  for (let step = 1; step <= 3; step += 1) assert.notEqual(advanceOnboarding(state)?.advanced, false, `tap ${step} must advance exactly one onboarding screen`);
-  assert.equal(state.demo?.modal, "troopPromise", "the third tap must open the troop promise, with no fourth tutorial line");
+  assert.equal(state.demo.onboardingStep, -1, "new players must begin on the title screen before the three tips");
+  assert.notEqual(advanceOnboarding(state)?.advanced, false, "the explicit Start tap must enter onboarding");
+  for (let step = 1; step <= 3; step += 1) assert.notEqual(advanceOnboarding(state)?.advanced, false, `tip tap ${step} must advance exactly one onboarding screen`);
+  assert.equal(state.demo?.modal, "troopPromise", "three deliberate tip taps must open the troop promise, with no fourth tutorial line");
   const belowMinimum = clone(state);
   setPromise(belowMinimum, 9);
   let promise = (belowMinimum.player.promises || [])[0];
@@ -690,7 +692,8 @@ test("telemetry: full semantic schema and gameplay counters", () => {
   }
   assert.deepEqual(state.telemetry.promiseValues, { troops: null, gold: null });
   assert.deepEqual(state.telemetry.promiseFinalActuals, { troops: null, gold: null });
-  assert.deepEqual(state.telemetry.tooltipViews, { town: 0, lowGold: 0, act2: 0 });
+  assert.deepEqual(state.telemetry.tooltipViews, { town: 0, lowGold: 0, act2: 0, verdict: 0 });
+  assert.deepEqual(state.telemetry.helpCardOpens, []);
   assert.deepEqual(state.telemetry.eventChoices, []);
   if (state.demo) {
     state.demo.onboardingComplete = true;

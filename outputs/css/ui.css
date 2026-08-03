@@ -299,6 +299,11 @@ body.has-fief #stats {
   opacity: 0.86;
 }
 
+.hud-text-button {
+  font: 700 15px/1 var(--font-display);
+  letter-spacing: 0.04em;
+}
+
 /* Pause/resume swap by class, so the SVG markup survives re-render. */
 .hud-button .glyph-resume,
 .hud-button.is-paused .glyph-pause {
@@ -734,6 +739,7 @@ body.battle-active #stats .promise-marker:not(.exceeded) {
 #battle-command-modal[hidden],
 #settings-sheet[hidden],
 #settings-scrim[hidden],
+#help-card[hidden],
 #onboarding[hidden],
 #origin-modal[hidden],
 #kingdom-modal[hidden],
@@ -1663,6 +1669,102 @@ body.contract-open #town-sheet {
   color: var(--ink);
 }
 
+.settings-toggle {
+  min-width: 86px;
+  min-height: 44px;
+  padding: 7px 12px;
+  border: 1px solid var(--rule-on-lacquer);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--paper-dim);
+  font: 600 12px var(--font-body);
+}
+
+.settings-toggle[aria-pressed="true"] {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+/* Re-openable rules reference: four questions, four short answers, and no
+   scrolling. It is a reference card rather than another tutorial flow. */
+.help-layer {
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: max(18px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  background: rgba(28, 25, 22, 0.72);
+}
+
+.help-card {
+  width: min(520px, 100%);
+  max-height: calc(100svh - 36px);
+  padding: 22px;
+  overflow: hidden;
+  color: var(--ink);
+}
+
+.help-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--rule-on-paper);
+}
+
+.help-head h2 {
+  margin: 0;
+  font: 700 24px var(--font-display);
+  letter-spacing: 0.14em;
+}
+
+#help-close {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  padding: 0;
+  place-content: center;
+  border: 1px solid var(--rule-on-paper);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink);
+}
+
+.help-lines {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+
+.help-lines > div {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.8fr) minmax(0, 2.2fr);
+  gap: 14px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--rule-on-paper);
+}
+
+.help-lines > div:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.help-lines dt,
+.help-lines dd {
+  margin: 0;
+}
+
+.help-lines dt {
+  font: 700 13px/1.5 var(--font-display);
+  letter-spacing: 0.08em;
+}
+
+.help-lines dd {
+  color: var(--ink-faint);
+  font: 13px/1.55 var(--font-body);
+}
+
 .save-copy {
   display: grid;
   gap: 3px;
@@ -1801,6 +1903,21 @@ body.contract-open #town-sheet {
 
   #settings-sheet {
     padding: 14px;
+  }
+
+  .help-card {
+    padding: 18px;
+  }
+
+  .help-lines > div {
+    grid-template-columns: 82px minmax(0, 1fr);
+    gap: 10px;
+    padding: 10px 0;
+  }
+
+  .help-lines dt,
+  .help-lines dd {
+    font-size: 12px;
   }
 
   /* Keep mirror, chronicle, and stats figures in separate scroll beats so a
@@ -2255,8 +2372,19 @@ body.contract-open #town-sheet {
 
 .onboarding-layer .title-actions {
   display: grid;
+  width: min(360px, calc(100vw - 48px));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   justify-items: center;
   gap: 8px;
+}
+
+.onboarding-layer .title-actions > button {
+  width: 100%;
+}
+
+#title-new-seed,
+#title-diagnostics {
+  grid-column: 1 / -1;
 }
 
 /* ---- 4: encounter verdict ------------------------------------------------ */
