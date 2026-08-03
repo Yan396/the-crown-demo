@@ -548,7 +548,8 @@ export function createInitialState(seed = CONFIG.SEED, options = {}) {
     paused: Boolean(demo.modal),
     settings: {
       language: SUPPORTED_LANGUAGES.includes(options.language) ? options.language : "zh",
-      soundEnabled: options.soundEnabled !== false
+      // Kept for save compatibility; there is no mute to record.
+      soundEnabled: true
     },
     lastSavedTick: -1,
     player: {
@@ -941,7 +942,11 @@ function migrateState(state) {
   };
   state.settings = {
     language: SUPPORTED_LANGUAGES.includes(state.settings?.language) ? state.settings.language : "zh",
-    soundEnabled: state.settings?.soundEnabled !== false
+    // There is no player-facing mute any more, so a save that recorded one is
+    // migrated to enabled rather than silencing a returning player forever.
+    // The field itself stays -- it is part of the v2 save contract -- but it is
+    // now always true and is never written from a preference again.
+    soundEnabled: true
   };
   state.player.act = state.player.act >= 4 ? 4 : state.player.act >= 3 ? 3 : state.player.act >= 2 ? 2 : 1;
   state.player.promises = (state.promises || state.player.promises || [])
@@ -1168,7 +1173,6 @@ export function nextWorldSeed(state) {
 export function createReplayState(previousState, options = {}) {
   return createInitialState(nextWorldSeed(previousState), {
     language: previousState.settings.language,
-    soundEnabled: previousState.settings.soundEnabled,
     replayCount: (previousState.telemetry?.replayCount || 0) + 1,
     skipOnboarding: previousState.features?.full !== true,
     tooltipsSeen: previousState.demo?.tooltipsSeen,

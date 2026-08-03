@@ -31,11 +31,29 @@ const SCALES = Object.freeze({
   yu: [0, 3, 5, 7, 10]      // 羽: the war mode
 });
 
-// The crown motif, as scale-degree indices (index 5 is the octave). Stated
-// slowly on the title, hinted at as a two-note head on the road, and recovered
-// whole -- with its resolution -- at the ending. Four notes is all it is.
+// The crown motif, as scale-degree indices (index 5 is the octave). Four notes,
+// and the same four everywhere: declaimed on the title, walked as a dotted
+// variant on the road, and recovered whole -- with its resolution -- at the
+// ending. If a player cannot hum it back, it is not doing its job.
 const MOTIF = Object.freeze([0, 2, 1, 4]);
 const MOTIF_RESOLUTION = 5;
+
+// The three sections, separable for the styleguide: plucked strings (古琴 and
+// 琵琶), winds and the drone bed (箫), and percussion (战鼓 and 梆子).
+const SECTIONS = Object.freeze(["guqin", "xiao", "drum"]);
+
+/*
+ * The per-scene bed. Every phrase of every scene lays one of these down first
+ * and unconditionally: there is no player-facing mute any more, so silence can
+ * only ever read as a bug. Density above the bed breathes; the bed does not.
+ */
+const BEDS = Object.freeze({
+  title: Object.freeze({ drone: 0.062, harmonic: 0.03, wind: 0.026, cutoff: 340 }),
+  "map-road": Object.freeze({ drone: 0.05, harmonic: 0.026, wind: 0.018, cutoff: 320 }),
+  town: Object.freeze({ drone: 0.044, harmonic: 0.024, wind: 0.03, cutoff: 460 }),
+  battle: Object.freeze({ drone: 0.058, harmonic: 0.018, wind: 0, cutoff: 240 }),
+  ending: Object.freeze({ drone: 0.06, harmonic: 0.032, wind: 0.032, cutoff: 420 })
+});
 
 export const CONFIG_MUSIC = Object.freeze({
   MASTER_GAIN: 0.72,
@@ -79,7 +97,7 @@ export const CONFIG_MUSIC = Object.freeze({
 
   SCENES: Object.freeze({
     // root is in semitones from A4. beats is the phrase length -- the unit of
-    // breathing: a scene may spend a whole phrase saying nothing.
+    // breathing. A phrase may thin out to its bed; it may never go quiet.
     title: Object.freeze({ root: -19, scale: "shang", bpm: 40, beats: 12, fadeIn: 2.6, fadeOut: 2.2 }),
     "map-road": Object.freeze({ root: -19, scale: "shang", bpm: 46, beats: 8, fadeIn: 2.4, fadeOut: 2 }),
     town: Object.freeze({ root: -14, scale: "zhi", bpm: 58, beats: 8, fadeIn: 1.8, fadeOut: 1.8 }),
@@ -96,6 +114,14 @@ function audioConstructor() {
 
 function safeParam(param, method, ...values) {
   if (param && typeof param[method] === "function") param[method](...values);
+}
+
+// A finished scene releases its section gains as well as its own -- leaving
+// them attached is how a long session accumulates dead nodes.
+function releaseInstanceNodes(instance) {
+  for (const node of [...Object.values(instance.sections || {}), instance.input]) {
+    try { node?.disconnect?.(); } catch { /* already disconnected */ }
+  }
 }
 
 /*
@@ -157,6 +183,9 @@ export class CrownAudio {
     this.muteTimer = null;
     this.musicHidden = false;
     this.musicDuckFloor = 1;
+    // Dev-only section mix. The game never writes it; the styleguide solos
+    // 古琴 / 箫 / 鼓 through it.
+    this.sectionGains = Object.fromEntries(SECTIONS.map((name) => [name, 1]));
     // A short rolling trace of what was actually scheduled. The styleguide
     // reads it; the tests use it to prove the stream is deterministic.
     this.musicTrace = [];
@@ -492,7 +521,7 @@ export class CrownAudio {
     while (this.musicActive.length > CONFIG_MUSIC.MAX_ACTIVE_INSTANCES) {
       const oldest = this.musicActive.find((instance) => instance.stopping);
       if (!oldest) return;
-      try { oldest.input.disconnect?.(); } catch { /* already disconnected */ }
+      releaseInstanceNodes(oldest);
       this.musicActive = this.musicActive.filter((instance) => instance !== oldest);
     }
   }
@@ -504,10 +533,20 @@ export class CrownAudio {
     const input = context.createGain();
     input.gain.value = 0;
     input.connect(this.musicBus);
+    // Each instrument family gets its own gain before the scene gain, so the
+    // styleguide can solo one without the score's own balance moving.
+    const sections = {};
+    for (const name of SECTIONS) {
+      const node = context.createGain();
+      node.gain.value = this.sectionGains[name];
+      node.connect(input);
+      sections[name] = node;
+    }
     const instance = {
       sceneId,
       scene,
       input,
+      sections,
       random: musicRandom(sceneSeed(sceneId)),
       phraseIndex: 0,
       startedAt: at,
@@ -587,7 +626,7 @@ export class CrownAudio {
     if (!this.musicActive.some((instance) => instance.endsAt <= now)) return;
     this.musicActive = this.musicActive.filter((instance) => {
       if (instance.endsAt > now) return true;
-      try { instance.input.disconnect?.(); } catch { /* already disconnected */ }
+      releaseInstanceNodes(instance);
       return false;
     });
   }
@@ -656,9 +695,7 @@ export class CrownAudio {
       }
       this.musicVoices.delete(record);
     }
-    for (const instance of this.musicActive) {
-      try { instance.input.disconnect?.(); } catch { /* already disconnected */ }
-    }
+    for (const instance of this.musicActive) releaseInstanceNodes(instance);
     this.musicActive = [];
     if (!keepScene) this.musicSceneId = null;
   }
@@ -671,8 +708,15 @@ export class CrownAudio {
     this.muteTimer = null;
     this.unbindGestures();
   }
-
-  /* ---- music voices ----------------------------------------------------- */
+  /* ---- instruments ------------------------------------------------------
+   *
+   * Everything below is synthesised from oscillators and one shared noise
+   * buffer. The goal is not a sample library -- it is that a listener can name
+   * the instrument: a 古琴 by its nail transient, its slide into the note and
+   * its 吟猱; a 箫 by its breath; a drum by its body. A generic swelling pad is
+   * exactly what this is written to avoid, so no voice here is a bare
+   * slow-attack sine on its own.
+   */
 
   musicVoice(source, nodes, startAt, stopAt) {
     const record = { source, nodes };
@@ -694,20 +738,50 @@ export class CrownAudio {
   }
 
   /*
-   * One sustained or plucked tone. `cutoff` opens a lowpass so a pluck can be
-   * bright at the attack and dark as it decays -- the difference between a
-   * string and a beep.
+   * Dev-only section mixing, used by the styleguide to solo 古琴 / 箫 / 鼓.
+   * The game never touches it, and it is applied to live and future instances
+   * alike so a solo survives a scene change.
    */
+  setSectionGain(section, value) {
+    if (!SECTIONS.includes(section)) return this.sectionGains;
+    this.sectionGains[section] = Math.max(0, Math.min(1, Number(value) || 0));
+    for (const instance of this.musicActive) {
+      const node = instance.sections?.[section];
+      if (node) node.gain.value = this.sectionGains[section];
+    }
+    return this.sectionGains;
+  }
+
+  soloSection(section) {
+    for (const name of SECTIONS) this.setSectionGain(name, !section || name === section ? 1 : 0);
+    return this.sectionGains;
+  }
+
+  sectionInput(instance, section) {
+    return instance.sections?.[section] || instance.input;
+  }
+
+  // One oscillator with an envelope, optionally filtered. The building block
+  // every instrument below is assembled from.
   musicTone(instance, {
-    at, duration, frequency, endFrequency = frequency, gain,
-    type = "sine", attack = 0.02, release = 0, cutoff = 0, cutoffEnd = cutoff
+    section = "xiao", at, duration, frequency, endFrequency = frequency, gain,
+    type = "sine", attack = 0.02, release = 0, cutoff = 0, cutoffEnd = cutoff,
+    slide = 0, traceAs = null
   }) {
     const context = this.context;
     if (!context || !instance?.input || duration <= 0) return null;
     const oscillator = context.createOscillator();
     const envelope = context.createGain();
     oscillator.type = type;
-    safeParam(oscillator.frequency, "setValueAtTime", frequency, at);
+    if (slide > 0) {
+      // 绰: the finger arrives from below and settles. A guqin almost never
+      // starts a note dead on the pitch, and this is most of why it reads as
+      // one rather than as a synth.
+      safeParam(oscillator.frequency, "setValueAtTime", frequency * (1 - slide), at);
+      safeParam(oscillator.frequency, "exponentialRampToValueAtTime", frequency, at + 0.09);
+    } else {
+      safeParam(oscillator.frequency, "setValueAtTime", frequency, at);
+    }
     if (endFrequency !== frequency) {
       safeParam(oscillator.frequency, "exponentialRampToValueAtTime", Math.max(1, endFrequency), at + duration);
     }
@@ -733,73 +807,42 @@ export class CrownAudio {
     } else {
       oscillator.connect(envelope);
     }
-    envelope.connect(instance.input);
-    this.trace(instance, type === "sine" && attack > 0.2 ? "pad" : "tone", at, frequency);
-    return this.musicVoice(oscillator, nodes, at, at + duration + 0.02);
+    envelope.connect(this.sectionInput(instance, section));
+    if (traceAs) this.trace(instance, traceAs, at, frequency);
+    this.musicVoice(oscillator, nodes, at, at + duration + 0.02);
+    return oscillator;
   }
 
   /*
-   * A plucked string: bright transient, fast decay, filter closing as it dies.
-   * The optional echo is a scheduled repeat rather than a delay node -- same
-   * sense of space, one node type fewer, and still deterministic.
+   * 吟猱: the slow finger tremble on a held guqin note, and the breath vibrato
+   * of a 箫. Delayed onset -- vibrato from the very first instant sounds
+   * mechanical; a player leans into it after the note has spoken.
    */
-  musicPluck(instance, { at, frequency, gain, decay = 1.6, echo = 0 }) {
-    this.musicTone(instance, {
-      at,
-      duration: decay,
-      frequency,
-      gain,
-      type: "triangle",
-      attack: 0.004,
-      release: decay,
-      cutoff: 2600,
-      cutoffEnd: 520
-    });
-    // A second, quieter body an octave up gives the pluck its wooden edge.
-    this.musicTone(instance, {
-      at,
-      duration: decay * 0.4,
-      frequency: frequency * 2,
-      gain: gain * 0.22,
-      type: "sine",
-      attack: 0.003,
-      release: decay * 0.4
-    });
-    if (echo > 0) {
-      this.musicTone(instance, {
-        at: at + echo,
-        duration: decay * 0.8,
-        frequency,
-        gain: gain * 0.26,
-        type: "triangle",
-        attack: 0.006,
-        release: decay * 0.8,
-        cutoff: 1400,
-        cutoffEnd: 400
-      });
-    }
+  addVibrato(target, { at, duration, rate, depth, onset = 0.5 }) {
+    const context = this.context;
+    if (!context || !target) return;
+    const lfo = context.createOscillator();
+    const amount = context.createGain();
+    lfo.type = "sine";
+    safeParam(lfo.frequency, "setValueAtTime", rate, at);
+    safeParam(amount.gain, "setValueAtTime", 0, at);
+    safeParam(amount.gain, "linearRampToValueAtTime", depth, at + onset);
+    safeParam(amount.gain, "linearRampToValueAtTime", 0, at + duration);
+    lfo.connect(amount);
+    amount.connect(target);
+    this.musicVoice(lfo, [amount], at, at + duration + 0.02);
   }
 
-  // The war drum. Body is a falling sine; the skin is one shared noise buffer.
-  musicPulse(instance, { at, gain, pitch = 68 }) {
+  // The one noise buffer the whole score shares: nail transients, breath and
+  // drum skin all read from it. Its own step, so the SFX noise stream and the
+  // music noise stream can never shift each other by firing out of order.
+  noiseBuffer() {
     const context = this.context;
-    if (!context || !instance?.input) return;
-    this.musicTone(instance, {
-      at,
-      duration: 0.34,
-      frequency: pitch,
-      endFrequency: pitch * 0.6,
-      gain,
-      type: "sine",
-      attack: 0.006,
-      release: 0.3
-    });
+    if (!context) return null;
     if (!this.musicNoiseBuffer) {
-      const frames = Math.max(1, Math.ceil(context.sampleRate * 0.4));
+      const frames = Math.max(1, Math.ceil(context.sampleRate * 0.5));
       const buffer = context.createBuffer(1, frames, context.sampleRate);
       const channel = buffer.getChannelData(0);
-      // Its own step, so the SFX noise stream and the music noise stream can
-      // never shift each other by firing in a different order.
       let value = 0x2f6b1d17;
       for (let index = 0; index < frames; index += 1) {
         value = (Math.imul(value, 1664525) + 1013904223) >>> 0;
@@ -807,29 +850,187 @@ export class CrownAudio {
       }
       this.musicNoiseBuffer = buffer;
     }
+    return this.musicNoiseBuffer;
+  }
+
+  musicNoise(instance, { section, at, duration, gain, frequency, type = "bandpass", q = 0 }) {
+    const context = this.context;
+    const buffer = this.noiseBuffer();
+    if (!context || !buffer) return;
     const source = context.createBufferSource();
     const filter = context.createBiquadFilter();
     const envelope = context.createGain();
-    source.buffer = this.musicNoiseBuffer;
-    filter.type = "lowpass";
-    filter.frequency.value = 380;
+    source.buffer = buffer;
+    filter.type = type;
+    filter.frequency.value = frequency;
+    if (q > 0) safeParam(filter.Q, "setValueAtTime", q, at);
     safeParam(envelope.gain, "setValueAtTime", 0.0001, at);
-    safeParam(envelope.gain, "linearRampToValueAtTime", gain * 0.5, at + 0.008);
-    safeParam(envelope.gain, "exponentialRampToValueAtTime", 0.0001, at + 0.16);
+    safeParam(envelope.gain, "linearRampToValueAtTime", Math.max(0.0002, gain), at + Math.min(0.006, duration * 0.25));
+    safeParam(envelope.gain, "exponentialRampToValueAtTime", 0.0001, at + duration);
     source.connect(filter);
     filter.connect(envelope);
-    envelope.connect(instance.input);
-    this.trace(instance, "pulse", at, pitch);
-    this.musicVoice(source, [filter, envelope], at, at + 0.2);
+    envelope.connect(this.sectionInput(instance, section));
+    this.musicVoice(source, [filter, envelope], at, at + duration + 0.02);
   }
 
-  /* ---- phrases ---------------------------------------------------------- */
+  /*
+   * 古琴. Nail transient, an inharmonic third partial (a real string is stiff),
+   * a slide into the pitch and a tremble on the tail. Long decay -- the note
+   * is allowed to outlive the beat, which is most of the instrument's charm.
+   */
+  guqinPluck(instance, { at, frequency, gain, decay = 3.2, slide = 0.055, vibrato = true, echo = 0 }) {
+    const body = this.musicTone(instance, {
+      section: "guqin", at, duration: decay, frequency, gain,
+      type: "triangle", attack: 0.004, release: decay,
+      cutoff: 2400, cutoffEnd: 460, slide, traceAs: "guqin"
+    });
+    if (vibrato && body) {
+      this.addVibrato(body.frequency, {
+        at, duration: decay, rate: 5.2, depth: frequency * 0.006, onset: Math.min(0.9, decay * 0.3)
+      });
+    }
+    this.musicTone(instance, {
+      section: "guqin", at, duration: decay * 0.36, frequency: frequency * 2, gain: gain * 0.3,
+      type: "sine", attack: 0.003, release: decay * 0.36
+    });
+    // 3.01x, not 3x: string stiffness pushes the upper partials sharp, and
+    // that tiny beat against the octave is what stops it sounding synthetic.
+    this.musicTone(instance, {
+      section: "guqin", at, duration: decay * 0.2, frequency: frequency * 3.01, gain: gain * 0.11,
+      type: "sine", attack: 0.002, release: decay * 0.2
+    });
+    this.musicNoise(instance, {
+      section: "guqin", at, duration: 0.018, gain: gain * 0.35, frequency: 2200, q: 1.4
+    });
+    if (echo > 0) {
+      this.musicTone(instance, {
+        section: "guqin", at: at + echo, duration: decay * 0.6, frequency, gain: gain * 0.24,
+        type: "triangle", attack: 0.005, release: decay * 0.6, cutoff: 1300, cutoffEnd: 380
+      });
+    }
+  }
+
+  /*
+   * 泛音: a guqin harmonic, touched not stopped. No nail, no fundamental --
+   * just the partial, very soft and very long. This is the thread that keeps
+   * the music bus alive under every scene, so it is scheduled unconditionally.
+   */
+  guqinHarmonic(instance, { at, duration, frequency, gain }) {
+    const tone = this.musicTone(instance, {
+      section: "guqin", at, duration, frequency: frequency * 2, gain,
+      type: "sine", attack: Math.min(1.2, duration * 0.3), release: Math.min(2.4, duration * 0.45),
+      traceAs: "harmonic"
+    });
+    if (tone) {
+      this.addVibrato(tone.frequency, {
+        at, duration, rate: 3.4, depth: frequency * 0.003, onset: Math.min(2, duration * 0.4)
+      });
+    }
+    this.musicTone(instance, {
+      section: "guqin", at, duration: duration * 0.7, frequency: frequency * 3, gain: gain * 0.34,
+      type: "sine", attack: Math.min(1.4, duration * 0.35), release: Math.min(2, duration * 0.4)
+    });
+  }
+
+  /*
+   * 琵琶. The same family as the guqin but the opposite temperament: brighter,
+   * shorter, more attack, and able to roll (轮指). Used for accents, never as
+   * the bed.
+   */
+  pipaPluck(instance, { at, frequency, gain, decay = 1.15, roll = 0 }) {
+    if (roll > 0) {
+      for (let strike = 0; strike < roll; strike += 1) {
+        this.pipaPluck(instance, {
+          at: at + strike * 0.058,
+          frequency,
+          gain: gain * (1 - strike * 0.13),
+          decay: strike === roll - 1 ? decay : 0.34
+        });
+      }
+      return;
+    }
+    this.musicTone(instance, {
+      section: "guqin", at, duration: decay, frequency, gain,
+      type: "sawtooth", attack: 0.002, release: decay,
+      cutoff: 3200, cutoffEnd: 780, traceAs: "pipa"
+    });
+    this.musicNoise(instance, {
+      section: "guqin", at, duration: 0.012, gain: gain * 0.5, frequency: 3100, q: 1.1
+    });
+  }
+
+  /*
+   * 箫/笛. A wind instrument is its breath: the noise layer riding the same
+   * envelope is what separates this from the "generic oriental pad" it would
+   * otherwise be. Dizi adds an edge partial for the 膜; xiao stays hollow.
+   */
+  xiaoTone(instance, { at, duration, frequency, gain, bright = false, vibrato = true }) {
+    const tone = this.musicTone(instance, {
+      section: "xiao", at, duration, frequency, gain,
+      type: "sine", attack: bright ? 0.24 : 0.42, release: Math.min(1.1, duration * 0.4),
+      cutoff: bright ? 2600 : 1500, traceAs: "xiao"
+    });
+    if (vibrato && tone) {
+      this.addVibrato(tone.frequency, {
+        at, duration, rate: 4.6, depth: frequency * 0.0045, onset: Math.min(1.1, duration * 0.35)
+      });
+    }
+    this.musicTone(instance, {
+      section: "xiao", at, duration, frequency: frequency * 2, gain: gain * (bright ? 0.22 : 0.12),
+      type: "triangle", attack: bright ? 0.3 : 0.5, release: Math.min(1, duration * 0.4)
+    });
+    this.musicNoise(instance, {
+      section: "xiao", at, duration, gain: gain * 0.16,
+      frequency: bright ? 2600 : 1700, q: 0.7
+    });
+  }
+
+  // The low bed the wind sits on. Slow, filtered, and always overlapping the
+  // next phrase so the seam between phrases is never audible.
+  droneTone(instance, { at, duration, frequency, gain, cutoff = 320 }) {
+    this.musicTone(instance, {
+      section: "xiao", at, duration, frequency, gain,
+      type: "sine", attack: Math.min(2.2, duration * 0.3), release: Math.min(2.6, duration * 0.4),
+      cutoff, traceAs: "drone"
+    });
+  }
+
+  // 战鼓: body bends down, skin is filtered noise. Kept low and infrequent so
+  // the stage's own charge and rout drums are never competing with it.
+  drumHit(instance, { at, gain, pitch = 72 }) {
+    this.musicTone(instance, {
+      section: "drum", at, duration: 0.36, frequency: pitch, endFrequency: pitch * 0.58, gain,
+      type: "sine", attack: 0.005, release: 0.32, traceAs: "drum"
+    });
+    this.musicNoise(instance, {
+      section: "drum", at, duration: 0.15, gain: gain * 0.45, frequency: 340, type: "lowpass"
+    });
+  }
+
+  // 梆子: a wooden clapper keeping time. Two ticks, no pitch to speak of.
+  woodBlock(instance, { at, gain }) {
+    this.musicNoise(instance, {
+      section: "drum", at, duration: 0.028, gain, frequency: 1500, q: 2.4
+    });
+    this.musicTone(instance, {
+      section: "drum", at, duration: 0.03, frequency: 940, endFrequency: 700, gain: gain * 0.5,
+      type: "square", attack: 0.001, release: 0.028, traceAs: "wood"
+    });
+  }
+
+  /* ---- phrases -----------------------------------------------------------
+   *
+   * Every phrase lays a bed FIRST and unconditionally -- a guqin harmonic and
+   * a low drone that outlast the phrase. Density above that bed breathes, but
+   * no scene is ever silent while it is in the foreground.
+   */
 
   schedulePhrase(instance) {
     const scene = instance.scene;
     const beat = 60 / scene.bpm;
     const at = instance.nextPhraseAt;
     const index = instance.phraseIndex;
+    this.phraseBed(instance, at, beat, index);
     if (instance.sceneId === "title") this.phraseTitle(instance, at, beat, index);
     else if (instance.sceneId === "map-road") this.phraseRoad(instance, at, beat, index);
     else if (instance.sceneId === "town") this.phraseTown(instance, at, beat, index);
@@ -839,213 +1040,216 @@ export class CrownAudio {
     instance.nextPhraseAt = at + scene.beats * beat;
   }
 
-  // A low bed that overlaps the next phrase, so the drone never gaps at the
-  // seam between phrases.
-  droneBed(instance, at, beat, { gain, degree = 0, octave = -1, cutoff = 320 }) {
+  /*
+   * The bed. This is the promise that the music never drops out: a low drone
+   * and a guqin harmonic on every phrase of every scene, overlapping into the
+   * next one. Quiet enough to sit under conversation, present enough that the
+   * world is never dead air.
+   */
+  phraseBed(instance, at, beat, index) {
     const scene = instance.scene;
     const span = scene.beats * beat;
-    this.musicTone(instance, {
+    const bed = BEDS[instance.sceneId];
+    this.droneTone(instance, {
       at,
-      duration: span + beat * 1.4,
-      frequency: scaleFrequency(scene, degree, octave),
-      gain,
-      type: "sine",
-      attack: Math.min(2.2, span * 0.35),
-      release: Math.min(2.4, span * 0.4),
-      cutoff
+      duration: span + beat * 1.6,
+      frequency: scaleFrequency(scene, 0, -1),
+      gain: bed.drone,
+      cutoff: bed.cutoff
     });
+    // The fifth alternates with the octave so the bed moves without changing.
+    this.guqinHarmonic(instance, {
+      at: at + beat * 0.5,
+      duration: span + beat * 0.8,
+      frequency: scaleFrequency(scene, index % 2 === 0 ? 3 : 0, -1),
+      gain: bed.harmonic
+    });
+    if (bed.wind > 0) {
+      this.xiaoTone(instance, {
+        at: at + beat * (index % 2 === 0 ? 1 : 3),
+        duration: span * 0.55,
+        frequency: scaleFrequency(scene, index % 3 === 0 ? 2 : 4, -1),
+        gain: bed.wind
+      });
+    }
   }
 
   /*
-   * Title. Almost entirely space: a bed, and the motif stated once every other
-   * phrase with an echo behind each note. The rest is silence on purpose.
+   * Title. The four-note theme, stated plainly on the guqin with a slide into
+   * every note, and a 箫 doubling the last two. Whatever else the score does
+   * later, this is the version a player should be able to hum back.
    */
   phraseTitle(instance, at, beat, index) {
     const scene = instance.scene;
-    this.droneBed(instance, at, beat, { gain: 0.075 });
     if (index % 2 === 1) {
-      this.musicTone(instance, {
-        at: at + beat,
-        duration: beat * 8,
-        frequency: scaleFrequency(scene, 3, -1),
-        gain: 0.03,
-        type: "sine",
-        attack: 1.8,
-        release: 2.4,
-        cutoff: 480
+      // The answering phrase: the theme's last note alone, and the wind.
+      this.guqinPluck(instance, {
+        at: at + beat * 2,
+        frequency: scaleFrequency(scene, MOTIF[3]),
+        gain: 0.08,
+        decay: 3.6,
+        echo: beat * 0.6
+      });
+      this.xiaoTone(instance, {
+        at: at + beat * 5, duration: beat * 5, frequency: scaleFrequency(scene, MOTIF[0]), gain: 0.05
       });
       return;
     }
     MOTIF.forEach((degree, step) => {
-      this.musicPluck(instance, {
+      this.guqinPluck(instance, {
         at: at + beat * (1 + step * 2.5),
         frequency: scaleFrequency(scene, degree),
-        gain: step === 0 ? 0.11 : 0.085,
-        decay: 2.4,
+        gain: step === 0 ? 0.105 : 0.085,
+        decay: step === MOTIF.length - 1 ? 4 : 2.8,
         echo: beat * 0.62
       });
+    });
+    this.xiaoTone(instance, {
+      at: at + beat * 6, duration: beat * 5.5,
+      frequency: scaleFrequency(scene, MOTIF[2], -1), gain: 0.042
     });
   }
 
   /*
-   * The road. Sparse plucks over a bed, and roughly two phrases in five say
-   * nothing at all -- that gap is the point, not a bug. Every fifth phrase the
-   * first two notes of the crown motif go past, quietly.
+   * The road. The theme returns as a variant -- same four steps, walked
+   * instead of declaimed: dotted, one note thrown up an octave, the tail
+   * left hanging. Between statements the guqin wanders; the density breathes
+   * but the bed underneath never stops.
    */
   phraseRoad(instance, at, beat, index) {
     const scene = instance.scene;
     const random = instance.random;
-    this.droneBed(instance, at, beat, { gain: 0.06 });
-    if (index % 2 === 0) {
-      this.musicTone(instance, {
-        at: at + beat * 0.5,
-        duration: beat * (scene.beats - 1),
-        frequency: scaleFrequency(scene, 3, -1),
-        gain: 0.024,
-        type: "sine",
-        attack: 1.4,
-        release: 1.8,
-        cutoff: 420
+    if (index % 3 === 0) {
+      const swing = [0, 1.5, 3.5, 5];
+      MOTIF.forEach((degree, step) => {
+        this.guqinPluck(instance, {
+          at: at + beat * swing[step],
+          frequency: scaleFrequency(scene, degree, step === 2 ? 1 : 0),
+          gain: step === 2 ? 0.055 : 0.082,
+          decay: 2.6,
+          echo: step === 3 ? beat * 0.75 : 0
+        });
       });
-    }
-    if (index % 5 === 4) {
-      this.musicPluck(instance, { at: at + beat, frequency: scaleFrequency(scene, MOTIF[0]), gain: 0.075, decay: 2, echo: beat * 0.75 });
-      this.musicPluck(instance, { at: at + beat * 3, frequency: scaleFrequency(scene, MOTIF[1]), gain: 0.06, decay: 2 });
       return;
     }
-    if (random() < 0.4) return;   // 留白
-    const notes = 2 + Math.floor(random() * 3);
+    // One to three notes, placed on the beat grid, never none.
+    const notes = 1 + Math.floor(random() * 3);
     let cursor = random() < 0.5 ? 0 : 1;
     for (let note = 0; note < notes; note += 1) {
       if (cursor >= scene.beats) break;
       const degree = Math.floor(random() * 6);
-      const high = random() < 0.25;
-      this.musicPluck(instance, {
+      const high = random() < 0.22;
+      this.guqinPluck(instance, {
         at: at + cursor * beat,
         frequency: scaleFrequency(scene, degree, high ? 1 : 0),
         gain: high ? 0.055 : 0.08,
-        decay: 1.8,
+        decay: 2.8,
         echo: random() < 0.35 ? beat * 0.75 : 0
       });
       cursor += 1 + Math.floor(random() * 3);
     }
-  }
-
-  /*
-   * Town. Warmer and steadier: a held chord instead of a bare fifth, and a
-   * two-note figure that answers itself. Still leaves half the bar empty.
-   */
-  phraseTown(instance, at, beat, index) {
-    const scene = instance.scene;
-    const random = instance.random;
-    const span = scene.beats * beat;
-    this.droneBed(instance, at, beat, { gain: 0.05, cutoff: 460 });
-    [2, 3].forEach((degree, voice) => {
-      this.musicTone(instance, {
-        at: at + beat * voice * 0.5,
-        duration: span + beat,
-        frequency: scaleFrequency(scene, degree, -1),
-        gain: 0.03 - voice * 0.006,
-        type: "triangle",
-        attack: 1.2,
-        release: 1.6,
-        cutoff: 900
-      });
-    });
-    const lead = Math.floor(random() * 5);
-    this.musicPluck(instance, { at, frequency: scaleFrequency(scene, lead), gain: 0.07, decay: 1.5, echo: beat * 0.5 });
-    this.musicPluck(instance, {
-      at: at + beat * 1.5,
-      frequency: scaleFrequency(scene, lead + 2),
-      gain: 0.05,
-      decay: 1.4
-    });
-    if (index % 2 === 0 || random() < 0.5) {
-      this.musicPluck(instance, {
-        at: at + beat * (4 + Math.floor(random() * 2)),
-        frequency: scaleFrequency(scene, lead + 1, random() < 0.3 ? 1 : 0),
-        gain: 0.055,
-        decay: 1.6,
-        echo: beat * 0.5
+    if (random() < 0.4) {
+      this.xiaoTone(instance, {
+        at: at + beat * 4, duration: beat * 3.5,
+        frequency: scaleFrequency(scene, 1 + Math.floor(random() * 3)), gain: 0.04
       });
     }
   }
 
   /*
-   * Battle. A low pulse and a tense bed -- and nothing else, because every
-   * strike, arrow, charge and rout has to sit in FRONT of this. The flat sixth
-   * is the only chromatic note in the whole score and it swells in every
-   * fourth phrase, then leaves.
+   * Town. Warmer and busier: the 琵琶 takes the foreground the guqin holds
+   * elsewhere, a 梆子 keeps time the way a market does, and the 箫 answers.
+   */
+  phraseTown(instance, at, beat, index) {
+    const scene = instance.scene;
+    const random = instance.random;
+    const lead = Math.floor(random() * 5);
+    this.pipaPluck(instance, { at, frequency: scaleFrequency(scene, lead), gain: 0.062, decay: 1.3 });
+    this.pipaPluck(instance, {
+      at: at + beat * 1.5, frequency: scaleFrequency(scene, lead + 2), gain: 0.05, decay: 1.1
+    });
+    if (index % 2 === 0) {
+      this.pipaPluck(instance, {
+        at: at + beat * 4, frequency: scaleFrequency(scene, lead + 1), gain: 0.05, decay: 1.4, roll: 4
+      });
+    } else {
+      this.guqinPluck(instance, {
+        at: at + beat * 4.5, frequency: scaleFrequency(scene, lead + 3, -1), gain: 0.07, decay: 2.4
+      });
+    }
+    this.woodBlock(instance, { at: at + beat * 2, gain: 0.045 });
+    this.woodBlock(instance, { at: at + beat * 6, gain: 0.032 });
+    this.xiaoTone(instance, {
+      at: at + beat * (random() < 0.5 ? 3 : 5), duration: beat * 3,
+      frequency: scaleFrequency(scene, lead + 4), gain: 0.045, bright: true
+    });
+  }
+
+  /*
+   * Battle. A low drum, a clapper, and one chromatic colour -- the flat sixth,
+   * the only note outside the mode in the entire score, and it appears every
+   * fourth phrase and then leaves. Deliberately thin: strike, arrow, cavalry
+   * and rout all have to sit in front of this, and a wall of gongs would bury
+   * them.
    */
   phraseBattle(instance, at, beat, index) {
     const scene = instance.scene;
     const random = instance.random;
     const span = scene.beats * beat;
-    this.droneBed(instance, at, beat, { gain: 0.07, cutoff: 240 });
-    this.musicTone(instance, {
-      at,
-      duration: span + beat,
-      frequency: scaleFrequency(scene, 3, -1),
-      gain: 0.035,
-      type: "sine",
-      attack: 1,
-      release: 1.4,
-      cutoff: 300
-    });
     if (index % 4 === 3) {
-      this.musicTone(instance, {
-        at: at + beat * 2,
-        duration: beat * 5,
-        frequency: chromaticFrequency(scene, 8),
-        gain: 0.026,
-        type: "triangle",
-        attack: 1.4,
-        release: 2,
-        cutoff: 520
+      this.xiaoTone(instance, {
+        at: at + beat * 2, duration: beat * 5,
+        frequency: chromaticFrequency(scene, 8), gain: 0.03, bright: true
       });
     }
-    this.musicPulse(instance, { at, gain: 0.12 });
-    this.musicPulse(instance, { at: at + beat * 3, gain: 0.085, pitch: 62 });
-    if (index % 2 === 1) this.musicPulse(instance, { at: at + beat * 6, gain: 0.07, pitch: 58 });
-    if (index % 3 === 2) {
-      this.musicPulse(instance, { at: at + beat * 6.5, gain: 0.05, pitch: 54 });
-    }
-    if (random() < 0.55) {
-      this.musicPluck(instance, {
+    this.drumHit(instance, { at, gain: 0.11 });
+    this.drumHit(instance, { at: at + beat * 3, gain: 0.08, pitch: 64 });
+    if (index % 2 === 1) this.drumHit(instance, { at: at + beat * 6, gain: 0.066, pitch: 58 });
+    this.woodBlock(instance, { at: at + beat * 1.5, gain: 0.03 });
+    this.woodBlock(instance, { at: at + beat * 4.5, gain: 0.026 });
+    this.musicTone(instance, {
+      section: "xiao", at, duration: span + beat, frequency: scaleFrequency(scene, 3, -1),
+      gain: 0.032, type: "sine", attack: 1, release: 1.4, cutoff: 300
+    });
+    if (random() < 0.5) {
+      this.pipaPluck(instance, {
         at: at + beat * (4 + Math.floor(random() * 3)),
         frequency: scaleFrequency(scene, Math.floor(random() * 3) + 5),
-        gain: 0.038,
-        decay: 1.1
+        gain: 0.036, decay: 0.9
       });
     }
   }
 
   /*
-   * Ending. The motif comes back whole and resolves, twice as slow as the
-   * title stated it, with a warm bed under it. Every other phrase is bed only.
+   * Ending. The theme comes back whole, slower than the title stated it, with
+   * the 箫 carrying the line the guqin plucks and a fifth note resolving to
+   * the octave -- the one place in the score that closes rather than continues.
    */
   phraseEnding(instance, at, beat, index) {
     const scene = instance.scene;
-    this.droneBed(instance, at, beat, { gain: 0.07, cutoff: 420 });
-    this.musicTone(instance, {
-      at,
-      duration: scene.beats * beat + beat,
-      frequency: scaleFrequency(scene, 2, -1),
-      gain: 0.028,
-      type: "triangle",
-      attack: 2,
-      release: 2.6,
-      cutoff: 760
-    });
-    if (index % 2 === 1) return;   // the answer to the phrase is silence
+    if (index % 2 === 1) {
+      this.xiaoTone(instance, {
+        at: at + beat, duration: beat * 7,
+        frequency: scaleFrequency(scene, MOTIF[1]), gain: 0.048
+      });
+      this.guqinPluck(instance, {
+        at: at + beat * 6, frequency: scaleFrequency(scene, MOTIF[0], -1), gain: 0.07, decay: 3.6
+      });
+      return;
+    }
     [...MOTIF, MOTIF_RESOLUTION].forEach((degree, step) => {
-      this.musicPluck(instance, {
+      const last = step === MOTIF.length;
+      this.guqinPluck(instance, {
         at: at + beat * (0.5 + step * 2.2),
         frequency: scaleFrequency(scene, degree),
-        gain: step === MOTIF.length ? 0.1 : 0.08,
-        decay: step === MOTIF.length ? 3.2 : 2.4,
+        gain: last ? 0.1 : 0.08,
+        decay: last ? 4.4 : 2.8,
         echo: beat * 0.6
       });
+    });
+    this.xiaoTone(instance, {
+      at: at + beat * 4.5, duration: beat * 6,
+      frequency: scaleFrequency(scene, MOTIF[3], -1), gain: 0.05
     });
   }
 }

@@ -129,9 +129,11 @@ if (!state) state = createInitialState(CONFIG.SEED, {
   f3: fullVersion,
   f4: fullVersion
 });
-// The bot runs silent: without this the victory seal alone opens an
-// AudioContext in a headless 20x run, which is cost with nobody listening.
-crownAudio.setEnabled(state.settings.soundEnabled && !autoplayEnabled);
+// There is no player-facing mute: the score is simply on once a real gesture
+// has unlocked it. The bot is the one exception -- without this the victory
+// seal alone opens an AudioContext in a headless 20x run, with nobody
+// listening. The device's own volume and silent switch still rule everything.
+crownAudio.setEnabled(!autoplayEnabled);
 crownAudio.bindFirstGesture(document);
 if (qaRecruitRecoveryEnabled) {
   state.player.gold = 164;
@@ -481,16 +483,6 @@ ui = createUi({
     persist(true);
     sync();
   },
-  onSoundChange(enabled) {
-    state.settings.soundEnabled = Boolean(enabled);
-    crownAudio.setEnabled(state.settings.soundEnabled);
-    if (state.settings.soundEnabled) {
-      crownAudio.unlock();
-      crownAudio.tap();
-    }
-    persist(true);
-    sync();
-  },
   onHelpOpen(source) {
     recordHelpCardOpen(state, source);
     if (!state.demo.modal && !state.demo.ended && !state.paused) {
@@ -746,7 +738,6 @@ ui = createUi({
     }
     const next = createInitialState(nextWorldSeed(state), {
       language: state.settings.language,
-      soundEnabled: state.settings.soundEnabled,
       replayCount: state.telemetry.replayCount,
       startedAt: new Date().toISOString(),
       v11: v11Enabled,

@@ -15,16 +15,26 @@ const SCENE_LABELS = [
   ["ending", "收束 ending"]
 ];
 
-// The transitions worth hearing back to back: entering a fight and leaving it,
-// arriving somewhere, and the two ends of a run.
+/*
+ * The continuous tour: 98 seconds, long enough to actually hear the theme
+ * declaimed on the title, walked as a variant on the road, and recovered at
+ * the ending -- plus every transition worth hearing back to back.
+ */
 const TOUR = [
-  ["title", 9],
-  ["map-road", 11],
-  ["town", 9],
-  ["map-road", 7],
-  ["battle", 12],
+  ["title", 20],
+  ["map-road", 22],
+  ["town", 14],
+  ["battle", 14],
   ["map-road", 8],
-  ["ending", 12]
+  ["ending", 20]
+];
+const TOUR_SECONDS = TOUR.reduce((sum, [, seconds]) => sum + seconds, 0);
+
+// 古琴/琵琶, 箫/持续音, 战鼓/梆子 -- soloed one at a time.
+const SECTIONS = [
+  ["guqin", "古琴 guqin"],
+  ["xiao", "箫 xiao"],
+  ["drum", "鼓 drum"]
 ];
 
 const CUES = [
@@ -101,7 +111,7 @@ export function mountAudioStyleguide(host, audio) {
   const scenes = row("scenes");
   SCENE_LABELS.forEach(([id, label]) => scenes.append(button(label, () => audio.setMusicScene(id))));
 
-  const transport = row("transport");
+  const transport = row(`transport (tour ${TOUR_SECONDS}s)`);
   transport.append(
     button("转场巡览 tour", () => runTour(0)),
     button("停 stop", () => { stopTour(); audio.setMusicScene(null); }),
@@ -109,13 +119,18 @@ export function mountAudioStyleguide(host, audio) {
     button("隐藏 hidden", () => audio.setPageHidden(!audio.musicHidden))
   );
 
+  // Section soloing: the only place the section mix is ever written.
+  const parts = row("声部 solo");
+  SECTIONS.forEach(([id, label]) => parts.append(button(label, () => audio.soloSection(id))));
+  parts.append(button("合奏 all", () => audio.soloSection(null)));
+
   const cues = row("sfx over music (ducking)");
   CUES.forEach(([label, make]) => cues.append(button(label, () => {
     const [method, argument] = make();
     audio[method](argument);
   })));
 
-  panel.append(readout, scenes, transport, cues);
+  panel.append(readout, scenes, transport, parts, cues);
   host.append(panel);
 
   function refresh() {
@@ -126,6 +141,7 @@ export function mountAudioStyleguide(host, audio) {
       `scene: ${audio.getMusicScene() || "—"}${tourTimer !== null ? " (tour)" : ""}`,
       `sound: ${audio.isEnabled() ? "on" : "muted"}  hidden: ${audio.musicHidden ? "yes" : "no"}`,
       `voices: ${audio.musicVoices.size} music / ${audio.battleVoices.size} battle`,
+      `声部: ${SECTIONS.map(([id]) => `${id} ${audio.sectionGains[id]}`).join("  ")}`,
       trace ? `last: ${trace}` : "last: —"
     ].join("\n");
   }
