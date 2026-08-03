@@ -846,14 +846,36 @@ export function buildBattleScript(state, battle, result, winner) {
   let playerRout = false;
   let enemyRout = false;
   const rounds = Array.isArray(battle.rounds) ? battle.rounds : [];
+  // Rout-clamped resolution may stop a side at one survivor even when the raw
+  // HP round recorded enough damage for one additional death. Presentation
+  // must follow the resolved survivor ledger, so cap per-round kill drafts to
+  // the exact casualty totals without changing any battle data or outcome.
+  const casualtyBudget = result?.resolvedCasualties || {
+    player: Math.max(0, battle.playerCasualties || 0),
+    enemy: Math.max(0, battle.banditCasualties || 0)
+  };
+  const scriptedCasualties = { player: 0, enemy: 0 };
 
   rounds.forEach((round, roundIndex) => {
     const n = Math.max(1, Math.floor(round.n || roundIndex + 1));
     events.push({ t: roundTime, type: "round_start", n });
-    let drafts = buildStrikeDrafts(rng, round, playerSide.buckets, enemySide.buckets);
+    const scriptedRound = {
+      ...round,
+      playerLoss: Math.min(
+        Math.max(0, Number(round.playerLoss) || 0),
+        Math.max(0, casualtyBudget.player - scriptedCasualties.player)
+      ),
+      enemyLoss: Math.min(
+        Math.max(0, Number(round.enemyLoss) || 0),
+        Math.max(0, casualtyBudget.enemy - scriptedCasualties.enemy)
+      )
+    };
+    scriptedCasualties.player += scriptedRound.playerLoss;
+    scriptedCasualties.enemy += scriptedRound.enemyLoss;
+    let drafts = buildStrikeDrafts(rng, scriptedRound, playerSide.buckets, enemySide.buckets);
     if (isV11State(state)) {
       drafts = shuffled(rng, addGlancingBlows(
-        rng, round, playerSide.buckets, enemySide.buckets, drafts
+        rng, scriptedRound, playerSide.buckets, enemySide.buckets, drafts
       ));
     }
     const waveCount = drafts.length >= 3 ? 3 : drafts.length >= 2 ? 2 : 1;
@@ -1181,6 +1203,19 @@ function finishBattle(state, winner, bandit) {
   const battle = state.battle;
   if (!battle) return null;
   ensureBattleCapture(state, battle, bandit);
+  // The live rosters are the authoritative casualty ledger. HP stacks can
+  // carry fractional pools across battles, so summing per-wave death deltas
+  // may over-report when several stacks cross a head threshold together.
+  // Normalize once, before rewards/stats/script generation, so no casualty
+  // count can exceed the soldiers who actually entered this battle.
+  battle.playerCasualties = Math.max(
+    0,
+    battle.playerStart - Math.min(battle.playerStart, getTroopCount(state.player))
+  );
+  battle.banditCasualties = Math.max(
+    0,
+    battle.banditStart - Math.min(battle.banditStart, getTroopCount(bandit))
+  );
   if (!battle.counted) {
     state.stats.battles += 1;
     incrementTelemetry(state, "battlesFought");
