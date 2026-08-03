@@ -114,6 +114,26 @@ export const CONFIG_PRESENTATION = Object.freeze({
   // Cavalry cover far more ground than the infantry advance and land first.
   CAVALRY_ADVANCE_MULTIPLIER: 2.2,
   CAVALRY_LEAD_MS: 300,
+  // Visual movement only. These multipliers never enter battle resolution or
+  // the scripted strike clock: they only change how quickly a token reaches
+  // an already-resolved presentation position.
+  UNIT_MOVE_SPEEDS: Object.freeze({
+    cavalry: 2.2,
+    militia: 1,
+    veteran: 0.85,
+    archer: 0.6
+  }),
+  UNIT_DEPLOY_BASE_MS: 1200,
+  UNIT_CHARGE_BASE_MS: 1500,
+  UNIT_REPOSITION_BASE_MS: 620,
+  // Bowmen own the rear edge of every formation and do not close with the
+  // melee line. Rear is expressed both in camera depth and away from centre.
+  ARCHER_REAR_DEPTH: 0.92,
+  ARCHER_REAR_OFFSET_PX: 22,
+  ARCHER_HOLD_BACK_DEPTH: 0.08,
+  ARCHER_RANGE_ARC_MS: 900,
+  ARCHER_OVERRUN_MARGIN_PX: 12,
+  ARCHER_OVERRUN_BACKSTEP_PX: 12,
   // Legacy alias for the heavy tier's contact hold. The performance reads the
   // tier table now; this key is kept, and kept truthful, because it is part of
   // the existing presentation contract.
@@ -225,6 +245,20 @@ export function weightTierFor(token) {
   if (token.troopType === "veteran" || token.troopType === "lieutenant") return "medium";
   if (token.arm === "spear") return "medium";
   return "light";
+}
+
+/** Presentation-only travel speed for a resolved token. */
+export function movementSpeedFor(token) {
+  if (token?.arm === "cavalry" || token?.troopType === "cavalry") {
+    return CONFIG_PRESENTATION.UNIT_MOVE_SPEEDS.cavalry;
+  }
+  if (token?.arm === "archer") return CONFIG_PRESENTATION.UNIT_MOVE_SPEEDS.archer;
+  if (token?.troopType === "veteran") return CONFIG_PRESENTATION.UNIT_MOVE_SPEEDS.veteran;
+  return CONFIG_PRESENTATION.UNIT_MOVE_SPEEDS.militia;
+}
+
+export function movementDurationMs(token, baseMs) {
+  return Math.round(Math.max(0, Number(baseMs) || 0) / movementSpeedFor(token));
 }
 
 export function tierOf(token) {

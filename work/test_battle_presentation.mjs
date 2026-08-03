@@ -28,12 +28,19 @@ import {
   WEIGHT_TIERS,
   armyBandRatio,
   commandWindows,
+  movementDurationMs,
+  movementSpeedFor,
   shakeOffsetPx,
   strikeDurationMs,
   tokenHeightPx,
   weightTierFor
 } from "../outputs/js/presentation.js";
-import { normalizeScript, officerFigureFor } from "../outputs/js/battle-stage.js";
+import {
+  archerLineCrossed,
+  normalizeScript,
+  officerFigureFor,
+  scheduleEvents
+} from "../outputs/js/battle-stage.js";
 import { CONFIG } from "../outputs/js/data.js";
 import { STRINGS } from "../outputs/js/strings.js";
 
@@ -321,19 +328,72 @@ test("5a/5b: horse and rider are one mass with four legs and a gallop", () => {
   assert.match(css, /\.stage-token\.arm-cavalry:not\(\.is-moving\):not\(\.is-dead\) \.horse-legs-a/);
 });
 
-test("5c/5d: the charge covers 2.2x, arrives first, and HARD STOPS on contact", () => {
+test("5c/5d: cavalry moves at 2.2x, arrives first, and HARD STOPS on contact", () => {
   assert.equal(P.CAVALRY_ADVANCE_MULTIPLIER, 2.2);
   assert.equal(P.CAVALRY_LEAD_MS, 300);
-  // Multiplying the TRAVEL sent a mount straight through the enemy army and out
-  // the far side; multiplying the PROGRESS and clamping at 1 arrives early and
-  // stops on the line.
-  assert.match(stage, /Math\.min\(1, ratio \* P\.CAVALRY_ADVANCE_MULTIPLIER\)/);
+  assert.equal(movementSpeedFor({ arm: "cavalry" }), 2.2);
+  assert.equal(movementDurationMs({ arm: "cavalry" }, 1500), 682);
+  // Speed belongs to transition time, never to distance; this prevents a mount
+  // from flying through the enemy line while still arriving first.
+  assert.match(stage, /--charge-ms/);
   assert.doesNotMatch(stage, /travel \*= P\.CAVALRY_ADVANCE_MULTIPLIER/);
   // ...and then ends forward of the line it broke, exactly once.
   assert.ok(P.CAVALRY_BREAKTHROUGH_PX > 0);
   assert.match(stage, /if \(mounted && !source\.brokeThrough\)/);
   // The legacy alias now states the same fact the tier table does.
   assert.equal(P.CAVALRY_HIT_PAUSE_MS, WEIGHT_TIERS.heavy.contactMs);
+});
+
+test("unit motion: militia/veteran/archer use 1.0/0.85/0.6 visual speed tiers", () => {
+  assert.deepEqual(P.UNIT_MOVE_SPEEDS, {
+    cavalry: 2.2, militia: 1, veteran: 0.85, archer: 0.6
+  });
+  assert.equal(movementSpeedFor({ troopType: "militia", arm: "spear" }), 1);
+  assert.equal(movementSpeedFor({ troopType: "veteran", arm: "spear" }), 0.85);
+  assert.equal(movementSpeedFor({ troopType: "militia", arm: "archer" }), 0.6);
+  const arrivals = [
+    movementDurationMs({ arm: "cavalry" }, P.UNIT_CHARGE_BASE_MS),
+    movementDurationMs({ troopType: "militia", arm: "spear" }, P.UNIT_CHARGE_BASE_MS),
+    movementDurationMs({ troopType: "veteran", arm: "spear" }, P.UNIT_CHARGE_BASE_MS),
+    movementDurationMs({ arm: "archer" }, P.UNIT_CHARGE_BASE_MS)
+  ];
+  assert.ok(arrivals[0] < arrivals[1] && arrivals[1] < arrivals[2] && arrivals[2] < arrivals[3]);
+  assert.match(css, /transition-duration: var\(--charge-ms, 1500ms\)/);
+  assert.match(css, /@keyframes militia-plod/);
+});
+
+test("unit motion: speed never shifts a resolved strike beat", () => {
+  const events = [
+    { t: 0, type: "battle_start" },
+    { t: 10, type: "round_start", n: 1 },
+    { t: 20, type: "strike", from: { side: "player", idx: 0 }, to: { side: "enemy", idx: 0 } },
+    { t: 30, type: "battle_end", survivors: { player: 1, enemy: 0 } }
+  ];
+  const before = scheduleEvents(events);
+  for (const token of [
+    { arm: "cavalry" }, { troopType: "militia" }, { troopType: "veteran" }, { arm: "archer" }
+  ]) movementDurationMs(token, P.UNIT_CHARGE_BASE_MS);
+  assert.deepEqual(scheduleEvents(events), before, "movement tiers moved a strike beat");
+  const scheduler = stage.slice(stage.indexOf("export function scheduleEvents"), stage.indexOf("export function survivorsOf"));
+  assert.doesNotMatch(scheduler, /movementSpeed|UNIT_MOVE|charge-ms/);
+});
+
+test("archers: rear rank, hold the charge, show range once, and stop when overrun", () => {
+  assert.equal(P.ARCHER_REAR_DEPTH, 0.92);
+  assert.match(stage, /if \(token\.arm === "archer"\) depth = Math\.max\(depth, P\.ARCHER_REAR_DEPTH\)/);
+  assert.match(stage, /if \(token\.arm === "archer"\) tx -= dir \* P\.ARCHER_REAR_OFFSET_PX/);
+  assert.match(stage, /const progress = token\.arm === "archer" \? 0 : ratio/);
+  assert.match(stage, /function showArcherRange\(sideKey, shooters, targets\)/);
+  assert.match(stage, /archerRangeShown\.has\(sideKey\)/);
+  assert.match(css, /\.stage-range-arc path[\s\S]{0,220}stroke-dasharray/);
+  assert.match(stage, /token\.overrun = true/);
+  assert.match(stage, /if \(!shooters\.length\) return/);
+  assert.match(stage, /from\.overrun\) return/);
+  assert.match(css, /\.stage-token\.arm-archer\.is-overrun \.archer-bow/);
+  assert.equal(archerLineCrossed("player", [80, 92], [130, 150]), false);
+  assert.equal(archerLineCrossed("player", [80, 92], [100, 150]), true);
+  assert.equal(archerLineCrossed("enemy", [300, 312], [260, 280]), false);
+  assert.equal(archerLineCrossed("enemy", [300, 312], [294, 280]), true);
 });
 
 /* ---- 6. lieutenants ------------------------------------------------------ */
@@ -440,6 +500,23 @@ test("7: an order is presentation -- it cannot re-resolve a battle", () => {
   assert.match(exec, /P\.COMMAND_HOLD_TIGHTEN/, "稳住 tightens the spread");
   assert.match(exec, /classList\.add\("is-marked"\)/, "集火 marks a target");
   assert.match(exec, /slice\(0, P\.COMMAND_FOCUS_TOKENS\)/, "集火 converges three tokens");
+  assert.match(exec, /const meleeOwn = own\.filter\(\(token\) => token\.arm !== "archer"\)/,
+    "压上和集火只能推进近战");
+  assert.match(exec, /setTokenDepth\(token, Math\.min\(1, token\.depth \+ P\.ARCHER_HOLD_BACK_DEPTH\)\)/,
+    "稳住阵线时弓兵必须后退一层");
+  assert.match(exec, /classList\.add\("is-aiming-focus"\)/,
+    "集火时弓兵必须转向标记目标");
+  assert.match(stage, /const targets = focus \? \[focus\] : liveTargets/,
+    "下一轮齐射必须飞向标记目标");
+  assert.match(exec, /performFocusedVolley\(archers, mark\)/,
+    "引擎没有后续齐射事件时，军令必须补一轮纯表现齐射");
+  const focusVolley = stage
+    .slice(stage.indexOf("function performFocusedVolley"), stage.indexOf("function applyKill"))
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|\s)\/\/[^\n]*/g, "$1");
+  assert.doesNotMatch(focusVolley, /applyKill|damageTaken|hpCurrent|survivors/,
+    "集火齐射不能改变任何已结算结果");
+  assert.match(focusVolley, /\[mark\]/, "集火齐射必须只瞄准标记目标");
   assert.equal(P.COMMAND_FOCUS_TOKENS, 3);
 });
 
@@ -525,6 +602,22 @@ test("acceptance: the styleguide carries the three recordings", () => {
   // The harness must actually drive the shipped stage, not a mock of it.
   assert.match(guide, /import \{ createBattleStage \} from "\.\/js\/battle-stage\.js"/);
   assert.match(guide, /window\.__SG_PLAY__/);
+});
+
+test("acceptance: 390x844 mid-charge still proves front/middle/rear separation", () => {
+  const file = new URL("./fixtures/unit-behavior-midcharge.png", import.meta.url);
+  const image = readFileSync(file);
+  assert.ok(image.length > 20_000, "acceptance still is missing or empty");
+  assert.deepEqual([...image.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  const report = JSON.parse(readFileSync(
+    new URL("./fixtures/stage-recording-report.json", import.meta.url), "utf8"
+  ));
+  const still = report.find((entry) => entry.name === "unit-behavior-midcharge");
+  assert.deepEqual(still.viewport, { width: 390, height: 844 });
+  assert.equal(still.staggered, true);
+  assert.equal(still.rangeVisible, true);
+  assert.ok(still.groups.cavalry > Math.max(still.groups.militia, still.groups.veteran));
+  assert.ok(still.groups.archer < Math.min(still.groups.militia, still.groups.veteran));
 });
 
 test("acceptance: individual strikes stay countable at 2x", () => {

@@ -7,6 +7,8 @@ import {
   WEIGHT_TIERS,
   commandWindows,
   depthPlacement,
+  movementDurationMs,
+  movementSpeedFor,
   shakeOffsetPx,
   strikeDurationMs,
   tokenHeightPx,
@@ -69,6 +71,14 @@ export function battleEndCounts(event) {
     player: Math.max(0, Math.floor(Number(event?.survivors?.player) || 0)),
     enemy: Math.max(0, Math.floor(Number(event?.survivors?.enemy) || 0))
   };
+}
+
+export function archerLineCrossed(sideKey, archerXs, foeXs, margin = P.ARCHER_OVERRUN_MARGIN_PX) {
+  if (!archerXs.length || !foeXs.length) return false;
+  const line = sideKey === "player" ? Math.max(...archerXs) : Math.min(...archerXs);
+  return sideKey === "player"
+    ? Math.min(...foeXs) <= line + margin
+    : Math.max(...foeXs) >= line - margin;
 }
 
 function seededRandom(seed) {
@@ -617,6 +627,8 @@ export function createBattleStage(host, options = {}) {
   let commandWindowsAt = [];
   let commandGateAt = -1;
   let commandTimer = 0;
+  let archerRangeShown = new Set();
+  let focusedTarget = null;
 
   /*
    * ITEM 9 — the one clock.
@@ -745,6 +757,9 @@ export function createBattleStage(host, options = {}) {
         row = placed.rank;
         column = index;
       }
+      // Archers always own the rear-most camera rank. This is a drawing rule,
+      // not a roster change: the token keeps its engine index and capacity.
+      if (token.arm === "archer") depth = Math.max(depth, P.ARCHER_REAR_DEPTH);
       // The lieutenant takes the leading position of his own side. He replaces
       // no soldier: the token keeps its troopType and capacity, only the drawn
       // figure changes, so survivor accounting is unaffected.
@@ -796,13 +811,21 @@ export function createBattleStage(host, options = {}) {
       const scatter = layout ? FORMATION_SHAPE.JITTER_SCALE : 1;
       const jx = (roll() - 0.5) * 14 * scatter;
       const cam = depthPlacement(depth);
-      const tx = (formationX ?? ((column * spacing + row * spacing * 0.4) * dir)) + jx;
+      let tx = (formationX ?? ((column * spacing + row * spacing * 0.4) * dir)) + jx;
+      // Along the battle axis, rear is away from the centre line.
+      if (token.arm === "archer") tx -= dir * P.ARCHER_REAR_OFFSET_PX;
       node.style.setProperty("--tx", `${tx}px`);
       node.style.setProperty("--ty", `${cam.ty.toFixed(1)}px`);
       node.style.setProperty("--tscale", cam.scale.toFixed(3));
       node.style.setProperty("--fade", cam.fade.toFixed(2));
       node.style.zIndex = String(cam.z);
       node.style.setProperty("--sway", `${(1.6 + roll() * 1.2).toFixed(2)}s`);
+      token.moveSpeed = movementSpeedFor(token);
+      node.style.setProperty("--deploy-ms", `${movementDurationMs(token, P.UNIT_DEPLOY_BASE_MS)}ms`);
+      node.style.setProperty("--charge-ms", `${movementDurationMs(token, P.UNIT_CHARGE_BASE_MS)}ms`);
+      node.style.setProperty(
+        "--reposition-ms", `${movementDurationMs(token, P.UNIT_REPOSITION_BASE_MS)}ms`
+      );
       // Back ranks lag into the charge, so the advance has depth.
       // Back ranks set off later so the advance has depth -- but the whole
       // march has to be IN by the end of deploy. A wedge is nine ranks deep, so
@@ -816,6 +839,8 @@ export function createBattleStage(host, options = {}) {
       token.node = node;
       token.tx = tx;
       token.row = row;
+      token.depth = depth;
+      token.baseDepth = depth;
       token.melee = 0;
       token.jitterX = roll() - 0.5;
       // Parade position along the stage, derived rather than measured: the
@@ -870,6 +895,10 @@ export function createBattleStage(host, options = {}) {
       script?.sides[sideKey]?.tokens.forEach((token) => {
         if (token.arm === "cavalry" && token.node) {
           token.node.classList.toggle("is-moving", moving);
+        }
+        if (token.node) {
+          const advances = name === "deploy" || (name === "charge" && token.arm !== "archer");
+          token.node.classList.toggle("is-advancing", advances);
         }
       });
     });
@@ -948,15 +977,12 @@ export function createBattleStage(host, options = {}) {
         const leading = dir === 1 ? along : 1 - along;
         const target = centre + dir * (leading - P.MELEE_BIAS) * band;
         const jitter = token.jitterX * P.MELEE_JITTER_PX * ratio;
-        // 5c: cavalry cover ~2.2x the ground the infantry covers in the same
-        // phase, which is what gets them to the line first -- and then they
-        // HARD STOP on it. Multiplying the travel itself sent them straight
-        // through the enemy army and out the far side; multiplying the
-        // PROGRESS and clamping it at 1 arrives early and stops at contact.
+        // Every melee token receives the same resolved destination. Its own
+        // CSS travel duration creates the staggered arrival; scheduled strike
+        // beats remain on the one virtual timeline. Archers hold their rear
+        // ground through the charge and receive no centre travel.
         const mounted = token.arm === "cavalry";
-        const progress = mounted
-          ? Math.min(1, ratio * P.CAVALRY_ADVANCE_MULTIPLIER)
-          : ratio;
+        const progress = token.arm === "archer" ? 0 : ratio;
         const travel = (target - token.baseX) * progress;
         if (mounted) {
           token.node.style.setProperty("--lag", `-${P.CAVALRY_LEAD_MS}ms`);
@@ -965,6 +991,52 @@ export function createBattleStage(host, options = {}) {
         token.node.style.setProperty("--mx", `${token.melee}px`);
         // No vertical component: closing on the centreline happens along the
         // ground, so depth (and therefore height and scale) is unchanged.
+      });
+    });
+    refreshArcherOverrun();
+  }
+
+  function setTokenDepth(token, depth) {
+    if (!token?.node) return;
+    token.depth = Math.max(0, Math.min(1, depth));
+    const cam = depthPlacement(token.depth);
+    token.node.style.setProperty("--ty", `${cam.ty.toFixed(1)}px`);
+    token.node.style.setProperty("--tscale", cam.scale.toFixed(3));
+    token.node.style.setProperty("--fade", cam.fade.toFixed(2));
+    token.node.style.zIndex = String(cam.z);
+  }
+
+  function tokenAxisX(token) {
+    return (token?.baseX || 0) + (token?.melee || 0);
+  }
+
+  // Once a hostile melee token crosses the rear bow line, that bow line is
+  // spent: bow as stave, one backward step, and no more decorative volleys.
+  function refreshArcherOverrun() {
+    if (!script) return;
+    ["player", "enemy"].forEach((sideKey) => {
+      const foeKey = sideKey === "player" ? "enemy" : "player";
+      const archers = script.sides[sideKey].tokens.filter(
+        (token) => token.arm === "archer" && token.node && token.capacity > 0 && !token.overrun
+      );
+      const foes = script.sides[foeKey].tokens.filter(
+        (token) => token.arm !== "archer" && token.node && token.capacity > 0
+      );
+      if (!archers.length || !foes.length) return;
+      const crossed = archerLineCrossed(
+        sideKey,
+        archers.map(tokenAxisX),
+        foes.map(tokenAxisX)
+      );
+      if (!crossed) return;
+      const retreat = sideKey === "player" ? -P.ARCHER_OVERRUN_BACKSTEP_PX
+        : P.ARCHER_OVERRUN_BACKSTEP_PX;
+      archers.forEach((token) => {
+        token.overrun = true;
+        token.melee = (token.melee || 0) + retreat;
+        token.node.style.setProperty("--mx", `${token.melee}px`);
+        token.node.classList.add("is-overrun");
+        token.node.classList.remove("is-loosing", "is-aiming-focus");
       });
     });
   }
@@ -1375,16 +1447,52 @@ export function createBattleStage(host, options = {}) {
     }
   }
 
+  function showArcherRange(sideKey, shooters, targets) {
+    if (!worldNode || archerRangeShown.has(sideKey) || !shooters.length) return;
+    archerRangeShown.add(sideKey);
+    const sourcePoints = shooters.map((token) => stagePoint(token.node));
+    const targetPoints = targets.length
+      ? targets.map((token) => stagePoint(token.node))
+      : [{
+        x: worldNode.clientWidth * (sideKey === "player" ? 0.72 : 0.28),
+        y: worldNode.clientHeight * 0.62
+      }];
+    const average = (points, key) => points.reduce((sum, point) => sum + point[key], 0) / points.length;
+    const from = { x: average(sourcePoints, "x"), y: average(sourcePoints, "y") };
+    const to = { x: average(targetPoints, "x"), y: average(targetPoints, "y") };
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.classList.add("stage-range-arc");
+    svg.setAttribute("viewBox", `0 0 ${worldNode.clientWidth} ${worldNode.clientHeight}`);
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    const crest = Math.max(18, Math.abs(to.x - from.x) * 0.16);
+    path.setAttribute(
+      "d", `M ${from.x.toFixed(1)} ${from.y.toFixed(1)} Q ${((from.x + to.x) / 2).toFixed(1)} ${
+        (Math.min(from.y, to.y) - crest).toFixed(1)} ${to.x.toFixed(1)} ${to.y.toFixed(1)}`
+    );
+    svg.appendChild(path);
+    ephemeral(svg, P.ARCHER_RANGE_ARC_MS);
+  }
+
   function performArcherVolley(event) {
-    log(translate("stage.volley"));
     const targetSide = event.side === "player" ? "enemy" : "player";
-    const targets = script.sides[targetSide].tokens.filter((token) => token.capacity > 0 && token.node);
+    const shooters = script.sides[event.side]?.tokens.filter(
+      (token) => token.arm === "archer" && token.node && token.capacity > 0 && !token.overrun
+    ) || [];
+    // An overrun bow line has become a defensive line; it cannot loose again.
+    if (!shooters.length) return;
+    log(translate("stage.volley"));
+    const liveTargets = script.sides[targetSide].tokens.filter(
+      (token) => token.capacity > 0 && token.node
+    );
+    const focus = focusedTarget?.side === targetSide && focusedTarget.token.capacity > 0
+      ? focusedTarget.token : null;
+    const targets = focus ? [focus] : liveTargets;
+    showArcherRange(event.side, shooters, targets);
     // The shooters draw as one rank, so the volley has a visible source.
-    script.sides[event.side]?.tokens
-      .filter((token) => token.arm === "archer" && token.node)
-      .forEach((token, index) => {
-        pending.push(window.setTimeout(() => drawBow(token.node), index * P.ARROW_SPREAD_MS));
-      });
+    shooters.forEach((token, index) => {
+      pending.push(window.setTimeout(() => drawBow(token.node), index * P.ARROW_SPREAD_MS));
+    });
     volleyArrows(
       event,
       {
@@ -1398,6 +1506,34 @@ export function createBattleStage(host, options = {}) {
       },
       P.BOW_NOCK_MS + P.BOW_DRAW_MS
     );
+    if (focus) {
+      const clearAfter = P.BOW_NOCK_MS + P.BOW_DRAW_MS + P.ARROW_LEAD_MS;
+      pending.push(window.setTimeout(clearFocusedTarget, clearAfter));
+    }
+  }
+
+  function performFocusedVolley(shooters, mark) {
+    const ready = shooters.filter((token) => token.node && token.capacity > 0 && !token.overrun);
+    if (!ready.length || !mark?.node || mark.capacity <= 0) return;
+    ready.forEach((token, index) => {
+      pending.push(window.setTimeout(() => drawBow(token.node), index * P.ARROW_SPREAD_MS));
+    });
+    const points = ready.map((token) => stagePoint(token.node));
+    const from = {
+      x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
+      y: points.reduce((sum, point) => sum + point.y, 0) / points.length
+    };
+    volleyArrows(
+      { arrows: ready.length },
+      from,
+      [mark],
+      stagePoint(mark.node),
+      P.BOW_NOCK_MS + P.BOW_DRAW_MS
+    );
+    pending.push(window.setTimeout(
+      clearFocusedTarget,
+      P.BOW_NOCK_MS + P.BOW_DRAW_MS + P.ARROW_LEAD_MS
+    ));
   }
 
   // The ONLY state this module mutates: inferred bucket capacities, which exist
@@ -1415,6 +1551,7 @@ export function createBattleStage(host, options = {}) {
   // the launch are one instant. Called from its own timeline cue.
   function nockArrow(event) {
     const from = tokenAt(event.from.side, event.from.idx);
+    if (from?.overrun) return;
     drawBow(from?.node);
   }
 
@@ -1424,7 +1561,7 @@ export function createBattleStage(host, options = {}) {
   function launchArrow(event) {
     const from = tokenAt(event.from.side, event.from.idx);
     const to = tokenAt(event.to.side, event.to.idx);
-    if (!from?.node || !to?.node) return;
+    if (!from?.node || !to?.node || from.overrun) return;
     flyArrow(stagePoint(from.node), stagePoint(to.node), 0);
     emitBeat({ type: "arrow", side: event.from.side });
   }
@@ -1504,6 +1641,7 @@ export function createBattleStage(host, options = {}) {
       paintStain(point.x, point.y, true, tier.splatterScale, script.sides[event.to.side].weight);
       if (emptied) killBeat(event, source, target, point, tier);
       else reel(target);
+      if (emptied && focusedTarget?.token === target) clearFocusedTarget();
     } else {
       reel(target);
     }
@@ -1511,6 +1649,7 @@ export function createBattleStage(host, options = {}) {
     if (index === finalStrikeIndex) shake("final-blow");
     syncHealthBar(target);
     syncCounts();
+    refreshArcherOverrun();
   }
 
   function reel(target) {
@@ -1670,37 +1809,49 @@ export function createBattleStage(host, options = {}) {
   function executeCommand(command) {
     if (!root || !worldNode) return;
     const own = script.sides.player.tokens.filter((token) => token.node && token.capacity > 0);
+    const meleeOwn = own.filter((token) => token.arm !== "archer");
+    const archers = own.filter((token) => token.arm === "archer" && !token.overrun);
     if (command === "charge") {
-      // 全线压上 — the whole rank steps in, one pace, together.
-      own.forEach((token) => {
+      // 全线压上 — melee steps in; the bow line deliberately stays behind.
+      meleeOwn.forEach((token) => {
         token.melee = (token.melee || 0) + P.COMMAND_PRESS_STEP_PX;
         token.node.style.setProperty("--mx", `${token.melee}px`);
       });
       root.classList.add("order-press");
       pending.push(window.setTimeout(() => root && root.classList.remove("order-press"), 700));
+      refreshArcherOverrun();
       return;
     }
     if (command === "hold") {
-      // 稳住阵线 — the spread closes toward its own centre. Nobody advances.
-      if (!own.length) return;
-      const centre = own.reduce((sum, token) => sum + token.melee, 0) / own.length;
-      own.forEach((token) => {
+      // 稳住阵线 — melee closes on itself while bows take one rear depth step.
+      if (!meleeOwn.length && !archers.length) return;
+      const centre = meleeOwn.length
+        ? meleeOwn.reduce((sum, token) => sum + token.melee, 0) / meleeOwn.length : 0;
+      meleeOwn.forEach((token) => {
         token.melee = Math.round(centre + (token.melee - centre) * P.COMMAND_HOLD_TIGHTEN);
         token.node.style.setProperty("--mx", `${token.melee}px`);
       });
+      archers.forEach((token) => {
+        setTokenDepth(token, Math.min(1, token.depth + P.ARCHER_HOLD_BACK_DEPTH));
+      });
       root.classList.add("order-hold");
       pending.push(window.setTimeout(() => root && root.classList.remove("order-hold"), 700));
+      refreshArcherOverrun();
       return;
     }
-    // 集火敌将 — one enemy is marked and three of ours converge on him.
+    // 集火敌将 — three melee figures converge; bows turn and put their next
+    // decorative volley into the same marked target.
     const foes = script.sides.enemy.tokens.filter((token) => token.node && token.capacity > 0);
     if (!foes.length) return;
     // Deterministic pick: the enemy standing furthest forward, i.e. the one the
     // line is already up against.
     const mark = foes.reduce((best, token) => (token.melee < best.melee ? token : best), foes[0]);
+    clearFocusedTarget();
+    focusedTarget = { side: "enemy", token: mark };
     mark.node.classList.add("is-marked");
+    archers.forEach((token) => token.node.classList.add("is-aiming-focus"));
     const markX = mark.melee + mark.baseX;
-    own
+    meleeOwn
       .slice()
       .sort((first, second) =>
         Math.abs(first.baseX + first.melee - markX) - Math.abs(second.baseX + second.melee - markX))
@@ -1713,9 +1864,19 @@ export function createBattleStage(host, options = {}) {
           () => token.node && token.node.classList.remove("is-converging"), P.COMMAND_FOCUS_MS
         ));
       });
-    pending.push(window.setTimeout(
-      () => mark.node && mark.node.classList.remove("is-marked"), P.COMMAND_FOCUS_MS
-    ));
+    performFocusedVolley(archers, mark);
+    refreshArcherOverrun();
+  }
+
+  function clearFocusedTarget() {
+    if (focusedTarget?.token?.node) focusedTarget.token.node.classList.remove("is-marked");
+    script?.sides.player.tokens.forEach((token) => {
+      token.node?.classList.remove("is-aiming-focus");
+    });
+    script?.sides.enemy.tokens.forEach((token) => {
+      token.node?.classList.remove("is-aiming-focus");
+    });
+    focusedTarget = null;
   }
 
   // The chips. Rendered inside the stage, over the melee, because that is where
@@ -2030,6 +2191,8 @@ export function createBattleStage(host, options = {}) {
     commandLog = [];
     commandWindowsAt = [];
     commandGateAt = -1;
+    archerRangeShown = new Set();
+    focusedTarget = null;
     roll = seededRandom(
       (script.sides.player.startTroops * 73856093) ^ (script.sides.enemy.startTroops * 19349663)
     );
@@ -2088,6 +2251,8 @@ export function createBattleStage(host, options = {}) {
     window.clearTimeout(commandTimer);
     commandTimer = 0;
     commandGateAt = -1;
+    archerRangeShown = new Set();
+    focusedTarget = null;
     stains = [];
     stainArea = 0;
     pending.forEach((id) => window.clearTimeout(id));
@@ -2134,6 +2299,28 @@ export function createBattleStage(host, options = {}) {
     // answer every time the same script is played.
     get commandWindows() { return commandWindowsAt.slice(); },
     get shakesSpent() { return shakesSpent; },
+    // QA seam for the 390x844 still-frame acceptance. Coordinates are read
+    // from the compositor, not reconstructed from the formation formula.
+    get unitPositions() {
+      if (!script || !worldNode) return [];
+      const stageBox = worldNode.getBoundingClientRect();
+      return ["player", "enemy"].flatMap((sideKey) =>
+        script.sides[sideKey].tokens.filter((token) => token.node).map((token) => {
+          const box = token.node.getBoundingClientRect();
+          return {
+            side: sideKey,
+            idx: token.idx,
+            troopType: token.troopType,
+            arm: token.arm,
+            speed: token.moveSpeed,
+            depth: token.depth,
+            overrun: Boolean(token.overrun),
+            x: +(box.left - stageBox.left + box.width / 2).toFixed(1),
+            y: +(box.top - stageBox.top + box.height * 0.85).toFixed(1)
+          };
+        })
+      );
+    },
     // Test seam: drive an order without a pointer, exactly as a chip would.
     issueCommand(command) { return issueCommand(command, "test"); }
   };
