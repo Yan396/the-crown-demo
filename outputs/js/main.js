@@ -96,6 +96,10 @@ const storage = await createStorageAdapter();
 const desktopRuntime = isDesktopRuntime();
 const qaPromiseCrossingEnabled = fullVersion && qaFreshEnabled && query.get("promiseCrossing") === "1";
 const qaBattleStageEnabled = qaFreshEnabled && query.get("battleStage") === "1";
+// Developer-only, no UI entry point: it takes ownership of the music scene so
+// the game's own lifecycle does not fight it, and it is only ever imported
+// when the flag is on.
+const audioStyleguideEnabled = query.get("audioStyleguide") === "1";
 
 let state = autoplayEnabled
   ? createInitialState(autoplaySeed, {
@@ -125,7 +129,9 @@ if (!state) state = createInitialState(CONFIG.SEED, {
   f3: fullVersion,
   f4: fullVersion
 });
-crownAudio.setEnabled(state.settings.soundEnabled);
+// The bot runs silent: without this the victory seal alone opens an
+// AudioContext in a headless 20x run, which is cost with nobody listening.
+crownAudio.setEnabled(state.settings.soundEnabled && !autoplayEnabled);
 crownAudio.bindFirstGesture(document);
 if (qaRecruitRecoveryEnabled) {
   state.player.gold = 164;
@@ -291,8 +297,23 @@ function scheduleAct3Intro() {
   }, pauseMs);
 }
 
+/*
+ * The music scene is derived from the lifecycle that already exists -- there is
+ * no second state machine and nothing here is stored. The autoplay bot and the
+ * audio styleguide both run without it: the bot must stay silent, and the
+ * styleguide owns the scene while it is mounted.
+ */
+function musicSceneFor() {
+  if (state.demo?.ended) return "ending";
+  if (state.demo?.modal === "onboarding" && state.demo.onboardingStep < 0) return "title";
+  if (state.battle || battlePresentationActive) return "battle";
+  if (activeTown(state)) return "town";
+  return "map-road";
+}
+
 function sync() {
   ui.sync(state, { saveAvailable, autoplayEnabled });
+  if (!autoplayEnabled && !audioStyleguideEnabled) crownAudio.setMusicScene(musicSceneFor());
 }
 
 function showNextTooltip() {
@@ -1026,9 +1047,17 @@ window.addEventListener("pagehide", () => saveQuitPoint(state.demo.ended ? "endi
 document.addEventListener("visibilitychange", () => {
   logicAccumulator = 0;
   lastFrameAt = performance.now();
+  // Hidden stops the score outright; coming back enters on the next phrase
+  // rather than catching up on everything that was missed.
+  crownAudio.setPageHidden(document.visibilityState === "hidden");
   if (document.visibilityState === "hidden") saveQuitPoint(state.demo.ended ? "ending" : state.demo.modal || "world");
 });
 
 renderer.resize(state.player.pos);
 sync();
 requestAnimationFrame(frame);
+
+if (audioStyleguideEnabled) {
+  const { mountAudioStyleguide } = await import("./audio-styleguide.js");
+  mountAudioStyleguide(document.body, crownAudio);
+}

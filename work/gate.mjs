@@ -32,7 +32,7 @@ const ALL = [
   "test_v11", "test_v11_hp", "test_battle_integrity", "test_f1_act3",
   "test_f2_act4", "test_f3_armies", "test_f4_final", "test_gate_hygiene",
   "test_f3_motion", "test_post_launch_v11",
-  "test_block3_reconcile", "test_battle_presentation"
+  "test_block3_reconcile", "test_battle_presentation", "test_audio_music"
 ];
 
 const variant = process.argv[2] === "demo" ? "demo" : "full";
