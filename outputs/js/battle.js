@@ -1508,15 +1508,19 @@ export function startBattle(state, bandit, options = {}) {
     commands,
     formationModifiers: formationModifiers(formations)
   };
+  // Captured BEFORE the formation screen pauses the world, so both records hold
+  // the state to return to rather than the state the screen imposed.
+  const pausedBeforeBattle = Boolean(state.paused);
+  if (commands) commands.resumePaused = pausedBeforeBattle;
   if (formations?.eligible) {
-    formations.resumePaused = Boolean(state.paused);
+    formations.resumePaused = pausedBeforeBattle;
     state.demo.modal = "formation";
     state.demo.pauseReason = "formation";
     state.paused = true;
   }
-  // Deliberately NOT opened here, and nowhere else either: the battle order is
-  // given on the stage during the melee. See battle-stage.js openCommandGate.
-  if (commands) commands.resumePaused = Boolean(state.paused);
+  // The battle order is deliberately NOT opened here, and nowhere else either:
+  // it is given on the stage during the melee. See battle-stage.js
+  // openCommandGate.
   state.battleScript = null;
   state.battlePlayback ||= { speed: 1, skip: false };
   state.battlePlayback.speed = [1, 2, 4].includes(state.battlePlayback.speed)
