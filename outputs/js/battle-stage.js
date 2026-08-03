@@ -577,7 +577,6 @@ export function createBattleStage(host, options = {}) {
       '<div class="stage-ranks stage-ranks-enemy"></div>' +
       "</div>" +
       '<p class="stage-log" aria-live="polite"></p>' +
-      '<button type="button" class="stage-speed" aria-live="polite"></button>' +
       '<p class="stage-hint" hidden></p>' +
       "</div>" +
       // Outside .stage-paper on purpose: the paper clips its children, and the
@@ -1093,6 +1092,16 @@ export function createBattleStage(host, options = {}) {
     const from = tokenAt(event.from.side, event.from.idx);
     const to = tokenAt(event.to.side, event.to.idx);
     if (!from?.node || !to?.node) return;
+    // Draw, snap, recover -- the pose was static, which is why it read as
+    // posing rather than shooting. Retriggered per shot.
+    if (from.node) {
+      from.node.classList.remove("is-loosing");
+      void from.node.offsetWidth;
+      from.node.classList.add("is-loosing");
+      pending.push(window.setTimeout(
+        () => from.node && from.node.classList.remove("is-loosing"), 420
+      ));
+    }
     flyArrow(stagePoint(from.node), stagePoint(to.node), 0);
     crownAudio.arrow();
   }

@@ -2936,26 +2936,27 @@ body.battle-stage-open #town-sheet {
 /* -- playback speed chip ---------------------------------------------------- */
 /* The only speed control. It states the current effective speed, so display and
    effect are never separate facts. */
-.stage-speed {
-  position: absolute;
-  top: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 3;
-  min-width: 44px;
-  min-height: 30px;
-  padding: 4px 12px;
-  border: 1px solid rgba(43, 38, 32, 0.34);
-  background: rgba(232, 220, 195, 0.86);
-  color: var(--ink);
-  font: 400 13px var(--font-display);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: .04em;
-  cursor: pointer;
+
+/* Archers draw and loose. Held steps, so the draw is a pose you can see and
+   the release is a snap rather than a fade. */
+.stage-token.is-loosing .fig-pose {
+  animation: archer-loose 420ms steps(1, end) both;
 }
 
-.stage-speed:active { background: rgba(43, 38, 32, 0.1); }
-.stage-speed:focus-visible { outline: 2px solid var(--cinnabar); outline-offset: 2px; }
+@keyframes archer-loose {
+  0%,  47% { transform: rotate(-6deg) translateX(-2px); }   /* draw, held */
+  48%, 62% { transform: rotate(4deg) translateX(3px); }     /* release snap */
+  63%,100% { transform: rotate(0deg); }                     /* recover */
+}
+
+.stage-token.is-loosing .archer-string {
+  animation: archer-string-pull 420ms steps(1, end) both;
+}
+
+@keyframes archer-string-pull {
+  0%,  47% { transform: translateX(-3px) scaleX(1.35); }
+  48%,100% { transform: translateX(0) scaleX(1); }
+}
 
 /* -- F3 unit motion --------------------------------------------------------- */
 /* A loosed shaft. Positioned by the animation's transform, so the element
