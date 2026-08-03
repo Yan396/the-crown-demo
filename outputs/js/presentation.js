@@ -35,8 +35,12 @@ export const CONFIG_PRESENTATION = Object.freeze({
   // the centreline, so the two armies interleave instead of holding one half
   // of the screen each. BIAS > 0.5 pushes each side's leading edge PAST the
   // centre, which is what produces the overlap.
+  // The band has to GROW with the army. A fixed width read fine at 5-10 tokens
+  // and collapsed into one unreadable clump at 40+, because every extra man was
+  // packed into the same 112px.
   MELEE_BAND_PX: 112,
-  MELEE_BAND_MAX_RATIO: 0.3,  // cap the band as a share of stage width
+  MELEE_BAND_PER_TOKEN_PX: 17,
+  MELEE_BAND_MAX_RATIO: 0.46,
   MELEE_BIAS: 0.85,
   MELEE_JITTER_PX: 11,
   ROUND_MS: 2400,
@@ -62,6 +66,9 @@ export const CONFIG_PRESENTATION = Object.freeze({
   /* -- health bars (v1.1 only) --------------------------------------------- */
   HP_LOW_RATIO: 0.3,          // below this the cinnabar deepens and pulses once
   HP_FLASH_MS: 260,           // the single flash a bar gives as its token dies
+
+  /* -- playback speed ------------------------------------------------------ */
+  SPEED_STEPS: Object.freeze([1, 2, 4]),
 
   /* -- shared -------------------------------------------------------------- */
   ARROW_FLIGHT_MS: 620,

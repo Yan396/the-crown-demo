@@ -1,12 +1,14 @@
 import { stampSeal } from "./seal.js";
 import { getBattleEnemy } from "./battle.js";
-import { CONFIG, CONFIG_V11, LIEUTENANT_EVENTS, ROAD_EVENTS } from "./data.js";
+import { CONFIG, CONFIG_V11, F4_LIEUTENANT_EVENTS, LIEUTENANT_ROSTER, ROAD_EVENTS } from "./data.js";
 import { buildChronicleEntries } from "./chronicle.js";
+import { lieutenantPortrait } from "./portraits.js";
 import { actTroopCap, getDailyWage } from "./demo.js";
 import { fiefGarrisonWage, getTavernContracts, townRecruitPrice } from "./sim.js";
 import {
   activeTown,
   getFaction,
+  getLieutenants,
   getLord,
   getPartyStrength,
   getTown,
@@ -15,12 +17,14 @@ import {
 } from "./state.js";
 import { buildResultCode } from "./telemetry.js";
 import { lordName, translate } from "./strings.js";
+import { isDesktopRuntime } from "./storage.js";
 
 const reducedMotion = typeof window.matchMedia === "function"
   ? window.matchMedia("(prefers-reduced-motion: reduce)")
   : { matches: false };
 const numberBudgetDiagnostics = new URLSearchParams(window.location.search).get("qa") === "1";
-const ALL_ROAD_EVENTS = [...ROAD_EVENTS, ...LIEUTENANT_EVENTS];
+const ALL_ROAD_EVENTS = [...ROAD_EVENTS, ...F4_LIEUTENANT_EVENTS];
+const desktopRuntime = isDesktopRuntime();
 
 function motionOff() {
   return reducedMotion.matches;
@@ -104,6 +108,12 @@ export function createUi(callbacks) {
     recruit: element("recruit-button"),
     recruitLabel: element("recruit-label"),
     recruitCost: element("recruit-cost"),
+    recruitArcher: element("recruit-archer-button"),
+    recruitArcherLabel: element("recruit-archer-label"),
+    recruitArcherCost: element("recruit-archer-cost"),
+    recruitCavalry: element("recruit-cavalry-button"),
+    recruitCavalryLabel: element("recruit-cavalry-label"),
+    recruitCavalryCost: element("recruit-cavalry-cost"),
     veteran: element("veteran-button"),
     veteranLabel: element("veteran-label"),
     veteranCost: element("veteran-cost"),
@@ -139,6 +149,17 @@ export function createUi(callbacks) {
     onboardingTap: element("onboarding-tap"),
     titleNewSeed: element("title-new-seed"),
     titleDiagnostics: element("title-diagnostics"),
+    originModal: element("origin-modal"),
+    originKicker: element("origin-kicker"),
+    originTitle: element("origin-title"),
+    originFiction: element("origin-fiction"),
+    originButtons: [...document.querySelectorAll("[data-origin]")],
+    originHunterTitle: element("origin-hunter-title"),
+    originHunterDetail: element("origin-hunter-detail"),
+    originBorderTitle: element("origin-border-title"),
+    originBorderDetail: element("origin-border-detail"),
+    originWandererTitle: element("origin-wanderer-title"),
+    originWandererDetail: element("origin-wanderer-detail"),
     promiseModal: element("promise-modal"),
     promiseCard: document.querySelector(".promise-card"),
     promiseKicker: element("promise-kicker"),
@@ -156,6 +177,8 @@ export function createUi(callbacks) {
     roadEventModal: element("road-event-modal"),
     roadEventKicker: element("road-event-kicker"),
     roadEventGlyphUse: element("road-event-glyph-use"),
+    roadEventGlyph: element("road-event-glyph"),
+    roadEventLieutenant: element("road-event-lieutenant"),
     roadEventText: element("road-event-text"),
     roadEventChoiceA: element("road-event-choice-a"),
     roadEventChoiceB: element("road-event-choice-b"),
@@ -165,11 +188,27 @@ export function createUi(callbacks) {
     formationWedge: element("formation-wedge"),
     formationLine: element("formation-line"),
     formationCircle: element("formation-circle"),
+    battleCommandModal: element("battle-command-modal"),
+    battleCommandKicker: element("battle-command-kicker"),
+    battleCommandCopy: element("battle-command-copy"),
+    battleCommandButtons: [...document.querySelectorAll("[data-battle-command]")],
     fiefThreatModal: element("fief-threat-modal"),
     fiefThreatKicker: element("fief-threat-kicker"),
     fiefThreatTitle: element("fief-threat-title"),
     fiefThreatDetail: element("fief-threat-detail"),
     fiefThreatDismiss: element("fief-threat-dismiss"),
+    kingdomModal: element("kingdom-modal"),
+    kingdomSeal: element("kingdom-seal"),
+    kingdomKicker: element("kingdom-kicker"),
+    kingdomTitle: element("kingdom-title"),
+    kingdomCopy: element("kingdom-copy"),
+    foundingActions: element("founding-actions"),
+    foundingAccept: element("founding-accept"),
+    foundingDecline: element("founding-decline"),
+    foundingSealContinue: element("founding-seal-continue"),
+    edictActions: element("edict-actions"),
+    edictContinue: element("edict-continue"),
+    edictStop: element("edict-stop"),
     contractModal: element("contract-modal"),
     contractKicker: element("contract-kicker"),
     contractTitle: element("contract-title"),
@@ -191,6 +230,13 @@ export function createUi(callbacks) {
     lieutenantOffer: element("lieutenant-offer"),
     lieutenantOfferTitle: element("lieutenant-offer-title"),
     lieutenantOfferDetail: element("lieutenant-offer-detail"),
+    lieutenantOfferShen: element("lieutenant-offer-shen"),
+    lieutenantOfferShenTitle: element("lieutenant-offer-shen-title"),
+    lieutenantOfferShenDetail: element("lieutenant-offer-shen-detail"),
+    lieutenantOfferJia: element("lieutenant-offer-jia"),
+    lieutenantOfferJiaTitle: element("lieutenant-offer-jia-title"),
+    lieutenantOfferJiaDetail: element("lieutenant-offer-jia-detail"),
+    lieutenantOffers: [...document.querySelectorAll("[data-lieutenant-id]")],
     contractClose: element("contract-close"),
     ending: element("demo-ending"),
     endingSeal: element("ending-seal"),
@@ -278,6 +324,9 @@ export function createUi(callbacks) {
     }
     if (parameters.enemyFormation) {
       resolved.enemyFormation = t(`formation.${parameters.enemyFormation}`);
+    }
+    if (parameters.lieutenantId) {
+      resolved.lieutenant = t(`lieutenant.${parameters.lieutenantId}Name`);
     }
     if (parameters.townId && currentState) {
       const town = getTown(currentState, parameters.townId);
@@ -419,6 +468,10 @@ export function createUi(callbacks) {
       refs.roadEventModal.hidden = true;
       return;
     }
+    const owner = LIEUTENANT_ROSTER.find((profile) => eventId.startsWith(`${profile.id}_`));
+    refs.roadEventGlyph.hidden = Boolean(owner);
+    refs.roadEventLieutenant.hidden = !owner;
+    refs.roadEventLieutenant.innerHTML = owner ? lieutenantPortrait(owner.id, "event") : "";
     refs.roadEventGlyphUse.setAttribute("href", `#road-event-glyph-${definition.topic}`);
     refs.roadEventText.textContent = localizedRoadCopy(definition.text);
     refs.roadEventChoiceA.textContent = localizedRoadCopy(definition.choices[0]?.label);
@@ -437,6 +490,15 @@ export function createUi(callbacks) {
     refs.formationScout.textContent = t("formation.scout", {
       shape: t(`formation.report.${formations.reportedEnemy || "line"}`)
     });
+  }
+
+  function syncBattleCommandModal(state) {
+    refs.battleCommandModal.hidden = !Boolean(
+      state.features?.f3 &&
+      state.demo?.modal === "battleCommand" &&
+      state.battle?.commands &&
+      !state.battle.commands.resolved
+    );
   }
 
   function contractSummary(contract) {
@@ -464,7 +526,9 @@ export function createUi(callbacks) {
 
   function syncContractModal(state, town) {
     const activeContract = state.player.contract?.active === true;
-    const lieutenantAvailable = isV11State(state) && !state.player.lieutenant;
+    const hired = getLieutenants(state);
+    const slots = state.features?.f4 ? CONFIG.F4_LIEUTENANT_SLOTS : 1;
+    const lieutenantAvailable = isV11State(state) && hired.length < slots;
     const visible = Boolean(
       contractsOpen &&
       town &&
@@ -485,11 +549,25 @@ export function createUi(callbacks) {
     refs.contractWar.hidden = !war;
     refs.contractReinforce.hidden = !reinforce;
     refs.contractPatrol.hidden = !patrol;
-    refs.lieutenantOffer.hidden = !lieutenantAvailable;
-    refs.lieutenantOffer.disabled = state.player.gold < CONFIG.V11_LIEUTENANT_COST;
-    refs.lieutenantOfferDetail.textContent = t("lieutenant.offerDetail", {
-      cost: CONFIG.V11_LIEUTENANT_COST,
+    refs.lieutenantOffers.forEach((button) => {
+      const id = button.dataset.lieutenantId;
+      const f4Only = id !== "chen_mang";
+      const available = lieutenantAvailable && (!f4Only || state.features?.f4) && !hired.some((entry) => entry.id === id);
+      button.hidden = !available;
+      button.disabled = state.player.gold < (state.features?.f4 ? CONFIG.F4_LIEUTENANT_COST : CONFIG.V11_LIEUTENANT_COST);
+    });
+    const cost = state.features?.f4 ? CONFIG.F4_LIEUTENANT_COST : CONFIG.V11_LIEUTENANT_COST;
+    refs.lieutenantOfferDetail.textContent = t("lieutenant.chenDetail", {
+      cost,
       bonus: Math.round(CONFIG_V11.LIEUTENANT_ATTACK_BONUS * 100)
+    });
+    refs.lieutenantOfferShenDetail.textContent = t("lieutenant.shenDetail", {
+      cost,
+      bonus: Math.round(CONFIG.F4_SHEN_DEFENSE_BONUS * 100)
+    });
+    refs.lieutenantOfferJiaDetail.textContent = t("lieutenant.jiaDetail", {
+      cost,
+      bonus: Math.round(CONFIG.F4_JIA_INCOME_BONUS * 100)
     });
     if (escort) {
       refs.contractEscort.dataset.contractId = escort.id;
@@ -541,15 +619,25 @@ export function createUi(callbacks) {
       ? CONFIG.ACT2_RENOWN
       : state.player.act < 3
         ? (CONFIG.DEMO ? CONFIG.DEMO_END_RENOWN : CONFIG.ACT3_RENOWN)
-        : CONFIG.ACT3_RENOWN;
+        : state.kingdom?.founded
+          ? state.kingdom.nextDecisionDay
+          : CONFIG.ACT4_RENOWN;
     const key = state.player.act < 2
       ? "hud.renownGateAct1"
       : state.player.act < 3
         ? (CONFIG.DEMO ? "hud.renownGateAct2" : "hud.renownGateFief")
-        : "hud.renownGateHolding";
+        : state.kingdom?.founded
+          ? "hud.kingDaysGate"
+          : "hud.renownGateKingdom";
+    const value = state.kingdom?.founded ? state.kingdom.kingDays : renown;
     refs.renownGate.hidden = state.demo.ended;
-    refs.renownGateFill.style.width = `${Math.min(100, (renown / gate) * 100)}%`;
-    refs.renownGateLabel.textContent = t(key, { renown: Math.min(renown, gate) });
+    refs.renownGateFill.style.width = `${Math.min(100, (value / gate) * 100)}%`;
+    refs.renownGateLabel.textContent = t(key, {
+      renown: Math.min(renown, CONFIG.ACT4_RENOWN),
+      towns: state.player.fiefs.length,
+      day: state.kingdom?.kingDays || 0,
+      target: gate
+    });
     if (lastRenown !== null && renown > lastRenown && !motionOff()) {
       refs.renownGateFill.classList.remove("growing");
       void refs.renownGateFill.offsetWidth;
@@ -631,6 +719,8 @@ export function createUi(callbacks) {
     refs.settingsSheet.setAttribute("aria-label", t("aria.settings"));
     refs.settingsScrim.setAttribute("aria-label", t("aria.closeSettings"));
     refs.onboarding.setAttribute("aria-label", t("aria.onboarding"));
+    refs.originModal.setAttribute("aria-label", t("aria.origin"));
+    refs.kingdomModal.setAttribute("aria-label", t("aria.kingdom"));
     refs.promiseCard.setAttribute("aria-label", t("aria.promise"));
     refs.roadEventModal.setAttribute("aria-label", t("aria.roadEvent"));
     refs.contextTooltip.setAttribute("aria-label", t("aria.tooltip"));
@@ -658,6 +748,8 @@ export function createUi(callbacks) {
     refs.retreatBattle.setAttribute("aria-label", t("aria.retreat"));
     refs.townKicker.textContent = t("townPanel.entered");
     refs.recruitLabel.textContent = t("townPanel.recruit");
+    refs.recruitArcherLabel.textContent = t("townPanel.recruitArcher");
+    refs.recruitCavalryLabel.textContent = t("townPanel.recruitCavalry");
     refs.veteranLabel.textContent = t("townPanel.replenish");
     refs.battleBuffLabel.textContent = t("townPanel.battleBuff");
     refs.tavernLabel.textContent = t("townPanel.tavern");
@@ -669,11 +761,18 @@ export function createUi(callbacks) {
     refs.contractReinforceTitle.textContent = t("contracts.reinforceTitle");
     refs.contractPatrolTitle.textContent = t("contracts.patrolTitle");
     refs.contractClose.textContent = t("contracts.close");
-    refs.lieutenantOfferTitle.textContent = t("lieutenant.offerTitle");
+    refs.lieutenantOfferTitle.innerHTML = `${lieutenantPortrait("chen_mang", "offer")}<span>${t("lieutenant.chenName")}</span>`;
+    refs.lieutenantOfferShenTitle.innerHTML = `${lieutenantPortrait("shen_wen", "offer")}<span>${t("lieutenant.shenName")}</span>`;
+    refs.lieutenantOfferJiaTitle.innerHTML = `${lieutenantPortrait("jia_duojin", "offer")}<span>${t("lieutenant.jiaName")}</span>`;
     refs.formationKicker.textContent = t("formation.kicker");
     refs.formationWedge.textContent = t("formation.wedge");
     refs.formationLine.textContent = t("formation.line");
     refs.formationCircle.textContent = t("formation.circle");
+    refs.battleCommandKicker.textContent = t("battleCommand.kicker");
+    refs.battleCommandCopy.textContent = t("battleCommand.copy");
+    refs.battleCommandButtons.forEach((button) => {
+      button.textContent = t(`battleCommand.${button.dataset.battleCommand}`);
+    });
     refs.settingsTitle.textContent = t("settings.title");
     refs.settingsClose.setAttribute("aria-label", t("aria.closeSettings"));
     refs.languageLabel.textContent = t("settings.language");
@@ -685,6 +784,20 @@ export function createUi(callbacks) {
     refs.onboardingTap.textContent = t("onboarding.tap");
     refs.titleNewSeed.textContent = t("onboarding.newSeed");
     refs.titleNewSeed.setAttribute("aria-label", t("aria.newSeed"));
+    refs.originKicker.textContent = t("origin.kicker");
+    refs.originTitle.textContent = t("origin.title");
+    refs.originFiction.textContent = t("origin.fiction");
+    refs.originHunterTitle.textContent = t("origin.hunterTitle");
+    refs.originHunterDetail.textContent = t("origin.hunterDetail");
+    refs.originBorderTitle.textContent = t("origin.borderTitle");
+    refs.originBorderDetail.textContent = t("origin.borderDetail");
+    refs.originWandererTitle.textContent = t("origin.wandererTitle");
+    refs.originWandererDetail.textContent = t("origin.wandererDetail");
+    refs.foundingAccept.textContent = t("kingdom.found");
+    refs.foundingDecline.textContent = t("kingdom.notYet");
+    refs.foundingSealContinue.textContent = t("kingdom.sealContinue");
+    refs.edictContinue.textContent = t("kingdom.continueConquest");
+    refs.edictStop.textContent = t("kingdom.stopHere");
     refs.promiseConfirm.textContent = t("promise.confirm");
     refs.fiefPromiseAll.textContent = t("promise.allFiefs");
     refs.garrisonTitle.textContent = t("fief.garrisonTitle");
@@ -717,6 +830,39 @@ export function createUi(callbacks) {
     refs.onboardingLine.textContent = t(`onboarding.step${current}`);
   }
 
+  function syncOrigin(state) {
+    refs.originModal.hidden = state.demo.modal !== "origin";
+  }
+
+  function syncKingdomModal(state) {
+    const mode = state.demo.modal;
+    const visible = ["founding", "foundingSeal", "kingdomEdict"].includes(mode);
+    refs.kingdomModal.hidden = !visible;
+    if (!visible) return;
+    const seal = mode === "foundingSeal";
+    const edict = mode === "kingdomEdict";
+    refs.kingdomSeal.hidden = !seal;
+    refs.kingdomSeal.textContent = seal ? t("kingdom.seal") : "";
+    refs.foundingActions.hidden = mode !== "founding";
+    refs.foundingSealContinue.hidden = !seal;
+    refs.edictActions.hidden = !edict;
+    refs.kingdomKicker.textContent = t(edict ? "kingdom.edictKicker" : "kingdom.foundingKicker");
+    refs.kingdomTitle.textContent = t(seal
+      ? "kingdom.foundedTitle"
+      : edict
+        ? "kingdom.edictTitle"
+        : "kingdom.foundingTitle");
+    refs.kingdomCopy.textContent = t(seal
+      ? "kingdom.foundedCopy"
+      : edict
+        ? "kingdom.edictCopy"
+        : "kingdom.foundingCopy", {
+          renown: state.player.renown,
+          towns: state.player.fiefs.length,
+          days: CONFIG.KINGDOM_DECISION_INTERVAL_DAYS
+        });
+  }
+
   function configurePromiseModal(state) {
     const mode = state.demo.modal;
     const visible = mode === "troopPromise" || mode === "goldPromise" || mode === "fiefPromise";
@@ -733,14 +879,6 @@ export function createUi(callbacks) {
         ? "promise.fiefKicker"
         : "promise.act2Kicker");
     const actOne = state.player.promises.find((entry) => entry.act === 1);
-    refs.promiseQuestion.textContent = troops
-      ? t("promise.troopsQuestion")
-      : fiefs
-        ? t("promise.fiefQuestion")
-        : t("promise.goldQuestion", {
-        said: actOne?.statedGoal ?? 0,
-        actual: actOne?.actualAtActEnd ?? getTroopCount(state.player)
-      });
     refs.promiseContext.hidden = false;
     const troopPromise = state.player.promises.find((entry) => entry.act === 1);
     const goldPromise = state.player.promises.find((entry) => entry.act === 2);
@@ -752,6 +890,14 @@ export function createUi(callbacks) {
         goldDid: goldPromise?.actualAtActEnd ?? state.player.gold
       })
       : t(troops ? "promise.act1Fiction" : "promise.act2Fiction");
+    refs.promiseQuestion.textContent = troops
+      ? t("promise.troopsQuestion")
+      : fiefs
+        ? t("promise.fiefQuestion")
+        : t("promise.goldQuestion", {
+        said: actOne?.statedGoal ?? 0,
+        actual: actOne?.actualAtActEnd ?? getTroopCount(state.player)
+      });
     refs.promiseValue.hidden = fiefs;
     refs.promiseSlider.hidden = fiefs;
     refs.promiseMin.parentElement.hidden = fiefs;
@@ -821,22 +967,35 @@ export function createUi(callbacks) {
       stampSeal(t("ending.seal"));
     }
     refs.mirrorTable.replaceChildren();
-    state.player.promises.slice(0, 2).forEach((promise) => {
+    const fullEnding = state.ending?.mode === "full";
+    state.player.promises.slice(0, fullEnding ? 3 : 2).forEach((promise) => {
       const row = document.createElement("div");
       const label = document.createElement("span");
       const said = document.createElement("strong");
       const did = document.createElement("strong");
-      const actual = promise.actualAtActEnd ?? (promise.kind === "gold" ? state.player.gold : getTroopCount(state.player));
+      const actual = promise.actualAtActEnd ?? (promise.kind === "gold"
+        ? state.player.gold
+        : promise.kind === "fiefs"
+          ? state.player.fiefs.length
+          : getTroopCount(state.player));
       row.className = "mirror-row";
       if (actual > promise.statedGoal) row.classList.add("overshot");
-      label.textContent = t(promise.kind === "gold" ? "ending.gold" : "ending.troops");
+      label.textContent = t(promise.kind === "gold"
+        ? "ending.gold"
+        : promise.kind === "fiefs"
+          ? "ending.fiefs"
+          : "ending.troops");
       said.textContent = t("ending.said", { value: promise.statedGoal });
       did.textContent = t("ending.did", { value: actual });
       row.append(label, said, did);
       refs.mirrorTable.appendChild(row);
     });
     refs.endingChronicle.replaceChildren();
-    for (const entry of buildChronicleEntries(state.telemetry, language())) {
+    const chronicle = fullEnding
+      ? buildChronicleEntries(state.telemetry, language(), { full: true })
+      : buildChronicleEntries(state.telemetry, language());
+    state.telemetry.endingChronicle = chronicle.map((entry) => ({ ...entry }));
+    for (const entry of chronicle) {
       const item = document.createElement("li");
       item.dataset.eventType = entry.type;
       item.textContent = entry.text;
@@ -850,7 +1009,24 @@ export function createUi(callbacks) {
     appendEndingStat(t("ending.winRate"), `${winRate}%`);
     appendEndingStat(t("ending.peakTroops"), String(state.stats.peakTroops || 0));
     appendEndingStat(t("ending.peakGold"), String(state.stats.peakGold || 0));
-    refs.resultCode.textContent = buildResultCode(state);
+    if (fullEnding) {
+      const comparisons = state.player.promises.slice(0, 3).map((promise) => {
+        const actual = Number(promise.actualAtActEnd);
+        const goal = Number(promise.statedGoal);
+        return Number.isFinite(actual) && Number.isFinite(goal) ? Math.sign(actual - goal) : 0;
+      });
+      const over = comparisons.filter((value) => value > 0).length;
+      const under = comparisons.filter((value) => value < 0).length;
+      refs.endingLine.textContent = t(over === 3
+        ? "ending.lineAllOvershot"
+        : under === 3
+          ? "ending.lineAllHeld"
+          : "ending.lineMixed");
+      refs.endingSeal.textContent = t("ending.fullSeal");
+    }
+    refs.shareResult.hidden = desktopRuntime;
+    refs.resultCode.hidden = desktopRuntime;
+    refs.resultCode.textContent = desktopRuntime ? "" : buildResultCode(state);
   }
 
   function sync(state, runtime = {}) {
@@ -867,10 +1043,11 @@ export function createUi(callbacks) {
     refs.wage.textContent = state.stats.days < CONFIG.WAGE_GRACE_DAYS
       ? t("hud.wageGrace", { day: CONFIG.WAGE_GRACE_DAYS })
       : t("hud.wages", { wage: getDailyWage(state.player) + fiefGarrisonWage(state) });
-    refs.lieutenantChip.hidden = !(isV11State(state) && state.player.lieutenant);
-    refs.lieutenantChip.textContent = state.player.lieutenant
-      ? t("lieutenant.hud")
-      : "";
+    const activeLieutenants = getLieutenants(state);
+    refs.lieutenantChip.hidden = !(isV11State(state) && activeLieutenants.length);
+    refs.lieutenantChip.innerHTML = activeLieutenants.map((entry) => (
+      `<span class="lieutenant-chip-entry">${lieutenantPortrait(entry.id, "hud")}<b>${t(`lieutenant.${entry.id}Short`)}</b></span>`
+    )).join("");
     refs.seed.textContent = t("legend.seed", { seed: state.seed });
     syncRenownGate(state);
     syncMirrorHud(state);
@@ -898,7 +1075,10 @@ export function createUi(callbacks) {
     if (
       !town ||
       state.player.act < 2 ||
-      (state.player.contract?.active && (!isV11State(state) || state.player.lieutenant))
+      (state.player.contract?.active && (
+        !isV11State(state) ||
+        getLieutenants(state).length >= (state.features?.f4 ? CONFIG.F4_LIEUTENANT_SLOTS : 1)
+      ))
     ) contractsOpen = false;
     refs.townSheet.hidden = !town || contractsOpen;
     document.body.classList.toggle("town-open", Boolean(town) && !contractsOpen);
@@ -934,6 +1114,37 @@ export function createUi(callbacks) {
         : recruitsEmpty
           ? t("townPanel.recruitEmpty")
           : t("townPanel.recruitCost", { cost: militiaPrice.cost });
+      const f3 = state.features?.f3 === true;
+      const syncArmRecruit = (button, costNode, arm) => {
+        button.hidden = !f3;
+        if (!f3) return;
+        const empty = (town.recruitPools?.[arm] || 0) <= 0
+          && troops >= CONFIG.PLAYER_RECOVERY_RECRUIT_FLOOR;
+        button.disabled = capped || state.player.gold < militiaPrice.cost || empty;
+        costNode.textContent = capped
+          ? t("townPanel.recruitCapped", { cap })
+          : empty
+            ? t("townPanel.recruitEmpty")
+            : t("townPanel.armRecruitCost", {
+              count: town.recruitPools?.[arm] || 0,
+              cost: militiaPrice.cost
+            });
+      };
+      syncArmRecruit(refs.recruitArcher, refs.recruitArcherCost, "archer");
+      syncArmRecruit(refs.recruitCavalry, refs.recruitCavalryCost, "cavalry");
+      if (f3) {
+        const empty = (town.recruitPools?.spear || 0) <= 0
+          && troops >= CONFIG.PLAYER_RECOVERY_RECRUIT_FLOOR;
+        refs.recruit.disabled = capped || state.player.gold < militiaPrice.cost || empty;
+        refs.recruitCost.textContent = capped
+          ? t("townPanel.recruitCapped", { cap })
+          : empty
+            ? t("townPanel.recruitEmpty")
+            : t("townPanel.armRecruitCost", {
+              count: town.recruitPools?.spear || 0,
+              cost: militiaPrice.cost
+            });
+      }
       const veteranAvailable = state.player.troops.some((stack) => stack.type === "veteran" && stack.count > 0);
       refs.veteran.hidden = state.player.act < 2;
       refs.veteran.disabled = capped || !veteranAvailable || town.recruitPool <= 0 || state.player.gold < veteranPrice.cost;
@@ -957,7 +1168,10 @@ export function createUi(callbacks) {
       if (state.player.act >= 2) {
         const activeContract = state.player.contract?.active ? state.player.contract : null;
         refs.tavern.disabled = Boolean(
-          activeContract && (!isV11State(state) || state.player.lieutenant)
+          activeContract && (
+            !isV11State(state) ||
+            getLieutenants(state).length >= (state.features?.f4 ? CONFIG.F4_LIEUTENANT_SLOTS : 1)
+          )
         );
         refs.tavernDetail.textContent = activeContract
           ? t("townPanel.contractActive", {
@@ -992,10 +1206,13 @@ export function createUi(callbacks) {
       ? t("settings.autosaveOn", { day: Math.floor(Math.max(0, state.lastSavedTick) / CONFIG.TICKS_PER_DAY) + 1 })
       : t("settings.autosaveUnavailable");
     syncOnboarding(state);
+    syncOrigin(state);
+    syncKingdomModal(state);
     configurePromiseModal(state);
     syncFiefThreat(state);
     syncRoadEvent(state);
     syncFormationModal(state);
+    syncBattleCommandModal(state);
     renderEnding(state);
     updateNumberBudget();
   }
@@ -1189,7 +1406,9 @@ export function createUi(callbacks) {
   });
   refs.languageZh.addEventListener("click", () => callbacks.onLanguageChange("zh"));
   refs.languageEn.addEventListener("click", () => callbacks.onLanguageChange("en"));
-  refs.recruit.addEventListener("click", () => callbacks.onRecruit());
+  refs.recruit.addEventListener("click", () => callbacks.onRecruit("spear"));
+  refs.recruitArcher.addEventListener("click", () => callbacks.onRecruit("archer"));
+  refs.recruitCavalry.addEventListener("click", () => callbacks.onRecruit("cavalry"));
   refs.veteran.addEventListener("click", () => callbacks.onReplenishVeteran());
   refs.battleBuff.addEventListener("click", () => callbacks.onBuyBattleBuff());
   refs.tavern.addEventListener("click", () => {
@@ -1207,10 +1426,10 @@ export function createUi(callbacks) {
   refs.contractWar.addEventListener("click", () => selectContract(refs.contractWar));
   refs.contractReinforce.addEventListener("click", () => selectContract(refs.contractReinforce));
   refs.contractPatrol.addEventListener("click", () => selectContract(refs.contractPatrol));
-  refs.lieutenantOffer.addEventListener("click", () => {
+  refs.lieutenantOffers.forEach((button) => button.addEventListener("click", () => {
     contractsOpen = false;
-    callbacks.onHireLieutenant();
-  });
+    callbacks.onHireLieutenant(button.dataset.lieutenantId);
+  }));
   refs.contractClose.addEventListener("click", () => {
     contractsOpen = false;
     if (currentState) sync(currentState, { saveAvailable });
@@ -1218,6 +1437,9 @@ export function createUi(callbacks) {
   refs.skipBattle.addEventListener("click", () => callbacks.onSkipBattle());
   refs.retreatBattle.addEventListener("click", () => callbacks.onRetreat());
   refs.onboarding.addEventListener("click", () => callbacks.onAdvanceOnboarding());
+  refs.originButtons.forEach((button) => {
+    button.addEventListener("click", () => callbacks.onSelectOrigin(button.dataset.origin));
+  });
   refs.onboardingTitle.addEventListener("click", toggleDiagnosticsFromTitle);
   refs.brandTitle.addEventListener("click", toggleDiagnosticsFromTitle);
   refs.titleNewSeed.addEventListener("click", (event) => {
@@ -1255,11 +1477,19 @@ export function createUi(callbacks) {
     if (town) callbacks.onSetGarrison(town.id, Number(refs.garrisonSlider.value));
   });
   refs.fiefThreatDismiss.addEventListener("click", () => callbacks.onDismissFiefThreat());
+  refs.foundingAccept.addEventListener("click", () => callbacks.onFoundKingdom());
+  refs.foundingDecline.addEventListener("click", () => callbacks.onDeclineFounding());
+  refs.foundingSealContinue.addEventListener("click", () => callbacks.onDismissFoundingSeal());
+  refs.edictContinue.addEventListener("click", () => callbacks.onKingdomEdict("continue"));
+  refs.edictStop.addEventListener("click", () => callbacks.onKingdomEdict("stop"));
   refs.contextTooltip.addEventListener("click", () => { refs.contextTooltip.hidden = true; });
   refs.roadEventChoiceA.addEventListener("click", () => callbacks.onRoadEventChoice(0));
   refs.roadEventChoiceB.addEventListener("click", () => callbacks.onRoadEventChoice(1));
   [refs.formationWedge, refs.formationLine, refs.formationCircle].forEach((button) => {
     button.addEventListener("click", () => callbacks.onChooseFormation(button.dataset.formation));
+  });
+  refs.battleCommandButtons.forEach((button) => {
+    button.addEventListener("click", () => callbacks.onChooseBattleCommand(button.dataset.battleCommand));
   });
   refs.shareResult.addEventListener("click", () => callbacks.onShare());
   refs.replay.addEventListener("click", () => callbacks.onNewSeed(true));
@@ -1283,16 +1513,22 @@ export function createUi(callbacks) {
     refs.contractWar,
     refs.contractReinforce,
     refs.contractPatrol,
-    refs.lieutenantOffer,
+    ...refs.lieutenantOffers,
     refs.contractClose,
     refs.skipBattle,
     refs.retreatBattle,
     refs.titleNewSeed,
+    ...refs.originButtons,
     refs.promiseSlider,
     refs.promiseConfirm,
     ...refs.fiefPromiseButtons,
     refs.garrisonSlider,
     refs.fiefThreatDismiss,
+    refs.foundingAccept,
+    refs.foundingDecline,
+    refs.foundingSealContinue,
+    refs.edictContinue,
+    refs.edictStop,
     refs.contextTooltip,
     refs.roadEventChoiceA,
     refs.roadEventChoiceB,

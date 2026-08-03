@@ -15,9 +15,12 @@ const refs = {
   runHeading: document.getElementById("run-heading"),
   telemetryHeading: document.getElementById("telemetry-heading"),
   statsHeading: document.getElementById("stats-heading"),
+  endingSection: document.getElementById("ending-section"),
+  endingHeading: document.getElementById("ending-heading"),
   runTable: document.getElementById("run-table"),
   telemetryTable: document.getElementById("telemetry-table"),
-  statsTable: document.getElementById("stats-table")
+  statsTable: document.getElementById("stats-table"),
+  endingTable: document.getElementById("ending-table")
 };
 
 document.documentElement.lang = "zh-CN";
@@ -31,6 +34,7 @@ refs.button.textContent = t("decode.button");
 refs.runHeading.textContent = t("decode.sectionRun");
 refs.telemetryHeading.textContent = t("decode.sectionTelemetry");
 refs.statsHeading.textContent = t("decode.sectionStats");
+refs.endingHeading.textContent = t("decode.sectionEnding");
 
 function appendRow(table, key, value) {
   const row = document.createElement("tr");
@@ -56,12 +60,17 @@ function renderPayload(payload) {
   refs.runTable.replaceChildren();
   refs.telemetryTable.replaceChildren();
   refs.statsTable.replaceChildren();
+  refs.endingTable.replaceChildren();
   appendRow(refs.runTable, "version", payload.version);
   appendRow(refs.runTable, "build", payload.build);
   appendRow(refs.runTable, "seed", payload.seed);
   appendRow(refs.runTable, "promises", payload.promises);
   flatten(payload.telemetry).forEach(([key, value]) => appendRow(refs.telemetryTable, key, value));
   flatten(payload.stats).forEach(([key, value]) => appendRow(refs.statsTable, key, value));
+  refs.endingSection.hidden = !payload.ending;
+  if (payload.ending) {
+    flatten(payload.ending).forEach(([key, value]) => appendRow(refs.endingTable, key, value));
+  }
   refs.error.hidden = true;
   refs.output.hidden = false;
 }

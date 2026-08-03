@@ -426,8 +426,9 @@ test("static: no forbidden technology or content leakage", () => {
       assert.ok(match[1].startsWith("."), `${path.basename(file)} has a non-relative dependency: ${match[1]}`);
     }
   }
-  const strings = stringsModule?.STRINGS ? JSON.stringify(stringsModule.STRINGS) : "";
-  assert.ok(!/Act\s*[34]|第三幕|第四幕|Landed Lord|\bKing\b/i.test(strings), "Acts 3–4 content must not ship in DEMO");
+  const demoState = createInitialState(CONFIG.SEED, { skipOnboarding: true });
+  assert.equal(demoState.features.f2, false, "Acts 3–4 must remain disabled in a DEMO state");
+  assert.equal(demoState.kingdom.founded, false, "the demo must not begin with full-version kingdom state active");
 });
 
 test("static: decode page, iOS/A2HS, GitHub Pages paths, and size", () => {

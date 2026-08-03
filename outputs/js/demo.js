@@ -1,5 +1,6 @@
 import { CONFIG, TROOP_TYPES } from "./data.js";
 import { addEvent, getTroopCount } from "./state.js";
+import { offerFoundingIfNeeded } from "./kingdom.js";
 import {
   finalizeTelemetry,
   recordChronicleMilestone,
@@ -259,6 +260,7 @@ export function advanceActIfNeeded(state, occurredAt, options = {}) {
     addEvent(state, "log.fiefAct", { townId: town.id, factionId: faction.id }, "win");
     return { type: "act3", tick: state.tick, townId: town.id, factionId: faction.id };
   }
+  if (!demoBuild && state.player.act >= 3) return offerFoundingIfNeeded(state);
   return null;
 }
 

@@ -9,6 +9,7 @@ import {
 import {
   checkForEncounter,
   checkForHostileLordEncounter,
+  chooseBattleCommand,
   choosePlayerFormation,
   counterFormation,
   resolveAiBattle,
@@ -23,7 +24,15 @@ import {
   getActiveRoadEvent,
   processDailyRoadEvent as rollDailyRoadEvent
 } from "./casual.js";
-import { CASUAL_EVENTS, CONFIG, LIEUTENANT_EVENTS, TROOP_TYPES } from "./data.js";
+import {
+  ARM_IDS,
+  CASUAL_EVENTS,
+  CONFIG,
+  F4_LIEUTENANT_EVENTS,
+  LIEUTENANT_EVENTS,
+  LIEUTENANT_ROSTER,
+  TROOP_TYPES
+} from "./data.js";
 import {
   advanceActIfNeeded,
   advanceOnboarding,
@@ -39,21 +48,38 @@ import {
 } from "./living.js";
 import { createRng, nextFloat, randomInt } from "./rng.js";
 import { buildRoads, isOnRoad } from "./roads.js";
+import {
+  awardPatronCapture,
+  chooseKingdomEdict,
+  declineFounding,
+  dismissFoundingSeal,
+  foundKingdom,
+  processAct3Expansion,
+  processKingdomDay,
+  recordKingdomChronicle,
+  selectOrigin
+} from "./kingdom.js";
 import { recordChronicleMilestone } from "./telemetry.js";
 import {
   activeTown,
   addEvent,
+  changePlayerRenown,
   clamp,
   copyPosition,
   createInitialState,
   distance,
+  dominantArm,
   getFaction,
+  getLieutenants,
   getPartyStrength,
   getTown,
   getTroopCount,
   incrementTroop,
+  hasLieutenant,
   isV11State,
-  nearestTown
+  nearestTown,
+  recruitPoolsForFaction,
+  syncLieutenantAlias
 } from "./state.js";
 
 function snapshotPreviousPositions(state) {
@@ -97,13 +123,19 @@ function normalizeFactionState(state) {
 function normalizeTownState(state) {
   state.towns.forEach((town) => {
     if (!Array.isArray(town.garrison) || !town.garrison.length) {
-      town.garrison = [{ type: "militia", count: CONFIG.TOWN_START_GARRISON, xp: 0 }];
+      town.garrison = [{ type: "militia", count: CONFIG.TOWN_START_GARRISON, xp: 0, ...(state.features?.f3 ? { arm: "spear" } : {}) }];
     }
     town.recruitPool = clamp(
       Number.isFinite(town.recruitPool) ? town.recruitPool : CONFIG.TOWN_START_RECRUIT_POOL,
       0,
       CONFIG.TOWN_RECRUIT_POOL_CAP
     );
+    if (state.features?.f3) {
+      town.recruitPools = ARM_IDS.every((arm) => Number.isFinite(town.recruitPools?.[arm]))
+        ? Object.fromEntries(ARM_IDS.map((arm) => [arm, Math.max(0, Math.floor(town.recruitPools[arm]))]))
+        : recruitPoolsForFaction(town.factionId);
+      town.recruitPool = Object.values(town.recruitPools).reduce((sum, amount) => sum + amount, 0);
+    }
     town.prosperity = clamp(
       Number.isFinite(town.prosperity) ? town.prosperity : CONFIG.TOWN_START_PROSPERITY,
       CONFIG.TOWN_MIN_PROSPERITY,
@@ -277,6 +309,13 @@ function currentTownCount(state, factionId) {
 function updateDiplomacy(state) {
   sortedFactionPairs(state).forEach(([first, second]) => {
     if (!first.alive || !second.alive) return;
+    if (state.kingdom?.founded && [first.id, second.id].includes("player")) {
+      if (!first.atWarWith.includes(second.id)) {
+        declareWarInternal(state, first, second, CONFIG.KINGDOM_WAR_RELATION);
+      }
+      setRelation(first, second, CONFIG.KINGDOM_WAR_RELATION);
+      return;
+    }
     const drift = nextFloat(state.rng) < 0.5
       ? -CONFIG.DIPLOMACY_RELATION_DRIFT
       : CONFIG.DIPLOMACY_RELATION_DRIFT;
@@ -351,10 +390,15 @@ function transferTroops(source, target, amount) {
     remaining -= quantity;
     moved += quantity;
     let destination = targetStacks.find((entry) => (
-      entry.type === stack.type && entry.xp === stack.xp
+      entry.type === stack.type && entry.xp === stack.xp && entry.arm === stack.arm
     ));
     if (!destination) {
-      destination = { type: stack.type, count: 0, xp: stack.xp };
+      destination = {
+        type: stack.type,
+        count: 0,
+        xp: stack.xp,
+        ...(stack.arm ? { arm: stack.arm } : {})
+      };
       targetStacks.push(destination);
     }
     destination.count += quantity;
@@ -394,11 +438,15 @@ function payWage(party) {
   return { due, paid, unpaid: due - paid };
 }
 
-function processDailyEconomy(state) {
-  const fiefTax = state.player.fiefs.reduce((sum, townId) => {
+export function processDailyEconomy(state) {
+  const baseFiefTax = state.player.fiefs.reduce((sum, townId) => {
     const town = getTown(state, townId);
     return sum + (town ? Math.floor(town.prosperity * CONFIG.PLAYER_TOWN_TAX_RATE) : 0);
   }, 0);
+  const lieutenantIncome = state.features?.f4 && hasLieutenant(state, "jia_duojin")
+    ? Math.floor(baseFiefTax * CONFIG.F4_JIA_INCOME_BONUS)
+    : 0;
+  const fiefTax = baseFiefTax + lieutenantIncome;
   state.player.gold += fiefTax;
   state.stats.goldEarned += fiefTax;
   const wagesStarted = state.stats.days > CONFIG.WAGE_GRACE_DAYS;
@@ -427,6 +475,27 @@ function processDailyEconomy(state) {
     };
   state.stats.wagesPaid += playerWage.paid;
 
+  if (state.features?.f4 && wagesStarted) {
+    const leaving = [];
+    state.player.lieutenants.forEach((lieutenant) => {
+      lieutenant.unpaidDays = playerWage.unpaid > 0 ? lieutenant.unpaidDays + 1 : 0;
+      if (lieutenant.unpaidDays >= CONFIG.F4_LIEUTENANT_UNPAID_LEAVE_DAYS) leaving.push(lieutenant.id);
+    });
+    if (leaving.length) {
+      state.player.lieutenants = state.player.lieutenants.filter((entry) => !leaving.includes(entry.id));
+      syncLieutenantAlias(state);
+      state.telemetry.lieutenants ||= { hiredIds: [], hireCount: 0, lostCount: 0, unpaidLeaves: 0 };
+      state.telemetry.lieutenants.unpaidLeaves = Math.max(
+        0,
+        Number(state.telemetry.lieutenants.unpaidLeaves) || 0
+      ) + leaving.length;
+      leaving.forEach((lieutenantId) => {
+        addEvent(state, "log.lieutenantUnpaidLeft", { lieutenantId }, "loss");
+        recordKingdomChronicle(state, "lieutenantLeft", { lieutenantId, reason: "unpaid" });
+      });
+    }
+  }
+
   let lordWagesPaid = 0;
   state.lords.forEach((lord) => {
     if (getFaction(state, lord.factionId)?.alive) lord.gold += CONFIG.LORD_DAILY_INCOME;
@@ -444,10 +513,32 @@ function processDailyEconomy(state) {
       CONFIG.TOWN_MAX_PROSPERITY
     );
     if (recruitDay) {
-      town.recruitPool = Math.min(
-        CONFIG.TOWN_RECRUIT_POOL_CAP,
-        town.recruitPool + CONFIG.TOWN_RECRUIT_GAIN
-      );
+      if (state.features?.f3) {
+        const room = Math.max(0, CONFIG.TOWN_RECRUIT_POOL_CAP - town.recruitPool);
+        const gain = Math.min(room, CONFIG.TOWN_RECRUIT_GAIN);
+        const mix = CONFIG.F3_REGION_RECRUIT_MIX[town.factionId]
+          || CONFIG.F3_REGION_RECRUIT_MIX.south;
+        const ranked = ARM_IDS.map((arm) => ({
+          arm,
+          exact: gain * (mix[arm] || 0),
+          amount: Math.floor(gain * (mix[arm] || 0))
+        }));
+        let left = gain - ranked.reduce((sum, entry) => sum + entry.amount, 0);
+        ranked.sort((first, second) => (
+          (second.exact - second.amount) - (first.exact - first.amount)
+          || first.arm.localeCompare(second.arm)
+        ));
+        for (let index = 0; index < ranked.length && left > 0; index += 1, left -= 1) {
+          ranked[index].amount += 1;
+        }
+        ranked.forEach(({ arm, amount }) => { town.recruitPools[arm] += amount; });
+        town.recruitPool = Object.values(town.recruitPools).reduce((sum, amount) => sum + amount, 0);
+      } else {
+        town.recruitPool = Math.min(
+          CONFIG.TOWN_RECRUIT_POOL_CAP,
+          town.recruitPool + CONFIG.TOWN_RECRUIT_GAIN
+        );
+      }
     }
   });
 
@@ -673,7 +764,7 @@ function captureTown(state, town, attacker) {
     CONFIG.TOWN_MIN_PROSPERITY,
     CONFIG.TOWN_MAX_PROSPERITY
   );
-  town.garrison = [{ type: "militia", count: CONFIG.TOWN_CAPTURE_GARRISON, xp: 0 }];
+  town.garrison = [{ type: "militia", count: CONFIG.TOWN_CAPTURE_GARRISON, xp: 0, ...(state.features?.f3 ? { arm: "spear" } : {}) }];
   resetSiege(state, town, false);
   state.mechanics.townsCaptured += 1;
   addEvent(state, "log.townCaptured", {
@@ -683,9 +774,10 @@ function captureTown(state, town, attacker) {
     factionId: attacker.factionId,
     lordId: attacker.id
   }, "danger");
+  awardPatronCapture(state, town, oldFactionId, attacker.factionId);
   if (heldFief && attacker.factionId !== state.player.factionId) {
     state.player.fiefs = state.player.fiefs.filter((townId) => townId !== town.id);
-    state.player.renown = Math.max(0, state.player.renown - CONFIG.FIEF_LOSS_RENOWN);
+    changePlayerRenown(state, -CONFIG.FIEF_LOSS_RENOWN);
     if (state.player.factionId) {
       state.player.relations[state.player.factionId] = clamp(
         (Number(state.player.relations[state.player.factionId]) || 0) - CONFIG.FIEF_LOSS_RELATION,
@@ -711,7 +803,7 @@ function captureTown(state, town, attacker) {
     originalGrant?.townId === town.id &&
     originalGrant.factionId === attacker.factionId
   ) {
-    state.player.fiefs.push(town.id);
+    if (!state.player.fiefs.includes(town.id)) state.player.fiefs.push(town.id);
     state.telemetry.chronicle.fiefRecaptured ||= {
       tick: state.tick,
       day: Math.floor(state.tick / CONFIG.TICKS_PER_DAY) + 1,
@@ -877,7 +969,10 @@ function resolveAiEncounters(state) {
 function movementSpeed(state, party, baseSpeed) {
   if (!CONFIG.ROAD_MOVEMENT) return baseSpeed;
   const roads = buildRoads(state.seed);
-  return baseSpeed * (isOnRoad(roads, party.pos.x, party.pos.y)
+  const originMultiplier = party === state.player
+    ? (CONFIG.ORIGIN_BONUSES[state.kingdom?.origin]?.roadSpeed || 1)
+    : 1;
+  return baseSpeed * originMultiplier * (isOnRoad(roads, party.pos.x, party.pos.y)
     ? CONFIG.ROAD_SPEED_MULTIPLIER
     : CONFIG.OFF_ROAD_SPEED_MULTIPLIER);
 }
@@ -903,7 +998,12 @@ export function verifyRoadEventChoiceEffects(options = {}) {
   const failures = [];
   let choicesChecked = 0;
   const v11 = options.v11 === true;
-  const definitions = v11 ? [...CASUAL_EVENTS, ...LIEUTENANT_EVENTS] : CASUAL_EVENTS;
+  const f4 = options.f4 === true;
+  const definitions = f4
+    ? [...CASUAL_EVENTS, ...F4_LIEUTENANT_EVENTS]
+    : v11
+      ? [...CASUAL_EVENTS, ...LIEUTENANT_EVENTS.filter((event) => event.id.startsWith("chen_mang_"))]
+      : CASUAL_EVENTS;
 
   definitions.forEach((event, eventIndex) => {
     event.choices.forEach((choice, choiceIndex) => {
@@ -911,9 +1011,17 @@ export function verifyRoadEventChoiceEffects(options = {}) {
       const probe = createInitialState(0xe700 + eventIndex * 2 + choiceIndex, {
         skipOnboarding: true,
         startedAt: new Date(0).toISOString(),
-        v11
+        v11,
+        fullVersion: f4,
+        f2: f4,
+        f3: f4,
+        f4
       });
-      if (event.id.startsWith("chen_mang_")) {
+      const owner = LIEUTENANT_ROSTER.find((profile) => event.id.startsWith(`${profile.id}_`));
+      if (owner && f4) {
+        probe.player.lieutenants = [{ id: owner.id, hiredAtTick: 0, unpaidDays: 0 }];
+        syncLieutenantAlias(probe);
+      } else if (owner?.id === "chen_mang") {
         probe.player.lieutenant = { id: "chen_mang", hiredAtTick: 0 };
       }
       ensureCasualState(probe);
@@ -1099,22 +1207,29 @@ function autoplayDecision(state) {
             troops + garrisonCount(fief) - CONFIG.FIEF_MIN_FIELD_TROOPS
           )
         );
-      } else {
-        state.player.moveTarget = copyPosition(fief.pos);
+        return;
       }
-      return;
+      if (town?.id !== fief.id) {
+        state.player.moveTarget = copyPosition(fief.pos);
+        return;
+      }
+      // Already at the threatened fief with too few field troops: fall
+      // through to the normal recruit path instead of targeting our own
+      // coordinates forever. F4's personal events made this latent bot stall
+      // reproducible; this changes autoplay policy only, never simulation.
     }
   }
 
   if (
     isV11State(state) &&
     state.player.act >= 2 &&
-    !state.player.lieutenant &&
+    getLieutenants(state).length < (state.features?.f4 ? CONFIG.F4_LIEUTENANT_SLOTS : 1) &&
     town &&
     state.player.gold >= CONFIG.V11_LIEUTENANT_COST
   ) {
     state.player.moveTarget = null;
-    hireLieutenant(state);
+    const nextLieutenant = LIEUTENANT_ROSTER.find((profile) => !hasLieutenant(state, profile.id));
+    hireLieutenant(state, nextLieutenant?.id || "chen_mang");
     return;
   }
 
@@ -1123,7 +1238,11 @@ function autoplayDecision(state) {
     return;
   }
 
-  if (state.player.act >= 2 && !contract) {
+  // Risky tavern work teaches the Act 2 loop. Once Act 3 begins the greedy
+  // autoplay bot must pursue the renown/fief arc instead of repeatedly paying
+  // a 15-renown failure penalty that can cancel hours of otherwise valid wins.
+  // This is bot policy only; player contract rules and balance stay unchanged.
+  if (state.player.act === 2 && !contract) {
     if (town && (!fullVersion || town.factionId === state.autoplay.patronFactionId)) {
       acceptMercenaryContract(state, town.id, "risky");
     }
@@ -1148,7 +1267,20 @@ function autoplayDecision(state) {
   );
   if (canRecruitHere) {
     state.player.moveTarget = null;
-    if (state.tick % CONFIG.AUTOPLAY_REEVALUATE_TICKS === 0) recruitMilitia(state);
+    if (state.tick % CONFIG.AUTOPLAY_REEVALUATE_TICKS === 0) {
+      let recruitArm = "spear";
+      if (state.features?.f3) {
+        const scouted = state.bandits.find((bandit) => bandit.id === state.autoplay.targetBanditId)
+          || nearestBandit(state, true);
+        const enemyArm = dominantArm(scouted || { troops: [] });
+        recruitArm = enemyArm === "spear" ? "archer" : enemyArm === "archer" ? "cavalry" : "spear";
+        if ((town.recruitPools?.[recruitArm] || 0) <= 0) {
+          recruitArm = ARM_IDS.find((arm) => (town.recruitPools?.[arm] || 0) > 0) || "spear";
+        }
+        state.autoplay.counterArmChosen = recruitArm;
+      }
+      recruitMilitia(state, recruitArm);
+    }
     return;
   }
 
@@ -1185,6 +1317,9 @@ export function setAutoplay(state, enabled = true, options = {}) {
   state.autoplay.enabled = Boolean(enabled);
   state.autoplay.fullVersion = options.fullVersion === true;
   state.autoplay.patronFactionId ||= options.patronFactionId || "north";
+  state.autoplay.origin = options.origin || state.autoplay.origin || CONFIG.AUTOPLAY_F2_ORIGIN;
+  state.autoplay.endingChoice = options.endingChoice || state.autoplay.endingChoice || "stop";
+  state.autoplay.maxDecisions = Math.max(1, Number(options.maxDecisions) || state.autoplay.maxDecisions || 1);
   if (!state.autoplay.enabled) {
     state.autoplay.targetBanditId = null;
     state.player.moveTarget = null;
@@ -1330,10 +1465,14 @@ export function worldTick(state) {
   let spawnBalance = null;
   let warSpawnResult = null;
   let roadEventResult = null;
+  let act3ExpansionResult = null;
+  let kingdomDayResult = null;
   if (dayAdvanced) {
     state.stats.days += 1;
     dailyEconomyResult = processDailyEconomy(state);
     dailyContractResult = processDailyContract(state);
+    act3ExpansionResult = processAct3Expansion(state);
+    kingdomDayResult = processKingdomDay(state);
     if (state.bandits.length < CONFIG.MAX_BANDITS) {
       const spawned = spawnScaledBandit(state);
       spawnBalance = applyCasualSpawnBalance(state, spawned);
@@ -1359,32 +1498,45 @@ export function worldTick(state) {
     spawnBalance,
     warSpawnResult,
     roadEventResult,
+    act3ExpansionResult,
+    kingdomDayResult,
     battleScriptCheck,
     progression: progressionHook(state),
     events: eventsSince(state, previousNewestEvent)
   };
 }
 
-export function recruitMilitia(state) {
+export function recruitMilitia(state, requestedArm = "spear") {
   if (state.telemetry) state.telemetry.recruitClicks = (state.telemetry.recruitClicks || 0) + 1;
   if (state.paused) return { ok: false, reason: "paused" };
   if (state.battle) return { ok: false, reason: "battle" };
   const town = activeTown(state);
   if (!town) return { ok: false, reason: "outsideTown" };
+  const arm = state.features?.f3 && ARM_IDS.includes(requestedArm) ? requestedArm : null;
   const troops = getTroopCount(state.player);
-  const cap = state.player.act >= 2 ? CONFIG.ACT2_TROOP_CAP : CONFIG.ACT1_TROOP_CAP;
+  const cap = state.player.act >= 3
+    ? CONFIG.ACT3_TROOP_CAP
+    : state.player.act >= 2
+      ? CONFIG.ACT2_TROOP_CAP
+      : CONFIG.ACT1_TROOP_CAP;
   if (troops >= cap) return { ok: false, reason: "cap", cap };
-  const recoveryRecruit = town.recruitPool <= 0 && troops < CONFIG.PLAYER_RECOVERY_RECRUIT_FLOOR;
-  if (town.recruitPool <= 0 && !recoveryRecruit) return { ok: false, reason: "pool" };
+  const armPool = arm ? Math.max(0, town.recruitPools?.[arm] || 0) : town.recruitPool;
+  const recoveryRecruit = armPool <= 0 && troops < CONFIG.PLAYER_RECOVERY_RECRUIT_FLOOR;
+  if (armPool <= 0 && !recoveryRecruit) {
+    return { ok: false, reason: "pool", ...(arm ? { arm } : {}) };
+  }
   const price = townRecruitPrice(state, town, CONFIG.RECRUIT_COST);
   if (state.player.gold < price.cost) return { ok: false, reason: "gold", cost: price.cost };
 
   state.player.gold -= price.cost;
-  if (!recoveryRecruit) town.recruitPool -= 1;
-  incrementTroop(state.player, "militia", 1);
+  if (!recoveryRecruit) {
+    town.recruitPool -= 1;
+    if (arm) town.recruitPools[arm] -= 1;
+  }
+  incrementTroop(state.player, "militia", 1, arm);
   state.stats.peakTroops = Math.max(state.stats.peakTroops || 0, getTroopCount(state.player));
   addEvent(state, "log.recruit", { townId: town.id, cost: price.cost });
-  return { ok: true, townId: town.id, cap, recruitPool: town.recruitPool, cost: price.cost, price };
+  return { ok: true, townId: town.id, cap, recruitPool: town.recruitPool, arm, cost: price.cost, price };
 }
 
 export function townRecruitPrice(state, townOrId = null, baseCost = CONFIG.RECRUIT_COST) {
@@ -1471,19 +1623,33 @@ export function buyTownBattleBuff(state) {
   };
 }
 
-export function hireLieutenant(state) {
+export function hireLieutenant(state, requestedId = "chen_mang") {
   if (!isV11State(state)) return { ok: false, reason: "variant" };
   if (state.paused) return { ok: false, reason: "paused" };
   if (state.battle) return { ok: false, reason: "battle" };
   if (state.player.act < 2 || state.demo?.ended) return { ok: false, reason: "act" };
   const town = activeTown(state);
   if (!town) return { ok: false, reason: "outsideTown" };
-  if (state.player.lieutenant) return { ok: false, reason: "occupied" };
-  if (state.player.gold < CONFIG.V11_LIEUTENANT_COST) {
-    return { ok: false, reason: "gold", cost: CONFIG.V11_LIEUTENANT_COST };
+  const profile = LIEUTENANT_ROSTER.find((entry) => entry.id === requestedId);
+  if (!profile || (!state.features?.f4 && profile.id !== "chen_mang")) {
+    return { ok: false, reason: "unavailable" };
   }
-  state.player.gold -= CONFIG.V11_LIEUTENANT_COST;
-  state.player.lieutenant = { id: "chen_mang", hiredAtTick: state.tick };
+  const current = getLieutenants(state);
+  const slots = state.features?.f4 ? CONFIG.F4_LIEUTENANT_SLOTS : 1;
+  if (current.length >= slots) return { ok: false, reason: "occupied" };
+  if (current.some((entry) => entry.id === profile.id)) return { ok: false, reason: "hired" };
+  const cost = state.features?.f4 ? CONFIG.F4_LIEUTENANT_COST : CONFIG.V11_LIEUTENANT_COST;
+  if (state.player.gold < cost) {
+    return { ok: false, reason: "gold", cost };
+  }
+  state.player.gold -= cost;
+  const lieutenant = { id: profile.id, hiredAtTick: state.tick, ...(state.features?.f4 ? { unpaidDays: 0 } : {}) };
+  if (state.features?.f4) {
+    state.player.lieutenants.push(lieutenant);
+    syncLieutenantAlias(state);
+  } else {
+    state.player.lieutenant = lieutenant;
+  }
   if (state.telemetry?.lieutenant) {
     state.telemetry.lieutenant.hired = true;
     state.telemetry.lieutenant.hireCount = Math.max(
@@ -1496,16 +1662,25 @@ export function hireLieutenant(state) {
       activeSeconds: Number(state.telemetry.totalActiveSeconds) || 0
     };
   }
+  if (state.features?.f4) {
+    state.telemetry.lieutenants ||= { hiredIds: [], hireCount: 0, lostCount: 0, unpaidLeaves: 0 };
+    state.telemetry.lieutenants.hiredIds = [...new Set([
+      ...(state.telemetry.lieutenants.hiredIds || []),
+      profile.id
+    ])];
+    state.telemetry.lieutenants.hireCount += 1;
+    recordKingdomChronicle(state, "lieutenantHired", { lieutenantId: profile.id });
+  }
   addEvent(state, "log.lieutenantHired", {
-    lieutenantId: "chen_mang",
+    lieutenantId: profile.id,
     townId: town.id,
-    cost: CONFIG.V11_LIEUTENANT_COST
+    cost
   }, "win");
   return {
     ok: true,
-    lieutenant: state.player.lieutenant,
+    lieutenant,
     townId: town.id,
-    cost: CONFIG.V11_LIEUTENANT_COST
+    cost
   };
 }
 
@@ -1669,6 +1844,10 @@ function resolveAutoplayModal(state) {
     advanceOnboarding(state);
     return true;
   }
+  if (state.demo.modal === "origin") {
+    selectOrigin(state, state.autoplay?.origin || CONFIG.AUTOPLAY_F2_ORIGIN);
+    return true;
+  }
   if (state.demo.modal === "troopPromise") {
     submitPromise(state, CONFIG.AUTOPLAY_TROOP_PROMISE, deterministicTimestamp(state));
     return true;
@@ -1693,9 +1872,29 @@ function resolveAutoplayModal(state) {
     dismissFiefThreat(state);
     return true;
   }
+  if (state.demo.modal === "founding") {
+    foundKingdom(state);
+    return true;
+  }
+  if (state.demo.modal === "foundingSeal") {
+    dismissFoundingSeal(state);
+    return true;
+  }
+  if (state.demo.modal === "kingdomEdict") {
+    chooseKingdomEdict(
+      state,
+      state.autoplay?.endingChoice || "stop",
+      deterministicTimestamp(state)
+    );
+    return true;
+  }
   if (state.demo.modal === "formation") {
     const report = state.battle?.formations?.reportedEnemy || "line";
     choosePlayerFormation(state, counterFormation(report));
+    return true;
+  }
+  if (state.demo.modal === "battleCommand") {
+    chooseBattleCommand(state, CONFIG.F3_AUTOPLAY_COMMAND);
     return true;
   }
   return false;
@@ -1704,17 +1903,24 @@ function resolveAutoplayModal(state) {
 export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
   const fullVersion = options.fullVersion === true;
   const v11 = fullVersion || options.v11 === true;
-  const roadEventEffectAudit = verifyRoadEventChoiceEffects({ v11 });
+  const roadEventEffectAudit = verifyRoadEventChoiceEffects({ v11, f4: options.phase4 === true });
   if (!roadEventEffectAudit.ok) {
     throw new Error(`Autoplay road-event effect mismatch: ${JSON.stringify(roadEventEffectAudit.failures)}`);
   }
   const state = createInitialState(seed, {
     startedAt: new Date(0).toISOString(),
-    v11
+    v11,
+    fullVersion,
+    f2: options.phase2 === true || options.phase3 === true,
+    f3: options.phase3 === true || options.phase4 === true,
+    f4: options.phase4 === true
   });
   setAutoplay(state, true, {
     fullVersion,
-    patronFactionId: options.patronFactionId || "north"
+    patronFactionId: options.patronFactionId || "north",
+    origin: options.origin || CONFIG.AUTOPLAY_F2_ORIGIN,
+    endingChoice: options.endingChoice || "stop",
+    maxDecisions: options.maxDecisions || 1
   });
   initializeLivingWorld(state);
   while (resolveAutoplayModal(state)) {
@@ -1733,6 +1939,8 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
   let endingSeconds = null;
   let act3Seconds = null;
   let fiefThreatSeconds = null;
+  let foundingSeconds = null;
+  let edictSeconds = null;
   let act2BattleCount = null;
   let endingBattleCount = null;
   let resolvedBattleRounds = 0;
@@ -1745,7 +1953,12 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
   while (
     state.telemetry.totalActiveSeconds < maximumActiveSeconds &&
     !state.demo.ended &&
-    (!fullVersion || fiefThreatSeconds === null)
+    (!fullVersion || options.phase2 === true || fiefThreatSeconds === null) &&
+    !(
+      fullVersion &&
+      state.autoplay.endingChoice === "continue" &&
+      state.kingdom.decisionCount >= state.autoplay.maxDecisions
+    )
   ) {
     const burst = Math.max(1, CONFIG.AUTOPLAY_MULTIPLIER);
     for (let index = 0; index < burst && !state.demo.ended; index += 1) {
@@ -1782,12 +1995,15 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
         endingBattleRounds = resolvedBattleRounds;
       }
       if (transition?.type === "act3" && act3Seconds === null) act3Seconds = activeSeconds;
+      if (transition?.type === "founding" && foundingSeconds === null) foundingSeconds = activeSeconds;
       if (state.telemetry.chronicle.fiefThreat && fiefThreatSeconds === null) {
         fiefThreatSeconds = state.telemetry.chronicle.fiefThreat.activeSeconds;
       }
       while (resolveAutoplayModal(state)) {
         // Resolve the Act 2 promise before advancing more ticks.
       }
+      if (state.kingdom.founded && foundingSeconds === null) foundingSeconds = activeSeconds;
+      if (state.kingdom.decisionCount > 0 && edictSeconds === null) edictSeconds = activeSeconds;
       if (state.telemetry.totalActiveSeconds >= maximumActiveSeconds) break;
     }
   }
@@ -1807,6 +2023,10 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
     endingSeconds,
     act3Seconds,
     fiefThreatSeconds,
+    foundingSeconds,
+    edictSeconds,
+    endingPath: state.kingdom.endingPath,
+    kingdomDecisions: state.kingdom.decisionCount,
     fiefThreatDelaySeconds: act3Seconds === null || fiefThreatSeconds === null
       ? null
       : fiefThreatSeconds - act3Seconds,

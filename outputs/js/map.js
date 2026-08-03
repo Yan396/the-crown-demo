@@ -1002,8 +1002,10 @@ export function createMapRenderer(canvas) {
     const position = worldToScreen(interpolatedPosition(state.player, alpha));
     const breath = motionOff() ? 0 : (Math.sin(now / 620) * 0.5 + 0.5);
     const half = 10;
-    const titleKey = state.player.act >= 3
-      ? "map.playerTitleFief"
+    const titleKey = state.player.act >= 4
+      ? "map.playerTitleKing"
+      : state.player.act >= 3
+        ? "map.playerTitleFief"
       : state.player.act >= 2
         ? "map.playerTitleAct2"
         : "map.playerTitleAct1";

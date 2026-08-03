@@ -40,10 +40,13 @@ jobs:
           DEPLOY_SHA="$(git rev-parse --short=7 HEAD)"
           sed -i "s/BUILD_VERSION: \"[^\"]*\"/BUILD_VERSION: \"${DEPLOY_SHA}\"/" outputs/js/data.js
 
-      - name: Upload static demo
+      - name: Build full and demo entry points
+        run: node work/build_pages.mjs
+
+      - name: Upload full game and free demo
         uses: actions/upload-pages-artifact@v4
         with:
-          path: outputs
+          path: .pages-dist
 
       - name: Deploy to GitHub Pages
         id: deployment

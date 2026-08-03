@@ -1,0 +1,43 @@
+name: desktop-build
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "desktop/**"
+      - "outputs/**"
+      - ".github/workflows/desktop-build.yml"
+
+jobs:
+  bundle:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS app
+            os: macos-latest
+            bundle: app
+            artifact: desktop/src-tauri/target/release/bundle/macos/**
+          - name: Windows NSIS
+            os: windows-latest
+            bundle: nsis
+            artifact: desktop/src-tauri/target/release/bundle/nsis/**
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+      - name: Build native bundle
+        working-directory: desktop
+        run: cargo tauri build --bundles ${{ matrix.bundle }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: the-crown-${{ runner.os }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
+

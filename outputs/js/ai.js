@@ -1,4 +1,4 @@
-import { CONFIG, TROOP_TYPES } from "./data.js";
+import { ARM_IDS, CONFIG, TROOP_TYPES } from "./data.js";
 import { nextFloat } from "./rng.js";
 import { buildRoads, nextRoadWaypoint, ROAD_CONFIG } from "./roads.js";
 import {
@@ -10,7 +10,8 @@ import {
   getPartyStrength,
   getTown,
   getTroopCount,
-  incrementTroop
+  incrementTroop,
+  recruitPoolsForFaction
 } from "./state.js";
 
 export function movePartyToward(party, speed) {
@@ -246,8 +247,27 @@ function recruitLordAtTown(state, lord, town) {
   const availableToLord = Math.max(0, town.recruitPool - playerReserve);
   const quantity = Math.min(capacity, availableToLord, affordable);
   if (quantity <= 0) return 0;
-  incrementTroop(lord, "militia", quantity);
-  town.recruitPool -= quantity;
+  if (state.features?.f3) {
+    town.recruitPools ||= recruitPoolsForFaction(town.factionId);
+    let remaining = quantity;
+    const order = ARM_IDS.slice().sort((first, second) => (
+      (town.recruitPools[second] || 0) - (town.recruitPools[first] || 0)
+      || first.localeCompare(second)
+    ));
+    for (const arm of order) {
+      const taken = Math.min(remaining, Math.max(0, town.recruitPools[arm] || 0));
+      if (taken > 0) {
+        incrementTroop(lord, "militia", taken, arm);
+        town.recruitPools[arm] -= taken;
+        remaining -= taken;
+      }
+      if (remaining <= 0) break;
+    }
+    town.recruitPool = Object.values(town.recruitPools).reduce((sum, amount) => sum + amount, 0);
+  } else {
+    incrementTroop(lord, "militia", quantity);
+    town.recruitPool -= quantity;
+  }
   lord.gold -= quantity * TROOP_TYPES.militia.cost;
   addEvent(state, "log.lordRecruited", {
     lordId: lord.id,

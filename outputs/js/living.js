@@ -120,7 +120,7 @@ export function spawnScaledBandit(state, options = {}) {
     pos: position,
     prevPos: copyPosition(position),
     moveTarget: null,
-    troops: [{ type: "bandit", count: 1, xp: 0 }],
+    troops: [{ type: "bandit", count: 1, xp: 0, ...(state.features?.f3 ? { arm: "spear" } : {}) }],
     gold: 0
   };
   state.nextBanditId += 1;

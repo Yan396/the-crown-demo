@@ -1,5 +1,6 @@
 import {
   attemptFlee,
+  chooseBattleCommand,
   choosePlayerFormation,
   counterFormation,
   skipBattle,
@@ -20,6 +21,13 @@ import {
   updateSessionPeaks
 } from "./demo.js";
 import { createMapRenderer } from "./map.js";
+import {
+  chooseKingdomEdict,
+  declineFounding,
+  dismissFoundingSeal,
+  foundKingdom,
+  selectOrigin
+} from "./kingdom.js";
 import { CONFIG_PRESENTATION } from "./presentation.js";
 import { stampSeal } from "./seal.js";
 import {
@@ -50,6 +58,11 @@ import {
   startTelemetrySession
 } from "./telemetry.js";
 import { createUi } from "./ui.js";
+import {
+  createStorageAdapter,
+  isDesktopRuntime,
+  setDesktopFullscreen
+} from "./storage.js";
 
 const canvas = document.getElementById("map");
 const query = new URLSearchParams(window.location.search);
@@ -75,23 +88,40 @@ const autoplaySeed = Number.isFinite(requestedSeed) ? requestedSeed >>> 0 : CONF
 const qaFreshEnabled = !autoplayEnabled && query.get("qa") === "1" && query.get("fresh") === "1";
 const qaRecruitRecoveryEnabled = qaFreshEnabled && query.get("recruitRecovery") === "1";
 const qaAct2TownEnabled = qaFreshEnabled && query.get("act2Town") === "1";
+const qaCapture = qaFreshEnabled ? query.get("capture") : null;
+const storage = await createStorageAdapter();
+const desktopRuntime = isDesktopRuntime();
 const qaPromiseCrossingEnabled = fullVersion && qaFreshEnabled && query.get("promiseCrossing") === "1";
 const qaBattleStageEnabled = qaFreshEnabled && query.get("battleStage") === "1";
 
 let state = autoplayEnabled
   ? createInitialState(autoplaySeed, {
     startedAt: new Date(0).toISOString(),
-    v11: v11Enabled
+    v11: v11Enabled,
+    fullVersion,
+    f2: fullVersion,
+    f3: fullVersion,
+    f4: fullVersion
   })
   : qaFreshEnabled
     ? createInitialState(autoplaySeed, {
       skipOnboarding: true,
       startedAt: new Date(0).toISOString(),
-      v11: v11Enabled
+      v11: v11Enabled,
+      fullVersion,
+      f2: fullVersion,
+      f3: fullVersion,
+      f4: fullVersion
     })
-    : loadState(undefined, { v11: v11Enabled });
+    : loadState(storage, { v11: v11Enabled, fullVersion, f2: fullVersion, f3: fullVersion, f4: fullVersion });
 const loadedExistingState = Boolean(state);
-if (!state) state = createInitialState(CONFIG.SEED, { v11: v11Enabled });
+if (!state) state = createInitialState(CONFIG.SEED, {
+  v11: v11Enabled,
+  fullVersion,
+  f2: fullVersion,
+  f3: fullVersion,
+  f4: fullVersion
+});
 if (qaRecruitRecoveryEnabled) {
   state.player.gold = 164;
   state.player.troops = [{ type: "militia", count: 3, xp: 0 }];
@@ -103,9 +133,12 @@ if (qaAct2TownEnabled) {
   state.player.renown = CONFIG.ACT2_RENOWN;
   state.player.gold = 500;
   state.player.troops = [
-    { type: "militia", count: 5, xp: 0 },
-    { type: "veteran", count: 1, xp: 3 }
+    { type: "militia", arm: "spear", count: 5, xp: 0 },
+    { type: "veteran", arm: "archer", count: 1, xp: 3 }
   ];
+  const captureTown = state.towns.find((town) => town.id === CONFIG.START_TOWN_ID) || state.towns[0];
+  state.player.pos = { ...captureTown.pos };
+  state.player.prevPos = { ...captureTown.pos };
   state.casual.openingBattlesPrepared = CONFIG.STARTER_BATTLE_COUNT;
 }
 if (qaPromiseCrossingEnabled) {
@@ -129,7 +162,7 @@ if (qaBattleStageEnabled) {
 startTelemetrySession(state);
 
 const renderer = createMapRenderer(canvas);
-let saveAvailable = autoplayEnabled || qaFreshEnabled ? true : (loadedExistingState || saveState(state));
+let saveAvailable = autoplayEnabled || qaFreshEnabled ? true : (loadedExistingState || saveState(state, storage));
 let logicAccumulator = 0;
 let lastFrameAt = performance.now();
 let activePointerId = null;
@@ -147,6 +180,9 @@ const autoplayMetrics = {
   endingSeconds: null,
   act3Seconds: null,
   fiefThreatSeconds: null,
+  foundingSeconds: null,
+  edictSeconds: null,
+  endingPath: null,
   act2RawSeconds: null,
   endingRawSeconds: null,
   activeSeconds: 0,
@@ -167,7 +203,7 @@ window.__CROWN_PERF__ = perf;
 
 function persist(showFailure = false) {
   if (autoplayEnabled || qaFreshEnabled) return true;
-  saveAvailable = saveState(state);
+  saveAvailable = saveState(state, storage);
   if (!saveAvailable && showFailure) ui.showToast("toast.saveFailed");
   return saveAvailable;
 }
@@ -182,10 +218,10 @@ function getBattleStage() {
   battleStage = createBattleStage(document.body, {
     translate: (key, parameters) => ui.text(key, parameters),
     hintSeen: () => {
-      try { return localStorage.getItem(STAGE_HINT_KEY) === "1"; } catch (error) { return false; }
+      try { return storage?.getItem(STAGE_HINT_KEY) === "1"; } catch (error) { return false; }
     },
     persistHint: () => {
-      try { localStorage.setItem(STAGE_HINT_KEY, "1"); } catch (error) { /* private mode */ }
+      try { storage?.setItem(STAGE_HINT_KEY, "1"); } catch (error) { /* private mode */ }
     },
     initialSpeed: () => state.battlePlayback?.speed || 1,
     // The brief's playback controls write to the engine's own playback record.
@@ -320,6 +356,10 @@ function resolveAutoplayModal() {
     advanceOnboarding(state);
     return true;
   }
+  if (state.demo.modal === "origin") {
+    selectOrigin(state, CONFIG.AUTOPLAY_F2_ORIGIN);
+    return true;
+  }
   if (state.demo.modal === "troopPromise") {
     submitPromise(state, CONFIG.AUTOPLAY_TROOP_PROMISE, new Date(state.tick * CONFIG.LOGIC_MS).toISOString());
     return true;
@@ -344,10 +384,26 @@ function resolveAutoplayModal() {
     dismissFiefThreat(state);
     return true;
   }
+  if (state.demo.modal === "founding") {
+    foundKingdom(state);
+    return true;
+  }
+  if (state.demo.modal === "foundingSeal") {
+    dismissFoundingSeal(state);
+    return true;
+  }
+  if (state.demo.modal === "kingdomEdict") {
+    chooseKingdomEdict(state, query.get("ending") === "continue" ? "continue" : "stop");
+    return true;
+  }
   if (state.demo.modal === "formation") {
     if (holdAutoplayFormations) return false;
     const report = state.battle?.formations?.reportedEnemy || "line";
     choosePlayerFormation(state, counterFormation(report));
+    return true;
+  }
+  if (state.demo.modal === "battleCommand") {
+    chooseBattleCommand(state, CONFIG.F3_AUTOPLAY_COMMAND);
     return true;
   }
   return false;
@@ -355,7 +411,7 @@ function resolveAutoplayModal() {
 
 function finishAutoplaySetup() {
   if (!autoplayEnabled) return;
-  const eventAudit = verifyRoadEventChoiceEffects({ v11: v11Enabled });
+  const eventAudit = verifyRoadEventChoiceEffects({ v11: v11Enabled, f4: fullVersion });
   autoplayMetrics.roadEventCardsChecked = eventAudit.cardsChecked;
   autoplayMetrics.roadEventChoicesChecked = eventAudit.choicesChecked;
   if (!eventAudit.ok) {
@@ -364,7 +420,11 @@ function finishAutoplaySetup() {
   console.info(
     `[CROWN autoplay] road-event effects ${eventAudit.choicesChecked}/${eventAudit.choicesChecked}: ok`
   );
-  setAutoplay(state, true, { fullVersion });
+  setAutoplay(state, true, {
+    fullVersion,
+    origin: CONFIG.AUTOPLAY_F2_ORIGIN,
+    endingChoice: query.get("ending") === "continue" ? "continue" : "stop"
+  });
   while (resolveAutoplayModal()) {
     // Tutorial taps and mirror answers intentionally consume no active time.
   }
@@ -398,10 +458,10 @@ ui = createUi({
     persist(true);
     sync();
   },
-  onRecruit() {
+  onRecruit(arm = "spear") {
     const town = activeTown(state);
     const from = town ? renderer.worldToScreen(town.pos) : null;
-    const result = recruitMilitia(state);
+    const result = recruitMilitia(state, arm);
     if (result.ok) {
       updateSessionPeaks(state);
       persist(true);
@@ -491,8 +551,8 @@ ui = createUi({
     }
     sync();
   },
-  onHireLieutenant() {
-    const result = hireLieutenant(state);
+  onHireLieutenant(lieutenantId = "chen_mang") {
+    const result = hireLieutenant(state, lieutenantId);
     if (result.ok) {
       persist(true);
       ui.showToast("toast.lieutenantHired");
@@ -505,6 +565,14 @@ ui = createUi({
   },
   onChooseFormation(formation) {
     const result = choosePlayerFormation(state, formation);
+    if (!result.ok) return;
+    lastFrameAt = performance.now();
+    logicAccumulator = 0;
+    persist(true);
+    sync();
+  },
+  onChooseBattleCommand(command) {
+    const result = chooseBattleCommand(state, command);
     if (!result.ok) return;
     lastFrameAt = performance.now();
     logicAccumulator = 0;
@@ -567,6 +635,37 @@ ui = createUi({
     persist(true);
     sync();
   },
+  onSelectOrigin(originId) {
+    if (!selectOrigin(state, originId).ok) return;
+    persist(true);
+    sync();
+  },
+  onFoundKingdom() {
+    const result = foundKingdom(state);
+    if (!result.ok) return;
+    stampSeal(ui.text("kingdom.seal"));
+    persist(true);
+    sync();
+  },
+  onDeclineFounding() {
+    if (!declineFounding(state).ok) return;
+    persist(true);
+    sync();
+  },
+  onDismissFoundingSeal() {
+    if (!dismissFoundingSeal(state).ok) return;
+    lastFrameAt = performance.now();
+    logicAccumulator = 0;
+    persist(true);
+    sync();
+  },
+  onKingdomEdict(choice) {
+    const result = chooseKingdomEdict(state, choice);
+    if (!result.ok) return;
+    if (result.type === "ending") stampSeal(ui.text("ending.fullSeal"));
+    persist(true);
+    sync();
+  },
   onSubmitPromise(value) {
     const result = submitPromise(state, value);
     if (!result.accepted) return;
@@ -577,6 +676,7 @@ ui = createUi({
     sync();
   },
   async onShare() {
+    if (desktopRuntime) return;
     const result = await sharePlaytestResult(state, state.settings.language);
     if (result.copied && !result.shared) ui.showToast("toast.copied");
     if (!result.copied && !result.shared && !result.cancelled) ui.showToast("toast.copyFailed");
@@ -584,9 +684,11 @@ ui = createUi({
   onNewSeed(replay) {
     if (replay) {
       const next = createReplayState(state, { startedAt: new Date().toISOString() });
-      next.demo.modal = "troopPromise";
-      next.demo.pauseReason = "promise";
-      next.paused = true;
+      if (!fullVersion) {
+        next.demo.modal = "troopPromise";
+        next.demo.pauseReason = "promise";
+        next.paused = true;
+      }
       replaceState(next);
       return;
     }
@@ -594,11 +696,121 @@ ui = createUi({
       language: state.settings.language,
       replayCount: state.telemetry.replayCount,
       startedAt: new Date().toISOString(),
-      v11: v11Enabled
+      v11: v11Enabled,
+      fullVersion,
+      f2: fullVersion,
+      f3: fullVersion,
+      f4: fullVersion
     });
     replaceState(next);
   }
 });
+
+if (query.get("qa") === "1") {
+  const qaTools = {
+    state: () => state,
+    sync,
+    beginBattle(terrain = "field") {
+      state.battle = null;
+      state.battleScript = null;
+      state.demo.modal = null;
+      state.demo.pauseReason = null;
+      state.paused = false;
+      state.player.act = Math.max(3, state.player.act);
+      state.casual.openingBattlesPrepared = CONFIG.STARTER_BATTLE_COUNT;
+      state.player.troops = [
+        { type: "militia", arm: "spear", count: 12, xp: 0 },
+        { type: "veteran", arm: "archer", count: 8, xp: 3 },
+        { type: "veteran", arm: "cavalry", count: 6, xp: 3 }
+      ];
+      const town = state.towns.find((entry) => entry.id === CONFIG.START_TOWN_ID) || state.towns[0];
+      state.player.pos = terrain === "town" ? { ...town.pos } : { x: 620, y: 380 };
+      if (terrain === "town" && !state.player.fiefs.includes(town.id)) state.player.fiefs.push(town.id);
+      const enemy = state.bandits.find((entry) => !entry.elite) || state.bandits[0];
+      enemy.pos = { ...state.player.pos };
+      enemy.troops = [
+        { type: "bandit", arm: "spear", count: 10, xp: 0 },
+        { type: "bandit", arm: "archer", count: 7, xp: 0 },
+        { type: "bandit", arm: "cavalry", count: 5, xp: 0 }
+      ];
+      startBattle(state, enemy);
+      sync();
+      return state.battle;
+    },
+    playBattle() {
+      if (!state.battle) return null;
+      const report = state.battle.formations?.reportedEnemy || "line";
+      if (state.demo.modal === "formation") choosePlayerFormation(state, counterFormation(report));
+      if (state.demo.modal === "battleCommand") chooseBattleCommand(state, "focus");
+      const result = skipBattle(state);
+      const script = result?.battleScript || state.battleScript;
+      sync();
+      if (script) getBattleStage().play(script, () => undefined);
+      return script;
+    }
+  };
+  window.__CROWN_QA__ = qaTools;
+
+  if (qaCapture === "formation") {
+    qaTools.beginBattle("field");
+  } else if (qaCapture === "melee" || qaCapture === "siege") {
+    qaTools.beginBattle(qaCapture === "siege" ? "town" : "field");
+    setTimeout(() => qaTools.playBattle(), 80);
+  } else if (qaCapture === "mirror") {
+    state.paused = true;
+    state.demo.modal = null;
+    state.player.act = 2;
+    state.player.gold = 350;
+    state.player.troops = [{ type: "veteran", arm: "spear", count: 97, xp: 3 }];
+    state.player.promises = [
+      { act: 1, kind: "troops", statedGoal: 60, actualAtActEnd: 76, exceeded: true, exceededAtTick: 900 },
+      { act: 2, kind: "gold", statedGoal: 300, actualAtActEnd: null, exceeded: true, exceededAtTick: 1800 }
+    ];
+    state.promises = state.player.promises;
+    sync();
+  } else if (qaCapture === "ending") {
+    state.paused = true;
+    state.demo.modal = null;
+    state.demo.ended = true;
+    state.ending = { mode: "full" };
+    state.stats.days = 92;
+    state.stats.battles = 48;
+    state.stats.wins = 39;
+    state.stats.peakTroops = 164;
+    state.stats.peakGold = 1280;
+    state.player.fiefs = state.towns.slice(0, 3).map((town) => town.id);
+    state.player.promises = [
+      { act: 1, kind: "troops", statedGoal: 60, actualAtActEnd: 76, exceeded: true, exceededAtTick: 900 },
+      { act: 2, kind: "gold", statedGoal: 300, actualAtActEnd: 520, exceeded: true, exceededAtTick: 1800 },
+      { act: 3, kind: "fiefs", statedGoal: 2, actualAtActEnd: 3, exceeded: true, exceededAtTick: 3600 }
+    ];
+    state.promises = state.player.promises;
+    state.telemetry.chronicle.firstWin = { tick: 300, day: 2, townId: CONFIG.START_TOWN_ID };
+    state.telemetry.chronicle.firstContract = { tick: 1200, day: 9, townId: CONFIG.START_TOWN_ID, factionId: "south" };
+    state.telemetry.chronicleEvents = [
+      { kind: "fiefGranted", tick: 3000, day: 31, townId: CONFIG.START_TOWN_ID },
+      { kind: "lieutenantHired", tick: 4100, day: 43, lieutenantId: "chen_mang" },
+      { kind: "founded", tick: 6000, day: 62 },
+      { kind: "edictStop", tick: 9000, day: 92 }
+    ];
+    sync();
+  } else if (qaCapture === "war") {
+    state.paused = true;
+    state.demo.modal = null;
+    state.player.act = 4;
+    state.player.pos = { x: 620, y: 380 };
+    state.player.prevPos = { ...state.player.pos };
+    state.player.renown = Math.max(500, state.player.renown);
+    state.player.fiefs = state.towns.slice(0, 3).map((town) => town.id);
+    state.kingdom.founded = true;
+    state.lords.forEach((lord, index) => {
+      const town = state.towns[index % state.towns.length];
+      lord.pos = { x: town.pos.x + (index % 2 ? 60 : -60), y: town.pos.y + (index % 3 - 1) * 36 };
+      lord.prevPos = { ...lord.pos };
+    });
+    sync();
+  }
+}
 
 finishAutoplaySetup();
 if (!autoplayEnabled && state.demo?.modal === "act2Transition") scheduleAct2Intro();
@@ -635,6 +847,11 @@ function runLogicStep() {
   }
   if (transition?.type === "ending") recordAutoplayMilestone("endingSeconds", activeSeconds);
   if (transition?.type === "act3") recordAutoplayMilestone("act3Seconds", activeSeconds);
+  if (transition?.type === "founding") recordAutoplayMilestone("foundingSeconds", activeSeconds);
+  if (state.kingdom?.decisionCount > 0) {
+    recordAutoplayMilestone("edictSeconds", activeSeconds);
+    autoplayMetrics.endingPath = state.kingdom.endingPath;
+  }
   if (state.telemetry.chronicle.fiefThreat) {
     recordAutoplayMilestone(
       "fiefThreatSeconds",
@@ -651,18 +868,15 @@ function runLogicStep() {
   if (townId !== lastTooltipTownId || result.dayAdvanced || result.battleResult) showNextTooltip();
 
   if (result.dayAdvanced) {
-    saveAvailable = autoplayEnabled ? true : autosaveState(state, result);
+    saveAvailable = autoplayEnabled ? true : autosaveState(state, result, storage);
   } else if (result.battleResult || transition) {
     persist();
   }
 
   const autoplayLimit = fullVersion
-    ? CONFIG.AUTOPLAY_FULL_MAX_ACTIVE_SECONDS
+    ? CONFIG.AUTOPLAY_F2_HARD_LIMIT_SECONDS
     : CONFIG.AUTOPLAY_MAX_ACTIVE_SECONDS;
-  if (autoplayEnabled && fullVersion && autoplayMetrics.fiefThreatSeconds !== null) {
-    autoplayStopped = true;
-    state.paused = true;
-  } else if (autoplayEnabled && !state.demo.ended && activeSeconds >= autoplayLimit) {
+  if (autoplayEnabled && !state.demo.ended && activeSeconds >= autoplayLimit) {
     autoplayStopped = true;
     state.paused = true;
     console.warn(`[CROWN autoplay] target missed at ${(activeSeconds / 60).toFixed(2)} active minutes`);
@@ -758,11 +972,22 @@ function finishPointer(event) {
 canvas.addEventListener("pointerup", finishPointer);
 canvas.addEventListener("pointercancel", finishPointer);
 window.addEventListener("resize", () => renderer.resize(state.player.pos));
+window.addEventListener("keydown", async (event) => {
+  if (event.key !== "F11" || !desktopRuntime) return;
+  event.preventDefault();
+  const fullscreen = document.documentElement.dataset.desktopFullscreen !== "true";
+  try {
+    await setDesktopFullscreen(fullscreen);
+    document.documentElement.dataset.desktopFullscreen = String(fullscreen);
+  } catch {
+    ui.showToast("toast.saveFailed");
+  }
+});
 
 function saveQuitPoint(screen) {
   if (autoplayEnabled || qaFreshEnabled) return;
   recordQuitPoint(state, screen);
-  saveState(state);
+  saveState(state, storage);
 }
 
 window.addEventListener("beforeunload", () => saveQuitPoint(state.demo.ended ? "ending" : state.demo.modal || "world"));

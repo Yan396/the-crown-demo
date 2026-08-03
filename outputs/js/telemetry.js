@@ -1,7 +1,8 @@
 import { CONFIG } from "./data.js";
 import { translate } from "./strings.js";
 
-const CODE_PREFIX = "crown1.";
+const CODE_PREFIX_V1 = "crown1.";
+const CODE_PREFIX_V2 = "crown2.";
 
 function nowIso() {
   return new Date().toISOString();
@@ -25,10 +26,18 @@ export function createTelemetry(options = {}) {
       lostCount: 0,
       firstHiredAt: null
     },
+    lieutenants: {
+      hiredIds: [],
+      hireCount: 0,
+      lostCount: 0,
+      unpaidLeaves: 0
+    },
     lieutenantEventChoices: [],
     promiseValues: { troops: null, gold: null },
     promiseFinalActuals: { troops: null, gold: null },
     promiseCrossings: { troops: null, gold: null },
+    chronicleEvents: [],
+    endingChronicle: [],
     chronicle: {
       firstWin: null,
       firstContract: null,
@@ -59,7 +68,14 @@ export function normalizeTelemetry(value, options = {}) {
     eventChoices: Array.isArray(value.eventChoices)
       ? value.eventChoices.slice(-CONFIG.ROAD_EVENT_HISTORY_LIMIT)
       : [],
+    chronicleEvents: Array.isArray(value.chronicleEvents)
+      ? value.chronicleEvents.slice(-CONFIG.KINGDOM_CHRONICLE_EVENT_LIMIT)
+      : [],
+    endingChronicle: Array.isArray(value.endingChronicle)
+      ? value.endingChronicle.slice(0, CONFIG.KINGDOM_CHRONICLE_MAX_LINES)
+      : [],
     lieutenant: { ...fallback.lieutenant, ...(value.lieutenant || {}) },
+    lieutenants: { ...fallback.lieutenants, ...(value.lieutenants || {}) },
     lieutenantEventChoices: Array.isArray(value.lieutenantEventChoices)
       ? value.lieutenantEventChoices.slice(-CONFIG.ROAD_EVENT_HISTORY_LIMIT)
       : [],
@@ -84,6 +100,12 @@ export function normalizeTelemetry(value, options = {}) {
   normalized.lieutenant.hired = Boolean(normalized.lieutenant.hired);
   normalized.lieutenant.hireCount = Math.max(0, Number(normalized.lieutenant.hireCount) || 0);
   normalized.lieutenant.lostCount = Math.max(0, Number(normalized.lieutenant.lostCount) || 0);
+  normalized.lieutenants.hiredIds = Array.isArray(normalized.lieutenants.hiredIds)
+    ? [...new Set(normalized.lieutenants.hiredIds.filter((id) => typeof id === "string"))]
+    : [];
+  ["hireCount", "lostCount", "unpaidLeaves"].forEach((key) => {
+    normalized.lieutenants[key] = Math.max(0, Number(normalized.lieutenants[key]) || 0);
+  });
   return normalized;
 }
 
@@ -241,13 +263,17 @@ export function finalizeTelemetry(state, endedAt = nowIso()) {
 export function buildPlaytestPayload(state) {
   const battles = Math.max(0, Number(state.stats?.battles) || 0);
   const wins = Math.max(0, Number(state.stats?.wins) || 0);
+  const telemetry = { ...state.telemetry };
+  // Keep crown1's frozen size/shape. The plural roster fields only exist in
+  // F4 full saves and are local-only in the paid desktop build.
+  if (!state.features?.f4) delete telemetry.lieutenants;
   return {
-    version: 1,
+    version: state.ending?.mode === "full" ? 2 : 1,
     build: state.features?.v11
       ? `${CONFIG.BUILD_VERSION}-${CONFIG.V11_BUILD_LABEL}`
       : CONFIG.BUILD_VERSION,
     seed: state.seed,
-    telemetry: { ...state.telemetry },
+    telemetry,
     promises: state.player.promises.map((entry) => ({
       act: entry.act,
       kind: entry.kind,
@@ -256,6 +282,18 @@ export function buildPlaytestPayload(state) {
       exceeded: Boolean(entry.exceeded),
       exceededAtTick: entry.exceededAtTick ?? null
     })),
+    ending: state.ending?.mode === "full" ? {
+      path: state.kingdom?.endingPath || null,
+      origin: state.kingdom?.origin || null,
+      foundedDay: state.kingdom?.foundedDay ?? null,
+      kingDays: state.kingdom?.kingDays ?? null,
+      decisions: state.kingdom?.decisionCount ?? 0,
+      coalitionWaves: state.kingdom?.coalitionWaves ?? 0,
+      rebellions: state.kingdom?.rebellions ?? 0,
+      chronicle: Array.isArray(state.telemetry?.endingChronicle)
+        ? state.telemetry.endingChronicle
+        : []
+    } : null,
     stats: {
       days: state.stats?.days || 0,
       battles,
@@ -287,17 +325,23 @@ function base64ToBytes(encoded) {
 
 export function encodeCrownCode(payload) {
   const json = JSON.stringify(payload);
-  return `${CODE_PREFIX}${bytesToBase64(new TextEncoder().encode(json))}`;
+  const prefix = payload?.version === 2 ? CODE_PREFIX_V2 : CODE_PREFIX_V1;
+  return `${prefix}${bytesToBase64(new TextEncoder().encode(json))}`;
 }
 
 export function decodeCrownCode(input) {
   const text = String(input || "").trim();
-  const prefixAt = text.indexOf(CODE_PREFIX);
-  if (prefixAt < 0) throw new Error("code-prefix");
-  const encoded = text.slice(prefixAt + CODE_PREFIX.length).split(/\s/)[0];
+  const matches = [CODE_PREFIX_V2, CODE_PREFIX_V1]
+    .map((prefix) => ({ prefix, at: text.indexOf(prefix) }))
+    .filter((entry) => entry.at >= 0)
+    .sort((first, second) => first.at - second.at);
+  if (!matches.length) throw new Error("code-prefix");
+  const { prefix, at: prefixAt } = matches[0];
+  const encoded = text.slice(prefixAt + prefix.length).split(/\s/)[0];
   if (!encoded) throw new Error("code-empty");
   const payload = JSON.parse(new TextDecoder().decode(base64ToBytes(encoded)));
-  if (!payload || payload.version !== 1 || !payload.telemetry || !payload.stats) {
+  const expectedVersion = prefix === CODE_PREFIX_V2 ? 2 : 1;
+  if (!payload || payload.version !== expectedVersion || !payload.telemetry || !payload.stats) {
     throw new Error("code-schema");
   }
   return payload;
@@ -309,12 +353,16 @@ export function buildResultCode(state) {
 
 export function buildShareMessage(state, language = "zh") {
   const code = buildResultCode(state);
-  return translate(language, "ending.shareMessage", { payload: code.slice(CODE_PREFIX.length) });
+  const prefix = code.startsWith(CODE_PREFIX_V2) ? CODE_PREFIX_V2 : CODE_PREFIX_V1;
+  const key = prefix === CODE_PREFIX_V2 ? "ending.shareMessageV2" : "ending.shareMessage";
+  return translate(language, key, { payload: code.slice(prefix.length) });
 }
 
 export function encodeShare(payload, language = "zh") {
   const code = encodeCrownCode(payload);
-  return translate(language, "ending.shareMessage", { payload: code.slice(CODE_PREFIX.length) });
+  const prefix = code.startsWith(CODE_PREFIX_V2) ? CODE_PREFIX_V2 : CODE_PREFIX_V1;
+  const key = prefix === CODE_PREFIX_V2 ? "ending.shareMessageV2" : "ending.shareMessage";
+  return translate(language, key, { payload: code.slice(prefix.length) });
 }
 
 export function decodeShare(input) {

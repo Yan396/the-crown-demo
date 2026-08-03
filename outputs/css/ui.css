@@ -728,16 +728,67 @@ body.battle-active #stats .promise-marker:not(.exceeded) {
 #fief-promise-options[hidden],
 #fief-threat-modal[hidden],
 #lieutenant-offer[hidden],
+#lieutenant-offer-shen[hidden],
+#lieutenant-offer-jia[hidden],
 #formation-modal[hidden],
+#battle-command-modal[hidden],
 #settings-sheet[hidden],
 #settings-scrim[hidden],
 #onboarding[hidden],
+#origin-modal[hidden],
+#kingdom-modal[hidden],
 #promise-modal[hidden],
 #road-event-modal[hidden],
 #context-tooltip[hidden],
 #demo-ending[hidden] {
   display: none !important;
 }
+
+.lieutenant-portrait {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  color: currentColor;
+}
+
+.lieutenant-portrait .portrait-accent { fill: var(--cinnabar); }
+
+.contract-choice[data-lieutenant-id] {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  text-align: left;
+}
+
+.contract-choice[data-lieutenant-id] .lieutenant-portrait { grid-row: 1 / span 2; }
+.contract-choice[data-lieutenant-id] > strong { display: contents; }
+.contract-choice[data-lieutenant-id] > strong > span { align-self: end; }
+.contract-choice[data-lieutenant-id] > span { grid-column: 2; align-self: start; }
+
+#lieutenant-chip {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+#lieutenant-chip .lieutenant-portrait { width: 26px; height: 26px; }
+
+.lieutenant-chip-entry {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.lieutenant-event-portrait {
+  display: grid;
+  place-items: center;
+  margin: -4px auto 6px;
+}
+
+.lieutenant-event-portrait .lieutenant-portrait { width: 96px; height: 96px; }
+.lieutenant-event-portrait[hidden],
+.road-event-glyph[hidden] { display: none !important; }
 
 .fief-garrison {
   display: grid;
@@ -811,6 +862,8 @@ body.battle-active #stats .promise-marker:not(.exceeded) {
 }
 
 #recruit-button,
+#recruit-archer-button,
+#recruit-cavalry-button,
 #veteran-button,
 #battle-buff-button,
 #tavern-button {
@@ -835,6 +888,8 @@ body.battle-active #stats .promise-marker:not(.exceeded) {
 }
 
 #recruit-button span,
+#recruit-archer-button span,
+#recruit-cavalry-button span,
 #veteran-button span,
 #battle-buff-button span,
 #tavern-button span {
@@ -2750,6 +2805,30 @@ body.battle-stage-open #town-sheet {
   100% { background: rgba(43, 38, 32, 0.22); transform: scaleY(1); }
 }
 
+/* -- playback speed chip ---------------------------------------------------- */
+/* The only speed control. It states the current effective speed, so display and
+   effect are never separate facts. */
+.stage-speed {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  min-width: 44px;
+  min-height: 30px;
+  padding: 4px 12px;
+  border: 1px solid rgba(43, 38, 32, 0.34);
+  background: rgba(232, 220, 195, 0.86);
+  color: var(--ink);
+  font: 400 13px var(--font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .04em;
+  cursor: pointer;
+}
+
+.stage-speed:active { background: rgba(43, 38, 32, 0.1); }
+.stage-speed:focus-visible { outline: 2px solid var(--cinnabar); outline-offset: 2px; }
+
 /* -- wall archers ----------------------------------------------------------- */
 /* Terrain scenery for a town fight, not a unit: they stand on the wall, belong
    to neither roster, and no troop token is ever swapped for a bow. */
@@ -3211,6 +3290,59 @@ body.battle-stage-open #town-sheet {
 body.battle-stage-open #seal-layer {
   align-items: flex-start;
   padding-top: 20vh;
+}
+
+/* F2 choice surfaces intentionally reuse the existing paper/ink tokens. */
+.choice-layer {
+  align-items: center;
+  justify-content: center;
+  padding: max(24px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right))
+    max(24px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+}
+
+.choice-card {
+  width: min(92vw, 520px);
+  max-height: min(82vh, 700px);
+  overflow: auto;
+  padding: clamp(24px, 6vw, 42px);
+  color: var(--ink);
+  text-align: center;
+}
+
+.choice-card > small {
+  color: var(--ink-faint);
+  letter-spacing: .18em;
+}
+
+.choice-card h2,
+.choice-card p {
+  font-family: var(--font-display);
+}
+
+.choice-stack {
+  display: grid;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.choice-stack button {
+  display: grid;
+  gap: 4px;
+  min-height: 54px;
+  padding: 11px 16px;
+  border: 1px solid rgba(43, 38, 32, .42);
+  background: rgba(232, 220, 195, .82);
+  color: var(--ink);
+}
+
+.choice-stack button span {
+  color: var(--ink-faint);
+  font-size: .78rem;
+}
+
+.choice-stack button:active {
+  transform: translateY(1px) scale(.99);
+  background: rgba(201, 184, 146, .38);
 }
 
 /* The tally is positioned from the paper's measured edge now, so it needs no

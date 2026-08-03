@@ -103,6 +103,7 @@ export function normalizeScript(raw) {
       tokens: (source.tokens || []).map((token) => ({
         idx: token.idx,
         troopType: token.troopType,
+        arm: token.arm || null,
         capacity: Math.max(0, Math.min(weight, total - token.idx * weight)),
         node: null
       }))
@@ -121,6 +122,7 @@ export function normalizeScript(raw) {
       enemy: raw.formations.enemy || "line"
     };
   }
+  if (raw.command) normalized.command = raw.command;
   return normalized;
 }
 
@@ -185,7 +187,9 @@ export function scheduleEvents(events) {
   events.forEach((event, index) => {
     if (times[index] !== undefined) return;
     if (event.type === "battle_start") times[index] = 0;
-    else if (event.type === "volley") times[index] = P.DEPLOY_MS + P.VOLLEY_OFFSET_MS;
+    else if (event.type === "volley" || event.type === "archer_volley") {
+      times[index] = P.DEPLOY_MS + P.VOLLEY_OFFSET_MS;
+    } else if (event.type === "command") times[index] = Math.max(0, P.DEPLOY_MS - 180);
     else if (event.type === "rout") times[index] = clock;
     else if (event.type === "battle_end") times[index] = clock + fleeMs + P.VICTORY_HOLD_MS;
     else times[index] = clock;
@@ -341,6 +345,16 @@ function banditFigure() {
   );
 }
 
+function cavalryFigure() {
+  return (
+    '<path d="M3 22Q7 15 15 17L23 14Q28 15 29 19L25 20Q22 22 17 22L7 23Z"/>' +
+    '<path d="M7 22 5 31H7.2L10 23M20 21l2 10h2.2l-1-12"/>' +
+    '<path d="M13 17 12 8Q16 5 19 9L20 17Z"/>' +
+    '<circle cx="15.5" cy="5" r="2.8"/>' +
+    '<g class="fig-melee"><path d="M17 13 28 2 29.4 3.4 19 15Z"/></g>'
+  );
+}
+
 // 陈莽, the v1.1 lieutenant. He has to be findable in a crowd at a glance, so
 // every silhouette cue is pushed: tallest mass, a crested topknot breaking the
 // head outline, a cape falling behind the legs, a tall command banner, and a
@@ -378,10 +392,16 @@ const FIGURES = {
   militia: militiaFigure,
   veteran: veteranFigure,
   bandit: banditFigure,
+  cavalry: cavalryFigure,
   lieutenant: lieutenantFigure
 };
 
-function figureSvg(troopType) {
+function figureSvg(troopType, arm = null) {
+  if (arm === "archer") return archerFigure();
+  if (arm === "cavalry") {
+    return '<svg viewBox="0 0 32 34" aria-hidden="true" focusable="false">' +
+      '<g class="fig-pose" fill="currentColor">' + cavalryFigure() + "</g></svg>";
+  }
   const draw = FIGURES[troopType] || FIGURES.militia;
   // `fig-pose` carries the lean/turn keyframes so the <svg> keeps facing as its
   // own untouched property.
@@ -453,6 +473,7 @@ export function createBattleStage(host, options = {}) {
       '<div class="stage-ranks stage-ranks-enemy"></div>' +
       "</div>" +
       '<p class="stage-log" aria-live="polite"></p>' +
+      '<button type="button" class="stage-speed" aria-live="polite"></button>' +
       '<p class="stage-hint" hidden></p>' +
       "</div>" +
       // Outside .stage-paper on purpose: the paper clips its children, and the
@@ -516,8 +537,8 @@ export function createBattleStage(host, options = {}) {
       const node = document.createElement("i");
       node.className = isLieutenant
         ? `stage-token unit-${token.troopType || "militia"} is-lieutenant`
-        : `stage-token unit-${token.troopType || "militia"}`;
-      node.innerHTML = figureSvg(isLieutenant ? "lieutenant" : token.troopType);
+        : `stage-token unit-${token.troopType || "militia"}${token.arm ? ` arm-${token.arm}` : ""}`;
+      node.innerHTML = figureSvg(isLieutenant ? "lieutenant" : token.troopType, token.arm);
       // Every token carries a bar; CSS keeps them hidden outside v1.1.
       const bar = document.createElement("b");
       bar.className = "stage-hp";
@@ -542,7 +563,7 @@ export function createBattleStage(host, options = {}) {
       node.style.zIndex = String(cam.z);
       node.style.setProperty("--sway", `${(1.6 + roll() * 1.2).toFixed(2)}s`);
       // Back ranks lag into the charge, so the advance has depth.
-      node.style.setProperty("--lag", `${row * P.CHARGE_BACK_RANK_LAG_MS}ms`);
+      node.style.setProperty("--lag", `${row * P.CHARGE_BACK_RANK_LAG_MS - (token.arm === "cavalry" ? 300 : 0)}ms`);
       rankHost.appendChild(node);
       token.node = node;
       token.tx = tx;
@@ -641,7 +662,16 @@ export function createBattleStage(host, options = {}) {
     if (!worldNode) return;
     const width = worldNode.clientWidth;
     const centre = width / 2;
-    const band = Math.min(P.MELEE_BAND_PX, width * P.MELEE_BAND_MAX_RATIO);
+    const crowd = Math.max(
+      script.sides.player.tokens.length,
+      script.sides.enemy.tokens.length
+    );
+    // Widen for the crowd, then clamp to the stage: a big battle spreads out
+    // instead of stacking every man on the same few pixels.
+    const band = Math.min(
+      width * P.MELEE_BAND_MAX_RATIO,
+      Math.max(P.MELEE_BAND_PX, crowd * P.MELEE_BAND_PER_TOKEN_PX)
+    );
 
     ["player", "enemy"].forEach((sideKey) => {
       const dir = sideKey === "player" ? 1 : -1;
@@ -850,6 +880,26 @@ export function createBattleStage(host, options = {}) {
     }
   }
 
+  function performArcherVolley(event) {
+    log(translate("stage.volley"));
+    const targetSide = event.side === "player" ? "enemy" : "player";
+    const targets = script.sides[targetSide].tokens.filter((token) => token.capacity > 0 && token.node);
+    const arrows = Math.max(1, Math.min(12, event.arrows || 3));
+    for (let index = 0; index < arrows; index += 1) {
+      const arrow = document.createElement("i");
+      arrow.className = "stage-arrow";
+      const target = targets.length ? targets[Math.floor(roll() * targets.length)] : null;
+      const to = target ? stagePoint(target.node)
+        : { x: worldNode.clientWidth * (targetSide === "enemy" ? 0.75 : 0.25), y: worldNode.clientHeight * 0.62 };
+      const fromRatio = event.side === "player" ? 0.22 : 0.78;
+      arrow.style.setProperty("--from-x", `${worldNode.clientWidth * fromRatio}px`);
+      arrow.style.setProperty("--to-x", `${to.x + (roll() - 0.5) * 26}px`);
+      arrow.style.setProperty("--to-y", `${to.y}px`);
+      arrow.style.setProperty("--delay", `${Math.round(roll() * 180)}ms`);
+      ephemeral(arrow, TIMING.ARROW_FLIGHT + 260);
+    }
+  }
+
   // The ONLY state this module mutates: inferred bucket capacities, which exist
   // purely so the counts on screen match battle_end.survivors.
   function applyKill(event) {
@@ -971,6 +1021,8 @@ export function createBattleStage(host, options = {}) {
             }, P.DEPLOY_MS - P.DEPLOY_SETTLE_MS));
             break;
           case "volley": performVolley(event); break;
+          case "archer_volley": performArcherVolley(event); break;
+          case "command": log(translate(`battleCommand.${event.command}`)); break;
           case "round_start":
             log(translate("stage.round").replace("{n}", String(event.n)));
             breatheRound();

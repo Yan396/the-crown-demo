@@ -10,6 +10,15 @@ const PRIORITY = Object.freeze({
   fiefThreat: 83,
   fiefLost: 98,
   fiefRecaptured: 97,
+  origin: 48,
+  fiefExpanded: 82,
+  founded: 99,
+  coalition: 78,
+  rebellion: 96,
+  edictContinue: 88,
+  edictStop: 100,
+  lieutenantHired: 76,
+  lieutenantLeft: 94,
   biggestBattle: 80,
   act3: 75,
   act2: 70,
@@ -69,6 +78,43 @@ function lineFor(language, entry) {
         day,
         town: localizedName(language, "towns", entry.townId, t("ending.chronicleUnknownPlace"))
       });
+    case "origin":
+      return t("ending.chronicleOrigin", {
+        day,
+        origin: t(`origin.${entry.originId || "wanderer"}Title`)
+      });
+    case "fiefExpanded":
+      return t("ending.chronicleFiefExpanded", {
+        day,
+        town: localizedName(language, "towns", entry.townId, t("ending.chronicleUnknownPlace"))
+      });
+    case "founded":
+      return t("ending.chronicleFounded", { day });
+    case "coalition":
+      return t("ending.chronicleCoalition", {
+        day,
+        wave: Math.max(1, Math.floor(Number(entry.wave) || 1)),
+        town: localizedName(language, "towns", entry.townId, t("ending.chronicleUnknownPlace"))
+      });
+    case "rebellion":
+      return t("ending.chronicleRebellion", {
+        day,
+        town: localizedName(language, "towns", entry.townId, t("ending.chronicleUnknownPlace"))
+      });
+    case "edictContinue":
+      return t("ending.chronicleEdictContinue", { day });
+    case "edictStop":
+      return t("ending.chronicleEdictStop", { day });
+    case "lieutenantHired":
+      return t("ending.chronicleLieutenantHired", {
+        day,
+        lieutenant: t(`lieutenant.${entry.lieutenantId || "chen_mang"}Name`)
+      });
+    case "lieutenantLeft":
+      return t("ending.chronicleLieutenantLeft", {
+        day,
+        lieutenant: t(`lieutenant.${entry.lieutenantId || "chen_mang"}Name`)
+      });
     case "biggestBattle":
       return t("ending.chronicleBiggestBattle", {
         day,
@@ -88,7 +134,7 @@ function lineFor(language, entry) {
   }
 }
 
-export function buildChronicleEntries(telemetry, language = "zh") {
+export function buildChronicleEntries(telemetry, language = "zh", options = {}) {
   const chronicle = telemetry?.chronicle || {};
   const crossings = telemetry?.promiseCrossings || {};
   const candidates = [
@@ -104,8 +150,15 @@ export function buildChronicleEntries(telemetry, language = "zh") {
     candidate("act2", chronicle.act2),
     candidate("act3", chronicle.act3),
     candidate("ending", chronicle.ending),
-    telemetry?.actTimestamps?.act1 ? candidate("start", { tick: 0, day: 1 }) : null
+    telemetry?.actTimestamps?.act1 ? candidate("start", { tick: 0, day: 1 }) : null,
+    ...(options.full && Array.isArray(telemetry?.chronicleEvents)
+      ? telemetry.chronicleEvents
+        .filter((entry) => Object.hasOwn(PRIORITY, entry.kind))
+        .map((entry) => candidate(entry.kind, entry))
+      : [])
   ].filter(Boolean);
+
+  const limit = options.full ? 12 : 5;
 
   const selected = candidates
     .slice()
@@ -114,7 +167,7 @@ export function buildChronicleEntries(telemetry, language = "zh") {
       (Number(first.tick) || 0) - (Number(second.tick) || 0) ||
       first.type.localeCompare(second.type)
     ))
-    .slice(0, 5)
+    .slice(0, limit)
     .sort((first, second) => (
       (Number(first.tick) || 0) - (Number(second.tick) || 0) ||
       PRIORITY[second.type] - PRIORITY[first.type] ||
@@ -129,6 +182,6 @@ export function buildChronicleEntries(telemetry, language = "zh") {
   })).filter((entry) => entry.text);
 }
 
-export function buildChronicleLines(telemetry, language = "zh") {
-  return buildChronicleEntries(telemetry, language).map((entry) => entry.text);
+export function buildChronicleLines(telemetry, language = "zh", options = {}) {
+  return buildChronicleEntries(telemetry, language, options).map((entry) => entry.text);
 }

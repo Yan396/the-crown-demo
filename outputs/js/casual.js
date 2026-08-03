@@ -1,9 +1,17 @@
-import { CASUAL_EVENTS, CONFIG, LIEUTENANT_EVENTS, TROOP_TYPES } from "./data.js";
+import {
+  CASUAL_EVENTS,
+  CONFIG,
+  F4_LIEUTENANT_EVENTS,
+  LIEUTENANT_EVENTS,
+  TROOP_TYPES
+} from "./data.js";
 import { nextFloat, randomBetween, randomInt } from "./rng.js";
 import {
   addEvent,
   applyCasualties,
+  changePlayerRenown,
   clamp,
+  getLieutenants,
   getTroopCount,
   incrementTroop,
   isV11State,
@@ -11,9 +19,13 @@ import {
 } from "./state.js";
 
 export function getRoadEventDefinitions(state) {
-  return isV11State(state) && state.player?.lieutenant?.id === "chen_mang"
-    ? [...CASUAL_EVENTS, ...LIEUTENANT_EVENTS]
-    : CASUAL_EVENTS;
+  if (!isV11State(state)) return CASUAL_EVENTS;
+  const activeIds = new Set(getLieutenants(state).map((entry) => entry.id));
+  const deck = state.features?.f4 ? F4_LIEUTENANT_EVENTS : LIEUTENANT_EVENTS;
+  const personal = deck.filter((event) => (
+    [...activeIds].some((id) => event.id.startsWith(`${id}_`))
+  ));
+  return personal.length ? [...CASUAL_EVENTS, ...personal] : CASUAL_EVENTS;
 }
 
 function casualDefaults() {
@@ -69,7 +81,11 @@ export function ensureCasualState(state) {
 }
 
 function activeTroopCap(state) {
-  return state.player.act >= 2 ? CONFIG.ACT2_TROOP_CAP : CONFIG.ACT1_TROOP_CAP;
+  return state.player.act >= 3
+    ? CONFIG.ACT3_TROOP_CAP
+    : state.player.act >= 2
+      ? CONFIG.ACT2_TROOP_CAP
+      : CONFIG.ACT1_TROOP_CAP;
 }
 
 function playerSnapshot(state, factionId) {
@@ -92,7 +108,7 @@ export function applyEffects(state, effects = {}, options = {}) {
   const beforeTroops = getTroopCount(state.player);
   const beforeGold = state.player.gold;
   state.player.gold = Math.max(0, state.player.gold + (Number(effects.gold) || 0));
-  state.player.renown = Math.max(0, state.player.renown + (Number(effects.renown) || 0));
+  changePlayerRenown(state, Number(effects.renown) || 0);
 
   const requestedTroops = Number(effects.troops) || 0;
   const targetTroops = clamp(
@@ -278,7 +294,7 @@ export function chooseRoadEvent(state, choiceIndex) {
       delta: Object.fromEntries(Object.entries(delta).filter(([, value]) => value !== 0))
     });
     state.telemetry.eventChoices = state.telemetry.eventChoices.slice(-CONFIG.ROAD_EVENT_HISTORY_LIMIT);
-    if (event.id.startsWith("chen_mang_")) {
+    if (["chen_mang_", "shen_wen_", "jia_duojin_"].some((prefix) => event.id.startsWith(prefix))) {
       state.telemetry.lieutenantEventChoices = Array.isArray(state.telemetry.lieutenantEventChoices)
         ? state.telemetry.lieutenantEventChoices
         : [];

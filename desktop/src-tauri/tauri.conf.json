@@ -1,0 +1,49 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "The Crown",
+  "version": "1.0.0",
+  "identifier": "games.ja.thecrown",
+  "build": {
+    "frontendDist": "../../outputs"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "王冠 · The Crown",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 390,
+        "minHeight": 640,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Game",
+    "shortDescription": "A sandbox strategy game that keeps asking how much is enough.",
+    "longDescription": "Raise a company, take a fief, found a kingdom—and meet the promises you made about what would be enough.",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": true,
+        "languages": ["English", "SimpChinese"]
+      },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "12.0"
+    }
+  }
+}
+

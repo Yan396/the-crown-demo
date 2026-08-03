@@ -180,6 +180,14 @@
             <strong id="recruit-label"></strong>
             <span id="recruit-cost"></span>
           </button>
+          <button id="recruit-archer-button" type="button" hidden>
+            <strong id="recruit-archer-label"></strong>
+            <span id="recruit-archer-cost"></span>
+          </button>
+          <button id="recruit-cavalry-button" type="button" hidden>
+            <strong id="recruit-cavalry-label"></strong>
+            <span id="recruit-cavalry-cost"></span>
+          </button>
           <button id="veteran-button" type="button">
             <strong id="veteran-label"></strong>
             <span id="veteran-cost"></span>
@@ -245,6 +253,19 @@
       </div>
     </section>
 
+    <section id="origin-modal" class="full-screen-layer choice-layer" hidden>
+      <article class="choice-card paper-sheet" role="dialog" aria-modal="true">
+        <small id="origin-kicker"></small>
+        <h2 id="origin-title"></h2>
+        <p id="origin-fiction"></p>
+        <div class="choice-stack">
+          <button type="button" data-origin="hunter"><strong id="origin-hunter-title"></strong><span id="origin-hunter-detail"></span></button>
+          <button type="button" data-origin="border"><strong id="origin-border-title"></strong><span id="origin-border-detail"></span></button>
+          <button type="button" data-origin="wanderer"><strong id="origin-wanderer-title"></strong><span id="origin-wanderer-detail"></span></button>
+        </div>
+      </article>
+    </section>
+
     <section id="promise-modal" class="modal-layer" hidden>
       <div class="promise-card paper-sheet" role="dialog" aria-modal="true">
         <small id="promise-kicker"></small>
@@ -264,6 +285,24 @@
       </div>
     </section>
 
+    <section id="kingdom-modal" class="full-screen-layer choice-layer" hidden>
+      <article class="choice-card paper-sheet" role="dialog" aria-modal="true">
+        <div id="kingdom-seal" class="ending-seal" hidden></div>
+        <small id="kingdom-kicker"></small>
+        <h2 id="kingdom-title"></h2>
+        <p id="kingdom-copy"></p>
+        <div id="founding-actions" class="choice-stack">
+          <button id="founding-accept" class="primary-button" type="button"></button>
+          <button id="founding-decline" class="ghost-button" type="button"></button>
+        </div>
+        <button id="founding-seal-continue" class="primary-button" type="button" hidden></button>
+        <div id="edict-actions" class="choice-stack" hidden>
+          <button id="edict-continue" type="button"></button>
+          <button id="edict-stop" type="button"></button>
+        </div>
+      </article>
+    </section>
+
     <section id="fief-threat-modal" class="modal-layer fief-threat-layer" hidden>
       <article class="fief-threat-card paper-sheet" role="dialog" aria-modal="true">
         <small id="fief-threat-kicker"></small>
@@ -281,6 +320,7 @@
         <svg id="road-event-glyph" class="road-event-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <use id="road-event-glyph-use" href="#road-event-glyph-omen"></use>
         </svg>
+        <div id="road-event-lieutenant" class="lieutenant-event-portrait" hidden></div>
         <p id="road-event-text"></p>
         <div class="road-event-actions">
           <button id="road-event-choice-a" class="road-event-choice" type="button"></button>
@@ -297,6 +337,18 @@
           <button id="formation-wedge" class="formation-choice" data-formation="wedge" type="button"></button>
           <button id="formation-line" class="formation-choice" data-formation="line" type="button"></button>
           <button id="formation-circle" class="formation-choice" data-formation="circle" type="button"></button>
+        </div>
+      </article>
+    </section>
+
+    <section id="battle-command-modal" class="modal-layer formation-layer" hidden>
+      <article class="formation-card paper-sheet" role="dialog" aria-modal="true">
+        <small id="battle-command-kicker"></small>
+        <p id="battle-command-copy"></p>
+        <div class="formation-choices">
+          <button class="formation-choice" data-battle-command="charge" type="button"></button>
+          <button class="formation-choice" data-battle-command="hold" type="button"></button>
+          <button class="formation-choice" data-battle-command="focus" type="button"></button>
         </div>
       </article>
     </section>
@@ -326,9 +378,17 @@
             <strong id="contract-patrol-title"></strong>
             <span id="contract-patrol-detail"></span>
           </button>
-          <button id="lieutenant-offer" class="contract-choice" type="button" hidden>
+          <button id="lieutenant-offer" class="contract-choice" data-lieutenant-id="chen_mang" type="button" hidden>
             <strong id="lieutenant-offer-title"></strong>
             <span id="lieutenant-offer-detail"></span>
+          </button>
+          <button id="lieutenant-offer-shen" class="contract-choice" data-lieutenant-id="shen_wen" type="button" hidden>
+            <strong id="lieutenant-offer-shen-title"></strong>
+            <span id="lieutenant-offer-shen-detail"></span>
+          </button>
+          <button id="lieutenant-offer-jia" class="contract-choice" data-lieutenant-id="jia_duojin" type="button" hidden>
+            <strong id="lieutenant-offer-jia-title"></strong>
+            <span id="lieutenant-offer-jia-detail"></span>
           </button>
         </div>
         <button id="contract-close" class="ghost-button" type="button"></button>
@@ -364,6 +424,6 @@
     <div id="toast" role="status" aria-live="polite"></div>
   </main>
 
-  <script type="module" src="./js/main.js"></script>
+  <script type="module" src="./js/main.js?v=f4-final-3"></script>
 </body>
 </html>
