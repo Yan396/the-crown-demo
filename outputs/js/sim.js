@@ -1135,7 +1135,7 @@ function progressionHook(state) {
 function nearestBandit(state, includeElite = false) {
   const playerStrength = getPartyStrength(state.player);
   if (!isV11State(state)) {
-    const maximumStrength = playerStrength * CONFIG.AUTOPLAY_MAX_TARGET_STRENGTH_RATIO;
+    const maximumStrength = playerStrength * CONFIG.AUTOPLAY_V1_TARGET_STRENGTH_RATIO;
     const candidates = state.bandits.filter((bandit) => (
       (includeElite || !bandit.elite) && getPartyStrength(bandit) <= maximumStrength
     ));
@@ -1239,10 +1239,11 @@ function autoplayDecision(state) {
   }
 
   // Risky tavern work teaches the Act 2 loop. Once Act 3 begins the greedy
-  // autoplay bot must pursue the renown/fief arc instead of repeatedly paying
-  // a 15-renown failure penalty that can cancel hours of otherwise valid wins.
+  // The full-version bot must pursue the renown/fief arc instead of repeatedly
+  // paying a 15-renown failure penalty. The v1.0 demo bot skips risky contracts
+  // so the public friend-test URL cannot stall before its renown-100 ending.
   // This is bot policy only; player contract rules and balance stay unchanged.
-  if (state.player.act === 2 && !contract) {
+  if (state.player.act === 2 && !contract && isV11State(state)) {
     if (town && (!fullVersion || town.factionId === state.autoplay.patronFactionId)) {
       acceptMercenaryContract(state, town.id, "risky");
     }

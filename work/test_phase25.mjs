@@ -1498,6 +1498,26 @@ test("autoplay: default seed meets first-battle, Act 2, and ending targets", () 
   }
 });
 
+test("autoplay: the shareable demo URL default also completes without v1.1 opt-in", () => {
+  const runAutoplay = requireFunction(
+    [autoplayModule, simModule],
+    ["runAutoplay", "simulateAutoplay"],
+    "deterministic greedy autoplay"
+  );
+  const result = runAutoplay(CONFIG.SEED, { multiplier: 20, maxActiveSeconds: 1800 });
+  assert.ok(result.firstBattleSeconds <= 90, `first battle took ${result.firstBattleSeconds}s`);
+  assert.ok(
+    result.act2Seconds >= 600 && result.act2Seconds <= 720,
+    `default URL Act 2 took ${(result.act2Seconds / 60).toFixed(2)}m`
+  );
+  assert.ok(
+    result.endingSeconds >= 1200 && result.endingSeconds <= 1800,
+    `default URL ending took ${(result.endingSeconds / 60).toFixed(2)}m`
+  );
+  assert.equal(result.state.demo.ended, true);
+  assert.equal(result.battleScriptsChecked, result.state.stats.battles);
+});
+
 test("autoplay diagnostics: deterministic multi-seed economy/performance sample", () => {
   const runAutoplay = requireFunction([autoplayModule, simModule], ["runAutoplay", "simulateAutoplay"], "autoplay diagnostics");
   const seeds = [1, 42, 2025, 0x00c0ffee, 0xdeadbeef];
