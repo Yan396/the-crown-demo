@@ -40,6 +40,7 @@
   <button data-play="cavalry">骑兵冲击</button>
   <button data-play="town">守城齐射</button>
   <button data-play="officers">部将</button>
+  <button data-play="flank">侧击转身</button>
   <button id="check-skip">跳过一致性校验</button>
 </div>
 <code id="verdict"></code>
@@ -213,6 +214,26 @@ const FIXTURES = {
   town: () => mockScript({ terrain: "town", n: 12, rounds: 3, volley: 6 }),
   officers: () => mockScript({
     n: 9, rounds: 3, officers: ["chen_mang", "shen_wen", "jia_duojin"]
+  }),
+  flank: () => ({
+    battleId: "sg-facing-flank",
+    terrain: "field",
+    sides: { player: side("我军", 6, [SPEAR]), enemy: side("匪队", 6, [FOE]) },
+    events: [
+      { t: 0, type: "battle_start" },
+      { t: 100, type: "round_start", n: 1 },
+      {
+        t: 130, type: "strike", beat: 0,
+        from: { side: "player", idx: 5 }, to: { side: "enemy", idx: 1 },
+        kill: false, dmgShown: 4, hpAfter: 5
+      },
+      {
+        t: 220, type: "battle_end", winner: "player",
+        loot: { gold: 0, renown: 0 }, survivors: { player: 6, enemy: 6 }
+      }
+    ],
+    formations: { player: "line", enemy: "line" },
+    command: "hold"
   })
 };
 

@@ -10,21 +10,23 @@
       "enemy": 16
     },
     "probe": {
-      "frames": 1782,
-      "medianMs": 8.3,
-      "p95Ms": 11.4,
-      "worstMs": 286.8,
-      "over16_7": 12,
-      "fps": 120.5
+      "frames": 1827,
+      "medianMs": 8,
+      "p95Ms": 10.7,
+      "worstMs": 374.2,
+      "over16_7": 10,
+      "fps": 125
     },
     "beats": {
-      "total": 35,
+      "total": 58,
       "byType": {
         "arrow": 4,
         "charge": 1,
+        "turn": 9,
         "shake": 2,
         "strike": 18,
         "kill": 8,
+        "rear_hit": 14,
         "arrow_impact": 2
       },
       "tiers": [
@@ -35,7 +37,7 @@
       "shakes": 2,
       "countMismatches": 0
     },
-    "bytes": 447470
+    "bytes": 463473
   },
   {
     "name": "archer-volley",
@@ -48,12 +50,12 @@
       "enemy": 8
     },
     "probe": {
-      "frames": 1109,
-      "medianMs": 8.2,
-      "p95Ms": 10.9,
-      "worstMs": 21.3,
-      "over16_7": 2,
-      "fps": 122
+      "frames": 1098,
+      "medianMs": 8.1,
+      "p95Ms": 11.5,
+      "worstMs": 24.1,
+      "over16_7": 6,
+      "fps": 123.5
     },
     "beats": {
       "total": 22,
@@ -72,7 +74,7 @@
       "shakes": 1,
       "countMismatches": 0
     },
-    "bytes": 200070
+    "bytes": 199930
   },
   {
     "name": "cavalry-charge",
@@ -85,20 +87,22 @@
       "enemy": 10
     },
     "probe": {
-      "frames": 1075,
-      "medianMs": 8.3,
-      "p95Ms": 12,
-      "worstMs": 23.2,
-      "over16_7": 7,
-      "fps": 120.5
+      "frames": 1087,
+      "medianMs": 8.2,
+      "p95Ms": 11.9,
+      "worstMs": 30.5,
+      "over16_7": 10,
+      "fps": 122
     },
     "beats": {
-      "total": 12,
+      "total": 21,
       "byType": {
         "charge": 1,
         "shake": 1,
         "strike": 7,
-        "kill": 3
+        "kill": 3,
+        "turn": 4,
+        "rear_hit": 5
       },
       "tiers": [
         "light",
@@ -108,7 +112,7 @@
       "shakes": 1,
       "countMismatches": 0
     },
-    "bytes": 205211
+    "bytes": 209280
   },
   {
     "name": "archer-kill",
@@ -121,12 +125,12 @@
       "enemy": 4
     },
     "probe": {
-      "frames": 1076,
-      "medianMs": 8.3,
-      "p95Ms": 12,
-      "worstMs": 20.6,
-      "over16_7": 9,
-      "fps": 120.5
+      "frames": 1101,
+      "medianMs": 8.1,
+      "p95Ms": 11.4,
+      "worstMs": 45.6,
+      "over16_7": 8,
+      "fps": 123.5
     },
     "beats": {
       "total": 7,
@@ -145,7 +149,7 @@
       "shakes": 2,
       "countMismatches": 0
     },
-    "bytes": 180001
+    "bytes": 182126
   },
   {
     "name": "unit-behavior-midcharge",
@@ -156,13 +160,57 @@
       "height": 844
     },
     "groups": {
-      "cavalry": 240.2,
-      "militia": 157.6,
-      "veteran": 161.2,
+      "cavalry": 240.3,
+      "militia": 158.9,
+      "veteran": 162.4,
       "archer": 139
     },
     "staggered": true,
     "rangeVisible": true,
     "screenshot": "work/fixtures/unit-behavior-midcharge.png"
+  },
+  {
+    "name": "facing-midmelee",
+    "fixture": "flank",
+    "atMs": 9500,
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "attacker": {
+      "side": "player",
+      "idx": 5,
+      "troopType": "militia",
+      "arm": "spear",
+      "speed": 1,
+      "depth": 0.66,
+      "overrun": false,
+      "facing": -1,
+      "turning": false,
+      "targetSide": "enemy",
+      "targetIdx": 1,
+      "x": 274.9,
+      "y": 141.5
+    },
+    "target": {
+      "side": "enemy",
+      "idx": 1,
+      "troopType": "bandit",
+      "arm": "spear",
+      "speed": 1,
+      "depth": 0.404,
+      "overrun": false,
+      "facing": 1,
+      "turning": false,
+      "targetSide": "player",
+      "targetIdx": 5,
+      "x": 237.5,
+      "y": 183.9
+    },
+    "faceEachOther": true,
+    "backToBack": false,
+    "rearHits": 1,
+    "turns": 2,
+    "screenshot": "work/fixtures/facing-midmelee.png"
   }
 ]

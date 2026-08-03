@@ -27,6 +27,8 @@ import {
   TIER_ORDER,
   WEIGHT_TIERS,
   armyBandRatio,
+  facingToward,
+  isRearHit,
   movementDurationMs,
   movementSpeedFor,
   shakeOffsetPx,
@@ -231,9 +233,30 @@ test("3: knockback is the tier's, and exactly one rule owns it", () => {
   // The heavy variant composes by overriding the NAME, so it cannot drop --knock.
   assert.match(css, /\.stage-token\.is-jolted \{\s*animation-name: token-knock-heavy;\s*\}/);
   assert.equal(keyframeNames("token-jolt"), 0);
-  // Facing belongs to the rank, so a knocked enemy is thrown away from the blow.
-  assert.match(css, /\.stage-ranks-enemy \.stage-token \{\s*--facing: -1;\s*\}/);
+  // Facing is per-token now; both normal and rear-hit recoil read the same live
+  // custom property rather than assuming one direction for an entire rank.
+  assert.doesNotMatch(css, /\.stage-ranks-enemy \.stage-token \{\s*--facing:/);
+  assert.match(css, /\.stage-token > svg \{[\s\S]*?scaleX\(var\(--facing, 1\)\)/);
+  assert.match(css, /@keyframes token-knock-behind \{[\s\S]*?var\(--knock, 8px\) \* var\(--facing, 1\)/);
   assert.match(stage, /target\.node\.style\.setProperty\("--knock", `\$\{tier\.knockbackPx\}px`\)/);
+});
+
+test("facing: actual opponent positions drive queued 180ms pivots and rear-hit recoil", () => {
+  assert.equal(P.FACING_TURN_MS, 180);
+  assert.equal(P.REAR_HIT_EXTRA_HOLD_MS, 20);
+  assert.equal(facingToward(10, 20, -1), 1);
+  assert.equal(facingToward(20, 10, 1), -1);
+  assert.equal(isRearHit(-1, 10, 20), true);
+  assert.equal(isRearHit(1, 10, 20), false);
+  assert.match(stage, /function requestFacing\(token, targetOrDirection, reason = "target"\)/);
+  assert.match(stage, /const blockedUntil = Math\.max\([\s\S]*?token\.poseBusyUntil[\s\S]*?token\.recoilBusyUntil/);
+  assert.match(stage, /type: "rear_hit"/);
+  assert.match(stage, /requestFacing\(target, attacker, "rear-hit"\)/);
+  assert.match(stage, /requestFacing\([\s\S]*?"breakthrough"\s*\)/);
+  assert.match(stage, /requestFacing\(token, nearest, "overrun"\)/);
+  assert.match(css, /@keyframes token-facing-pivot/);
+  assert.match(css, /@keyframes token-foot-shuffle/);
+  assert.match(css, /\.stage-token\.is-reeling-behind \.fig-pose/);
 });
 
 test("2b: at most six figures move at once, and the rest freeze on a contact hold", () => {
@@ -558,7 +581,7 @@ test("9: every beat is emitted with its tier, type and kill", () => {
   assert.match(stage, /const beat = \{ tier: "light", kill: false, at: virtualTime, \.\.\.payload \};/);
   const strike = stage.slice(stage.indexOf("function performStrike"));
   assert.match(strike, /type: "strike",\s*\n\s*tier: tierName,\s*\n\s*kill: Boolean\(event\.kill\)/);
-  for (const type of ["arrow", "arrow_impact", "charge", "rout", "kill", "shake"]) {
+  for (const type of ["arrow", "arrow_impact", "charge", "rout", "kill", "shake", "turn", "rear_hit"]) {
     assert.match(stage, new RegExp(`type: "${type}"`), `no beat is emitted for ${type}`);
   }
 });
@@ -610,6 +633,23 @@ test("acceptance: 390x844 mid-charge still proves front/middle/rear separation",
   assert.equal(still.rangeVisible, true);
   assert.ok(still.groups.cavalry > Math.max(still.groups.militia, still.groups.veteran));
   assert.ok(still.groups.archer < Math.min(still.groups.militia, still.groups.veteran));
+});
+
+test("acceptance: a flanked pair turns to face each other at 390x844", () => {
+  const file = new URL("./fixtures/facing-midmelee.png", import.meta.url);
+  const image = readFileSync(file);
+  assert.ok(image.length > 20_000, "facing acceptance still is missing or empty");
+  assert.deepEqual([...image.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  const report = JSON.parse(readFileSync(
+    new URL("./fixtures/stage-recording-report.json", import.meta.url), "utf8"
+  ));
+  const still = report.find((entry) => entry.name === "facing-midmelee");
+  assert.ok(still, "facing acceptance report is missing");
+  assert.deepEqual(still.viewport, { width: 390, height: 844 });
+  assert.equal(still.faceEachOther, true);
+  assert.equal(still.backToBack, false);
+  assert.ok(still.rearHits >= 1, "fixture never exercised a rear hit");
+  assert.ok(still.turns >= 2, "both flanking participants did not pivot");
 });
 
 test("acceptance: individual strikes stay countable at 2x", () => {

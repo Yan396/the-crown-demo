@@ -7,6 +7,8 @@ import {
   WEIGHT_TIERS,
   depthPlacement,
   depthRiseFor,
+  facingToward,
+  isRearHit,
   movementDurationMs,
   movementSpeedFor,
   shakeOffsetPx,
@@ -877,6 +879,14 @@ export function createBattleStage(host, options = {}) {
       token.hpMax = hpMaxes.get(`${sideKey}:${token.idx}`) || 0;
       token.hpCurrent = token.hpMax;
       node.dataset.capacity = String(token.capacity);
+      token.side = sideKey;
+      token.facing = dir;
+      token.pendingFacing = null;
+      token.turningUntil = 0;
+      token.poseBusyUntil = 0;
+      token.recoilBusyUntil = 0;
+      node.dataset.facing = String(dir);
+      node.style.setProperty("--facing", String(dir));
       // Lateral scatter only. A random VERTICAL nudge would lift a man off the
       // ground line for no reason the camera can justify.
       const scatter = layout ? FORMATION_SHAPE.JITTER_SCALE : 1;
@@ -1076,6 +1086,92 @@ export function createBattleStage(host, options = {}) {
     return (token?.baseX || 0) + (token?.melee || 0);
   }
 
+  function tokenScreenX(token) {
+    return token?.node ? stagePoint(token.node).x : tokenAxisX(token);
+  }
+
+  function desiredFacing(token, target) {
+    return facingToward(tokenScreenX(token), tokenScreenX(target), token?.facing || 1);
+  }
+
+  function flushPendingFacing(token) {
+    if (!token?.pendingFacing) return;
+    const desired = token.pendingFacing;
+    token.pendingFacing = null;
+    requestFacing(token, desired, "queued");
+  }
+
+  function markPoseBusy(token, durationMs) {
+    if (!token) return;
+    const now = performance.now();
+    token.poseBusyUntil = Math.max(token.poseBusyUntil || 0, now + durationMs);
+    const due = token.poseBusyUntil;
+    pending.push(window.setTimeout(() => {
+      if (!token.node || token.poseBusyUntil !== due) return;
+      token.poseBusyUntil = 0;
+      flushPendingFacing(token);
+    }, Math.max(0, due - now) + 1));
+  }
+
+  // Facing belongs to each drawn token, never to its army after contact. A
+  // queued turn waits for held strike/bow/recoil poses to finish, then pivots
+  // through a narrow silhouette around the feet instead of snapping.
+  function requestFacing(token, targetOrDirection, reason = "target") {
+    if (!token?.node || token.capacity <= 0 || token.node.classList.contains("is-fleeing")) {
+      return false;
+    }
+    const desired = typeof targetOrDirection === "number"
+      ? (targetOrDirection < 0 ? -1 : 1)
+      : desiredFacing(token, targetOrDirection);
+    if (typeof targetOrDirection === "object" && targetOrDirection) {
+      token.targetSide = targetOrDirection.side;
+      token.targetIdx = targetOrDirection.idx;
+    }
+    if (token.turningTo === desired || (token.facing === desired && !token.turningUntil)) return false;
+    const now = performance.now();
+    const blockedUntil = Math.max(
+      token.poseBusyUntil || 0,
+      token.recoilBusyUntil || 0,
+      token.turningUntil || 0
+    );
+    if (blockedUntil > now) {
+      token.pendingFacing = desired;
+      pending.push(window.setTimeout(
+        () => flushPendingFacing(token), Math.max(0, blockedUntil - now) + 1
+      ));
+      return false;
+    }
+    const from = token.facing < 0 ? -1 : 1;
+    token.turningTo = desired;
+    token.turningUntil = now + P.FACING_TURN_MS;
+    token.node.style.setProperty("--turn-from", String(from));
+    token.node.style.setProperty("--turn-to", String(desired));
+    token.node.style.setProperty("--turn-from-narrow", String(from * 0.12));
+    token.node.style.setProperty("--turn-to-narrow", String(desired * 0.12));
+    token.node.style.setProperty("--turn-shuffle", `${P.FACING_SHUFFLE_PX * desired}px`);
+    token.node.classList.remove("is-turning");
+    void token.node.offsetWidth;
+    token.node.classList.add("is-turning");
+    emitBeat({ type: "turn", side: token.side, from, to: desired, reason });
+    pending.push(window.setTimeout(() => {
+      if (!token.node) return;
+      token.facing = desired;
+      token.turningTo = null;
+      token.turningUntil = 0;
+      token.node.dataset.facing = String(desired);
+      token.node.style.setProperty("--facing", String(desired));
+      token.node.classList.remove("is-turning");
+      flushPendingFacing(token);
+    }, P.FACING_TURN_MS));
+    return true;
+  }
+
+  function prepareStrikeFacing(event) {
+    const source = tokenAt(event.from.side, event.from.idx);
+    const target = tokenAt(event.to.side, event.to.idx);
+    if (source && target) requestFacing(source, target, "strike-target");
+  }
+
   // Once a hostile melee token crosses the rear bow line, that bow line is
   // spent: bow as stave, one backward step, and no more decorative volleys.
   function refreshArcherOverrun() {
@@ -1110,6 +1206,11 @@ export function createBattleStage(host, options = {}) {
         token.node.style.setProperty("--mx", `${token.melee}px`);
         token.node.classList.add("is-overrun");
         token.node.classList.remove("is-loosing");
+        const nearest = foes.slice().sort(
+          (first, second) => Math.abs(tokenScreenX(first) - tokenScreenX(token))
+            - Math.abs(tokenScreenX(second) - tokenScreenX(token))
+        )[0];
+        if (nearest) requestFacing(token, nearest, "overrun");
       });
     });
   }
@@ -1377,11 +1478,18 @@ export function createBattleStage(host, options = {}) {
 
   // The four-pose bow cycle. Started NOCK+DRAW before the shaft leaves, so the
   // release snap and the launch are the same instant rather than two events.
-  function drawBow(node) {
+  function drawBow(token) {
+    const node = token?.node;
     if (!node) return;
+    const turnWait = Math.max(0, (token.turningUntil || 0) - performance.now());
+    if (turnWait > 0) {
+      pending.push(window.setTimeout(() => drawBow(token), turnWait + 1));
+      return;
+    }
     node.classList.remove("is-loosing");
     void node.offsetWidth;
     node.classList.add("is-loosing");
+    markPoseBusy(token, P.BOW_NOCK_MS + P.BOW_DRAW_MS + P.BOW_RELEASE_MS + P.BOW_RECOVER_MS);
     pending.push(window.setTimeout(
       () => node && node.classList.remove("is-loosing"),
       P.BOW_NOCK_MS + P.BOW_DRAW_MS + P.BOW_RELEASE_MS + P.BOW_RECOVER_MS
@@ -1458,12 +1566,12 @@ export function createBattleStage(host, options = {}) {
 
   // The heavy tier's own jolt. Local to the man who was hit -- it is impact,
   // not camera, so it does not spend from the two-shake budget.
-  function heavyJolt(node) {
+  function heavyJolt(node, durationMs = 220) {
     if (!node) return;
     node.classList.remove("is-jolted");
     void node.offsetWidth;
     node.classList.add("is-jolted");
-    pending.push(window.setTimeout(() => node.classList.remove("is-jolted"), 220));
+    pending.push(window.setTimeout(() => node.classList.remove("is-jolted"), durationMs));
   }
 
   function log(text) {
@@ -1577,7 +1685,7 @@ export function createBattleStage(host, options = {}) {
     showArcherRange(event.side, shooters, targets);
     // The shooters draw as one rank, so the volley has a visible source.
     shooters.forEach((token, index) => {
-      pending.push(window.setTimeout(() => drawBow(token.node), index * P.ARROW_SPREAD_MS));
+      pending.push(window.setTimeout(() => drawBow(token), index * P.ARROW_SPREAD_MS));
     });
     volleyArrows(
       event,
@@ -1611,7 +1719,7 @@ export function createBattleStage(host, options = {}) {
   function nockArrow(event) {
     const from = tokenAt(event.from.side, event.from.idx);
     if (from?.overrun) return;
-    drawBow(from?.node);
+    drawBow(from);
   }
 
   // Fired ARROW_LEAD_MS before the strike it belongs to, on the release snap,
@@ -1643,6 +1751,15 @@ export function createBattleStage(host, options = {}) {
     const mounted = source?.arm === "cavalry";
     const arrowStrike = source?.arm === "archer";
     const officer = Boolean(source?.isLieutenant);
+    if (source && target) requestFacing(source, target, "strike-target");
+    const rearHit = Boolean(
+      source?.node && target?.node && isRearHit(
+        target.facing,
+        tokenScreenX(target),
+        tokenScreenX(source)
+      )
+    );
+    if (rearHit) emitBeat({ type: "rear_hit", side: event.to.side, tier: tierName });
     // A resolved shaft waits at the target for this exact virtual beat. Remove
     // it now, then run the same recoil/ink/number/death path as every other hit.
     if (arrowStrike) {
@@ -1665,10 +1782,24 @@ export function createBattleStage(host, options = {}) {
     const pause = tier.contactMs + (officer ? P.LIEUTENANT_EXTRA_HOLD_MS : 0);
     if (source?.node) {
       actorSlot(() => {
-        source.node.classList.remove("is-striking");
-        void source.node.offsetWidth;
-        source.node.classList.toggle("is-charging", mounted);
-        source.node.classList.add("is-striking");
+        const startPose = () => {
+          if (!source.node) return;
+          const remainingTurn = Math.max(0, (source.turningUntil || 0) - performance.now());
+          if (remainingTurn > 0) {
+            pending.push(window.setTimeout(startPose, remainingTurn + 1));
+            return;
+          }
+          source.node.classList.remove("is-striking");
+          void source.node.offsetWidth;
+          source.node.classList.toggle("is-charging", mounted);
+          source.node.classList.add("is-striking");
+          const poseMs = strikeDurationMs(tierName, officer);
+          markPoseBusy(source, poseMs);
+          pending.push(window.setTimeout(
+            () => source.node?.classList.remove("is-striking"), poseMs
+          ));
+        };
+        startPose();
         // 5d: the horse ends FORWARD of the line it broke; the foot closes in
         // behind it. Applied once per mount, so it reads as a breakthrough
         // rather than as a mount slowly walking off the stage.
@@ -1677,6 +1808,13 @@ export function createBattleStage(host, options = {}) {
           const dir = event.from.side === "player" ? 1 : -1;
           source.melee = (source.melee || 0) + dir * P.CAVALRY_BREAKTHROUGH_PX;
           source.node.style.setProperty("--mx", `${source.melee}px`);
+          if (target) {
+            requestFacing(
+              source,
+              facingToward(tokenAxisX(source), tokenAxisX(target), source.facing),
+              "breakthrough"
+            );
+          }
         }
       }, { tier: tierName, priority: officer });
     }
@@ -1698,7 +1836,7 @@ export function createBattleStage(host, options = {}) {
     burst(point.x, point.y - 16, angle, tier.inkBurst);
     slash(point.x, point.y - 14, angle, tier);
     splatter(point.x, point.y, angle, tier);
-    if (tier.jolt) heavyJolt(target.node);
+    if (tier.jolt) heavyJolt(target.node, rearHit ? 280 : 220);
     damageNumber(point.x, point.y, event.dmgShown, event.kill);
     target.damageTaken += Math.max(0, Number(event.dmgShown) || 0);
     if (Number.isFinite(event.hpAfter)) target.hpCurrent = Math.max(0, event.hpAfter);
@@ -1710,9 +1848,9 @@ export function createBattleStage(host, options = {}) {
       const emptied = applyKill(event);
       paintStain(point.x, point.y, true, tier.splatterScale, script.sides[event.to.side].weight);
       if (emptied) killBeat(event, source, target, point, tier);
-      else reel(target);
+      else reel(target, rearHit, source);
     } else {
-      reel(target);
+      reel(target, rearHit, source);
     }
     // Shake #2 of 2, spent on the blow that ends the battle and nothing else.
     if (index === finalStrikeIndex) shake("final-blow");
@@ -1721,10 +1859,22 @@ export function createBattleStage(host, options = {}) {
     refreshArcherOverrun();
   }
 
-  function reel(target) {
-    target.node.classList.remove("is-reeling");
+  function reel(target, rearHit = false, attacker = null) {
+    target.node.classList.remove("is-reeling", "is-reeling-behind");
     void target.node.offsetWidth;
-    target.node.classList.add("is-reeling");
+    target.node.classList.add(rearHit ? "is-reeling-behind" : "is-reeling");
+    const recoilMs = 260 + (rearHit ? P.REAR_HIT_EXTRA_HOLD_MS : 0);
+    target.recoilBusyUntil = performance.now() + recoilMs;
+    pending.push(window.setTimeout(() => {
+      if (!target.node) return;
+      target.node.classList.remove("is-reeling", "is-reeling-behind");
+      target.recoilBusyUntil = 0;
+      if (rearHit && attacker?.node && attacker.capacity > 0) {
+        requestFacing(target, attacker, "rear-hit");
+      } else {
+        flushPendingFacing(target);
+      }
+    }, recoilMs));
   }
 
   /*
@@ -1877,10 +2027,16 @@ export function createBattleStage(host, options = {}) {
     // shaft is already in the air when the hit lands on the beat. Offsetting
     // the LAUNCH keeps the impact in sync; delaying the hit would not.
     const arrowCues = [];
+    const facingCues = [];
     const drawLead = P.ARROW_LEAD_MS + P.BOW_NOCK_MS + P.BOW_DRAW_MS;
     script.events.forEach((event, index) => {
       if (event.type !== "strike") return;
       const shooter = script.sides[event.from.side]?.byIdx?.get(event.from.idx);
+      const facingLead = shooter?.arm === "archer" ? drawLead + P.FACING_TURN_MS : P.FACING_TURN_MS;
+      facingCues.push({
+        at: Math.max(0, times[index] - facingLead),
+        run: () => prepareStrikeFacing(event)
+      });
       if (shooter?.arm !== "archer") return;
       // Two cues, not one: the draw starts a full nock+draw earlier so the
       // release snap and the launch are the same instant.
@@ -1892,6 +2048,7 @@ export function createBattleStage(host, options = {}) {
     });
 
     const cues = [
+      ...facingCues,
       ...arrowCues,
       { at: 0, run: () => setPhase("deploy") },
       { at: P.DEPLOY_MS, run: () => { setPhase("standoff"); log(translate("stage.standoff")); } },
@@ -2179,6 +2336,10 @@ export function createBattleStage(host, options = {}) {
             speed: token.moveSpeed,
             depth: token.depth,
             overrun: Boolean(token.overrun),
+            facing: token.facing,
+            turning: Boolean(token.turningUntil),
+            targetSide: token.targetSide || null,
+            targetIdx: Number.isInteger(token.targetIdx) ? token.targetIdx : null,
             x: +(box.left - stageBox.left + box.width / 2).toFixed(1),
             y: +(box.top - stageBox.top + box.height * 0.85).toFixed(1)
           };

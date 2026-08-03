@@ -126,6 +126,9 @@ export const CONFIG_PRESENTATION = Object.freeze({
   UNIT_DEPLOY_BASE_MS: 1200,
   UNIT_CHARGE_BASE_MS: 1500,
   UNIT_REPOSITION_BASE_MS: 620,
+  FACING_TURN_MS: 180,
+  FACING_SHUFFLE_PX: 4,
+  REAR_HIT_EXTRA_HOLD_MS: 20,
   // Bowmen own the rear edge of every formation and do not close with the
   // melee line. Rear is expressed both in camera depth and away from centre.
   ARCHER_REAR_DEPTH: 0.92,
@@ -261,6 +264,17 @@ export function movementSpeedFor(token) {
 
 export function movementDurationMs(token, baseMs) {
   return Math.round(Math.max(0, Number(baseMs) || 0) / movementSpeedFor(token));
+}
+
+/** Presentation-only facing from the current compositor positions. */
+export function facingToward(selfX, targetX, current = 1) {
+  const delta = (Number(targetX) || 0) - (Number(selfX) || 0);
+  if (Math.abs(delta) < 0.5) return current < 0 ? -1 : 1;
+  return delta > 0 ? 1 : -1;
+}
+
+export function isRearHit(facing, selfX, attackerX) {
+  return (facing < 0 ? -1 : 1) !== facingToward(selfX, attackerX, facing);
 }
 
 export function tierOf(token) {

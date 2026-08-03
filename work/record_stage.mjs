@@ -305,6 +305,56 @@ async function main() {
     `unit still      ${JSON.stringify(groups)} staggered=${staggered} range=${rangeVisible}`
   );
 
+  // Facing acceptance still: the flank fixture deliberately places player
+  // token 5 to the right of enemy token 1. The attacker must pivot left; the
+  // defender is struck from behind, staggers forward, then pivots right.
+  const facingContext = await browser.newContext({ viewport: PHONE, deviceScaleFactor: 2 });
+  const facingPage = await facingContext.newPage();
+  await facingPage.goto(url, { waitUntil: "load" });
+  await facingPage.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+  await facingPage.evaluate(() => window.__SG_PLAY__("flank"));
+  const facingAtMs = 9500;
+  await facingPage.waitForTimeout(facingAtMs);
+  const facingProof = await facingPage.evaluate(() => {
+    const positions = window.__SG_STAGE__.unitPositions;
+    const attacker = positions.find((token) => token.side === "player" && token.idx === 5);
+    const target = positions.find((token) => token.side === "enemy" && token.idx === 1);
+    const beats = window.__SG_BEATS__ || [];
+    const toward = (from, to) => (to.x > from.x ? 1 : -1);
+    const ordered = [attacker, target].slice().sort((a, b) => a.x - b.x);
+    return {
+      attacker,
+      target,
+      faceEachOther: attacker.facing === toward(attacker, target)
+        && target.facing === toward(target, attacker),
+      backToBack: ordered[0].facing === -1 && ordered[1].facing === 1,
+      rearHits: beats.filter((beat) => beat.type === "rear_hit").length,
+      turns: beats.filter((beat) => beat.type === "turn").length
+    };
+  });
+  const facingFile = path.join(root, "work", "fixtures", "facing-midmelee.png");
+  await facingPage.screenshot({ path: facingFile });
+  await facingContext.close();
+  if (!facingProof.faceEachOther || facingProof.backToBack) {
+    throw new Error(`flanked fighters did not face each other: ${JSON.stringify(facingProof)}`);
+  }
+  if (facingProof.rearHits < 1 || facingProof.turns < 2) {
+    throw new Error(`flank fixture missed rear-hit/turn beats: ${JSON.stringify(facingProof)}`);
+  }
+  report.push({
+    name: "facing-midmelee",
+    fixture: "flank",
+    atMs: facingAtMs,
+    viewport: PHONE,
+    ...facingProof,
+    screenshot: "work/fixtures/facing-midmelee.png"
+  });
+  console.log(
+    `facing still    attacker=${facingProof.attacker.x.toFixed(1)}/${facingProof.attacker.facing} `
+    + `target=${facingProof.target.x.toFixed(1)}/${facingProof.target.facing} `
+    + `rear=${facingProof.rearHits} turns=${facingProof.turns}`
+  );
+
   await browser.close();
   server.close();
   fs.writeFileSync(
