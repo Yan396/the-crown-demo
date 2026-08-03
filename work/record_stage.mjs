@@ -253,6 +253,54 @@ async function main() {
     );
   }
 
+  // Final acceptance still: halfway through the charge on the exact phone
+  // viewport. This is early enough for the four travel speeds to be visible
+  // and late enough for the cavalry to have reached the front.
+  const stillContext = await browser.newContext({ viewport: PHONE, deviceScaleFactor: 2 });
+  const stillPage = await stillContext.newPage();
+  await stillPage.goto(url, { waitUntil: "load" });
+  await stillPage.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+  await stillPage.evaluate(() => window.__SG_PLAY__("field", { autoOrders: true }));
+  const stillAtMs = 4100;
+  await stillPage.waitForTimeout(3100);
+  const rangeVisible = await stillPage.evaluate(() => {
+    const arc = document.querySelector(".stage-range-arc path");
+    return Boolean(arc && getComputedStyle(arc).strokeDasharray !== "none");
+  });
+  await stillPage.waitForTimeout(stillAtMs - 3100);
+  const positions = await stillPage.evaluate(() => window.__SG_STAGE__.unitPositions);
+  const player = positions.filter((token) => token.side === "player");
+  const median = (values) => {
+    const sorted = values.slice().sort((a, b) => a - b);
+    return sorted.length ? sorted[Math.floor(sorted.length / 2)] : null;
+  };
+  const groups = {
+    cavalry: median(player.filter((token) => token.arm === "cavalry").map((token) => token.x)),
+    militia: median(player.filter((token) => token.arm === "spear" && token.troopType === "militia").map((token) => token.x)),
+    veteran: median(player.filter((token) => token.arm === "spear" && token.troopType === "veteran").map((token) => token.x)),
+    archer: median(player.filter((token) => token.arm === "archer").map((token) => token.x))
+  };
+  const stillFile = path.join(root, "work", "fixtures", "unit-behavior-midcharge.png");
+  await stillPage.screenshot({ path: stillFile });
+  await stillContext.close();
+  const staggered = groups.cavalry > Math.max(groups.militia, groups.veteran)
+    && groups.archer < Math.min(groups.militia, groups.veteran);
+  if (!staggered) throw new Error(`unit arrival tiers are not readable: ${JSON.stringify(groups)}`);
+  if (!rangeVisible) throw new Error("first archer volley did not render its dashed range arc");
+  report.push({
+    name: "unit-behavior-midcharge",
+    fixture: "field",
+    atMs: stillAtMs,
+    viewport: PHONE,
+    groups,
+    staggered,
+    rangeVisible,
+    screenshot: "work/fixtures/unit-behavior-midcharge.png"
+  });
+  console.log(
+    `unit still      ${JSON.stringify(groups)} staggered=${staggered} range=${rangeVisible}`
+  );
+
   await browser.close();
   server.close();
   fs.writeFileSync(

@@ -2813,7 +2813,7 @@ body.battle-stage-open #town-sheet {
   /* Scale pivots on the FEET. About the centre, a further (smaller) figure
      lifts off the ground line and the cross-section stops being a cross-section. */
   transform-origin: 50% 100%;
-  transition: transform 620ms cubic-bezier(0.3, 0.7, 0.2, 1);
+  transition: transform var(--reposition-ms, 620ms) cubic-bezier(0.3, 0.7, 0.2, 1);
   will-change: transform, opacity;
   animation: token-idle var(--sway, 2s) ease-in-out infinite alternate;
 }
@@ -2838,7 +2838,7 @@ body.battle-stage-open #town-sheet {
 /* Phase 3: the lines actually travel to the centreline across the charge, back
    ranks setting off later so the advance keeps its depth. */
 .battle-stage.phase-charge .stage-token {
-  transition-duration: 1500ms;
+  transition-duration: var(--charge-ms, 1500ms);
   transition-delay: var(--lag, 0ms);
   transition-timing-function: cubic-bezier(0.45, 0, 0.3, 1);
 }
@@ -2846,7 +2846,7 @@ body.battle-stage-open #town-sheet {
 /* Contact and after: short, snappy adjustments. */
 .battle-stage.phase-melee .stage-token,
 .battle-stage.phase-rout .stage-token {
-  transition-duration: 420ms;
+  transition-duration: var(--reposition-ms, 420ms);
   transition-delay: 0ms;
 }
 
@@ -3009,6 +3009,12 @@ body.battle-stage-open #town-sheet {
 
 .stage-token.is-converging { z-index: 90; }
 
+/* Bowmen turn as one toward the marked target; the actual target routing is
+   handled by the next decorative volley, never by the battle result. */
+.stage-token.arm-archer.is-aiming-focus .fig-pose {
+  transform: rotate(-9deg) translateX(2px);
+}
+
 /* 全线压上 / 稳住阵线 — one visible beat on the rank as a whole. */
 .battle-stage.order-press .stage-ranks-player { translate: 6px 0; }
 .battle-stage.order-hold .stage-ranks-player { translate: -3px 0; }
@@ -3097,6 +3103,29 @@ body.battle-stage-open #town-sheet {
 
 .stage-token.is-loosing .fig-pose {
   animation: archer-loose var(--bow-cycle) steps(1, end) both;
+}
+
+/* If hostile melee reaches the rear line, the bow becomes a stave. The token
+   has already stepped away in JS; this held silhouette makes the state read. */
+.stage-token.arm-archer.is-overrun .fig-pose {
+  animation: archer-defend 520ms steps(2, end) infinite alternate;
+}
+
+.stage-token.arm-archer.is-overrun .archer-bow,
+.stage-token.arm-archer.is-overrun .archer-string {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  transform: rotate(76deg) translate(1px, -2px);
+}
+
+.stage-token.arm-archer.is-overrun .archer-arrow,
+.stage-token.arm-archer.is-overrun .archer-head {
+  opacity: 0;
+}
+
+@keyframes archer-defend {
+  from { transform: rotate(-8deg) translateX(-1px); }
+  to { transform: rotate(-13deg) translateX(-4px); }
 }
 
 @keyframes archer-loose {
@@ -3221,6 +3250,34 @@ body.battle-stage-open #town-sheet {
   transform-origin: 50% 50%;
   pointer-events: none;
   will-change: transform, opacity;
+}
+
+/* First-volley range read: one faint dashed ink arc, then gone. It belongs to
+   the battlefield, not the HUD, and therefore carries no number or label. */
+.stage-range-arc {
+  position: absolute;
+  z-index: 18;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  color: var(--ink);
+  pointer-events: none;
+}
+
+.stage-range-arc path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-dasharray: 5 6;
+  animation: archer-range-sweep 900ms ease-out both;
+}
+
+@keyframes archer-range-sweep {
+  0% { opacity: 0; stroke-dashoffset: 34; }
+  16%, 62% { opacity: 0.42; }
+  100% { opacity: 0; stroke-dashoffset: 0; }
 }
 
 /* The strike poses are tier-driven and live in the weight-tier block below.
@@ -3458,11 +3515,22 @@ body.battle-stage-open #town-sheet {
    than front ranks (--lag), so the advance has depth instead of moving as one
    flat sheet. */
 .battle-stage.is-entering .stage-ranks-player .stage-token {
-  animation: token-march-l 1600ms cubic-bezier(0.2, 0.8, 0.2, 1) var(--lag, 0ms) both;
+  animation: token-march-l var(--deploy-ms, 1600ms) cubic-bezier(0.2, 0.8, 0.2, 1) var(--lag, 0ms) both;
 }
 
 .battle-stage.is-entering .stage-ranks-enemy .stage-token {
-  animation: token-march-r 1600ms cubic-bezier(0.2, 0.8, 0.2, 1) var(--lag, 0ms) both;
+  animation: token-march-r var(--deploy-ms, 1600ms) cubic-bezier(0.2, 0.8, 0.2, 1) var(--lag, 0ms) both;
+}
+
+/* A cloth levy plods rather than glides. The two held angles are deliberately
+   slight: enough to read at phone size, not enough to shake the spear tip. */
+.stage-token.unit-militia.arm-spear.is-advancing .fig-pose {
+  animation: militia-plod 520ms steps(2, end) infinite alternate;
+}
+
+@keyframes militia-plod {
+  from { transform: rotate(2deg) translateY(0); }
+  to { transform: rotate(6deg) translateY(1px); }
 }
 
 @keyframes token-march-l {

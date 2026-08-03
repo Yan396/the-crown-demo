@@ -4,7 +4,7 @@
 
 ## 当前架构
 
-`outputs/` 是可直接静态托管的无依赖 Vanilla JavaScript ES Modules 游戏：`main.js` 负责固定 500ms 逻辑步进、RAF 渲染与输入，`state/sim/battle/ai/kingdom` 管状态、合同、关系后果、建国与诏书规则，Canvas 绘制地图与战场、HTML/CSS overlay 承载界面，战斗表现层由 `presentation.js` 单独定调（重量档、军令窗口、墨渍预算、图形尺寸皆在此，绝不进 CONFIG），`audio.js` 仅在首次用户手势后用 Web Audio 运行时合成短音效；默认 URL 是 `DEMO=false` 的完整版并无条件启用 v1.1 阵型/陈莽，沿用版本 2 的 v1.1 隔离存档。`node work/build_variant.mjs demo` 可生成仍受支持的 Act 1–2 免费 demo，`full` 可切回默认构建；网页无框架、无后端、无音频文件，`desktop/src-tauri` 仅以文件存档适配器包裹同一份 `outputs/`。
+`outputs/` 是可直接静态托管的无依赖 Vanilla JavaScript ES Modules 游戏：`main.js` 负责固定 500ms 逻辑步进、RAF 渲染与输入，`state/sim/battle/ai/kingdom` 管状态、合同、关系后果、建国与诏书规则，Canvas 绘制地图与战场、HTML/CSS overlay 承载界面，战斗表现层由 `presentation.js` 单独定调（重量档、兵种移动速度、弓兵纵深、军令窗口、墨渍预算、图形尺寸皆在此，绝不进 CONFIG），`audio.js` 仅在首次用户手势后用 Web Audio 运行时合成短音效；默认 URL 是 `DEMO=false` 的完整版并无条件启用 v1.1 阵型/陈莽，沿用版本 2 的 v1.1 隔离存档。`node work/build_variant.mjs demo` 可生成仍受支持的 Act 1–2 免费 demo，`full` 可切回默认构建；网页无框架、无后端、无音频文件，`desktop/src-tauri` 仅以文件存档适配器包裹同一份 `outputs/`。
 
 ## 已实现
 
@@ -41,11 +41,12 @@
 - F4 部将：陈莽/沈稳/贾多金三人、两席，分别复用既有攻击/防御/封邑收入杠杆；各有 3 张双语个人事件、酒馆/HUD/事件卡内联朱砂印框肖像与编年史节点。连续欠饷 3 日确定性离队；旧单一陈莽存档迁移进双槽数组而不提升 `SAVE_VERSION`。
 - F4 交付：`storage.js` 在网页继续使用 localStorage，在本游戏 Tauri origin 通过 Rust command 将同一序列化字符串写入应用数据目录；F11 全屏，桌面运行时隐藏分享与结果码。`store/` 含中英商店文案、胶囊 brief、六张 1280×720 实机截图和 30 秒纯 gameplay 剪辑表；macOS `.app` 与 Windows NSIS 已由 GitHub Actions 实际构建通过。Pages 产物在根路径发布完整版、在 `/demo/` 发布 `DEMO=true` 免费试玩。
 - 战斗表现终版（唯一权威规范已冻结，后续只修 bug）：`presentation.js` 增加 `WEIGHT_TIERS` 轻/中/重三档，预备 100/140/200ms、定格 60/90/130ms、击退 6/10/16px，全部为 `steps(1)` 保持帧；每场只允许两次镜头震动（接敌 + 最后一击），幅度 `clamp(stageWidth×0.004, 2, 7)` 且只作用于 `.stage-world`，边框/名牌/战报不动。弓手为搭箭 100 → 满弓保持 200 → 撒放 60 → 复位 100 的四段定格，撒放与箭矢发射同一瞬；齐射固定 3–5 支、间隔 60ms、带角度散布，其中 10% 落空插地（只发生在不携带伤害的 volley 箭上）。骑兵为人马一体剪影、两帧四腿奔驰 + 竖向起伏 + 墨尘，冲锋覆盖 2.2× 距离并提前 300ms 接敌后硬停，撞入后停在阵线之前；坐骑阵亡先扬蹄 160ms 再与骑手化作同一大片墨渍。部将放大 30%、常驻浮动姓名、永不排入下一波且每个定格多 60ms，倒下时落旗并写战报行。墨渍缩小 40%、随兵源规模增减、有总面积上限并按新旧渐隐至 30%；血溅沿出手方向抛洒并附 2px 墨痕闪。
+- 兵种行为差异化只作用于表现层：骑兵/民兵/老兵/弓兵移动速度为 2.2×/1.0×/0.85×/0.6×，通过 token 自身过渡时长错开抵达，绝不移动脚本中的 strike beat。弓兵固定在各阵型最后纵深，冲锋留守，首轮齐射显示一次虚线墨弧；敌方战线越过弓兵线后弓兵退步并以弓作杖停止射击。阵中「压上」只推进近战、「稳住」令近战收拢且弓兵后退一层、「集火」令三名近战合围并让弓兵纯表现齐射标记目标。
 - 战斗表现修复的三处“写了但没生效”：`.is-striking .fig-pose`、`@keyframes archer-loose`、`.stage-token.is-reeling` 各有一份更靠后的重复定义，按层叠顺序覆盖了定格姿势、满弓保持与按档击退；`.battle-stage` 的自动网格轨道让 `width: min(1100px,100%)` 成为循环百分比，`play()` 期间把舞台量成 88×0，墨渍画布长期只有 1px 高。三者均已合并为单一定义并进永久门禁。
 - 军令改为阵中下达：战前只保留布阵，`#battle-command-modal` 已整体删除；舞台在 melee 的两个由脚本推导的确定窗口弹出「全线压上 / 稳住阵线 / 集火敌将」情境化按钮，冻结虚拟时钟、200ms 慢镜，并分别演出整排前压 / 收拢阵线 / 三人合围被标记目标。**该事件纯表现**：战斗在首帧前已结算，军令不重新结算、不改变胜负与伤亡，只写 ranks 位移、战报行与 `telemetry.stageCommands`，并记录 `{n, command, t, source}` 供确定性重放；`CONFIG.F3_COMMANDS`、`chooseBattleCommand`、`applyF3BattleModifiers` 数值侧一律未改，未作答时沿用既有 `F3_AUTOPLAY_COMMAND`。
 - 统一表现节拍钩子 `emitBeat({type, tier, kill, side, at})`：既有 CrownAudio 音效全部改挂在同一时钟上（顺带修掉 `audio?.hit?.()` 与 `crownAudio.hit()` 同时触发的双响），`options.onBeat` 供后续音频扩展，禁止出现第二套音频管线。
 - 战斗表现验收物：`work/record_stage.mjs` 以真实 Chromium（关闭后台节流）驱动 `outputs/styleguide.html` 的确定性脚本，产出 `outputs/clips/` 三段实机录像（15s 中型野战 / 弓箭 close / 骑兵冲击，共 ~851KB）并输出帧预算报告；390×844 实测 median 120.5fps、p95 9.3ms、超 16.7ms 帧 12/1706。styleguide 已重建为对接当前 API 的样板间并内嵌三段录像。
-- 当前验收基线：demo 17/17 套件、full 16/16 套件，post-launch 规则/音频专项 7/7，战斗表现专项 `test_battle_presentation` 35/35。默认分享 demo 为首战 6.5 秒、Act 2 11.11 分钟、声望 100 结局 27.85 分钟，18/18 战斗脚本对账；390×844 既有布局门禁保持。
+- 当前验收基线：demo 17/17 套件、full 16/16 套件，post-launch 规则/音频专项 7/7，战斗表现专项 `test_battle_presentation` 40/40。默认分享 demo 为首战 6.5 秒、Act 2 11.11 分钟、声望 100 结局 27.85 分钟，18/18 战斗脚本对账；390×844 冲锋中盘实测骑兵 x=240.0、民兵 155.5、老兵 159.3、弓兵 138.9，三段浏览器场景 p95≤10.1ms。
 
 ## 完整版路线（F1–F4）
 
@@ -80,7 +81,7 @@
 - **确定性不可破坏。** 世界、结算、掉落等原玩法随机数继续只消费 `state.rng`；v1.1 的敌阵与斥候报告是已授权的例外，使用 `(seed,battleId)` 派生的隔离确定性流，目的正是不得改写 v1.0/世界 RNG 序列；道路和美术继续使用各自隔离流。
 - **已有视觉只可延续，不可降级。** 保留宣纸/墨色/朱砂、官道路网、墨色小人、冲阵、退却姿态、残痕与 HUD 动效；禁止恢复色块、方阵占位或 emoji，也不得把尚未实现的箭雨误记成现状，或把已实现的领主官道寻路退回直线行军。
 - **表现与规则隔离。** `battlefield.js` 只读取既有战斗状态；不得让视觉动画消费 `state.rng`、改写 CONFIG、战斗结果或存档。战斗表现常量只走 `outputs/js/presentation.js` 的 `CONFIG_PRESENTATION`/`WEIGHT_TIERS`/`CAMERA`/`FORMATION_*`，不得搬进 `CONFIG`，也不得在 `battle-stage.js` 里硬编码毫秒或像素。
-- **战斗表现规范已冻结。** 唯一权威规范落地后只修 bug，不接新需求。以下不可回退：16 token 上限、每场两次震动且只动 world 层、三档重量的定格节奏、弓手四段满弓、骑兵 2.2× 冲锋后硬停、部将放大 30% 且不排队、墨渍面积上限与渐隐、`emitBeat` 单一时钟。**同一选择器/keyframes 不得出现第二份更靠后的定义**——定格姿势、满弓与按档击退都曾因此静默失效，`test_battle_presentation` 现在按层叠顺序断言。
+- **战斗表现规范已冻结。** 唯一权威规范落地后只修 bug，不接新需求。以下不可回退：16 token 上限、每场两次震动且只动 world 层、三档重量的定格节奏、弓手四段满弓、2.2/1.0/0.85/0.6 兵种视觉速度、弓兵后排留守/射程弧/近身停射、骑兵 2.2× 冲锋后硬停、部将放大 30% 且不排队、墨渍面积上限与渐隐、`emitBeat` 单一时钟。**同一选择器/keyframes 不得出现第二份更靠后的定义**——定格姿势、满弓与按档击退都曾因此静默失效，`test_battle_presentation` 现在按层叠顺序断言。
 - **军令是表现，不是结算。** 战前不得再出现军令弹窗；阵中军令不得重新结算或改动已定胜负、伤亡、战利品，只允许移动 ranks、写战报与遥测，并且必须可由 `battlePlayback.commands` 确定性重放。数值侧 `CONFIG.F3_COMMANDS` 与 `chooseBattleCommand` 保持不动。
 - **Demo 边界不扩张。** 通过 `node work/build_variant.mjs demo` 生成的 `DEMO=true` 变体中 Act 3–4 不开放；不加账号、后端、分析 SDK、难度设置、新任务或新兵种。声音只允许当前零资产 Web Audio 短音效：禁止音乐、音频文件、网络音源或影响玩法 RNG/结算。
 - **交付门槛不降。** 重大改动后运行 Phase 2.5、Casual Pass、decoder 测试，并复核 390×844 数字负担与完整 autoplay 节奏。

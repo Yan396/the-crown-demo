@@ -18,17 +18,17 @@
       7800
     ],
     "probe": {
-      "frames": 1771,
-      "medianMs": 8.3,
-      "p95Ms": 9.2,
-      "worstMs": 250.5,
-      "over16_7": 1,
-      "fps": 120.5
+      "frames": 1845,
+      "medianMs": 8.1,
+      "p95Ms": 10.1,
+      "worstMs": 269.7,
+      "over16_7": 9,
+      "fps": 123.5
     },
     "beats": {
-      "total": 37,
+      "total": 35,
       "byType": {
-        "arrow": 6,
+        "arrow": 4,
         "charge": 1,
         "command": 2,
         "shake": 2,
@@ -46,7 +46,7 @@
         "2:focus"
       ]
     },
-    "bytes": 448624
+    "bytes": 0
   },
   {
     "name": "archer-volley",
@@ -63,17 +63,17 @@
       7800
     ],
     "probe": {
-      "frames": 1077,
-      "medianMs": 8.3,
-      "p95Ms": 9.2,
-      "worstMs": 26,
-      "over16_7": 1,
-      "fps": 120.5
+      "frames": 1138,
+      "medianMs": 8,
+      "p95Ms": 9.8,
+      "worstMs": 16.9,
+      "over16_7": 2,
+      "fps": 125
     },
     "beats": {
-      "total": 25,
+      "total": 20,
       "byType": {
-        "arrow": 10,
+        "arrow": 5,
         "charge": 1,
         "command": 2,
         "shake": 1,
@@ -90,7 +90,7 @@
         "2:hold"
       ]
     },
-    "bytes": 203584
+    "bytes": 0
   },
   {
     "name": "cavalry-charge",
@@ -107,12 +107,12 @@
       7800
     ],
     "probe": {
-      "frames": 1080,
-      "medianMs": 8.3,
-      "p95Ms": 9.3,
-      "worstMs": 10.1,
-      "over16_7": 0,
-      "fps": 120.5
+      "frames": 1133,
+      "medianMs": 8.1,
+      "p95Ms": 9.8,
+      "worstMs": 24.1,
+      "over16_7": 3,
+      "fps": 123.5
     },
     "beats": {
       "total": 14,
@@ -134,6 +134,24 @@
         "2:hold"
       ]
     },
-    "bytes": 202845
+    "bytes": 0
+  },
+  {
+    "name": "unit-behavior-midcharge",
+    "fixture": "field",
+    "atMs": 4100,
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "groups": {
+      "cavalry": 240,
+      "militia": 155.5,
+      "veteran": 159.3,
+      "archer": 138.9
+    },
+    "staggered": true,
+    "rangeVisible": true,
+    "screenshot": "work/fixtures/unit-behavior-midcharge.png"
   }
 ]
