@@ -8,6 +8,8 @@ import {
 } from "./battle.js";
 import { createBattleStage } from "./battle-stage.js";
 import { CONFIG, SUPPORTED_LANGUAGES } from "./data.js";
+import { mountRules } from "./rules.js";
+import { armOnFirstGesture, emitCue } from "./audio.js";
 import {
   advanceActIfNeeded,
   advanceOnboarding,
@@ -466,6 +468,8 @@ ui = createUi({
       updateSessionPeaks(state);
       persist(true);
       ui.playRecruitFx(from, renderer.worldToScreen(state.player.pos));
+      // Success only. A refused recruit stays silent.
+      emitCue("recruit");
       ui.showToast("toast.recruited");
     } else if (result.reason === "gold") {
       ui.showToast("toast.goldInsufficient");
@@ -813,6 +817,13 @@ if (query.get("qa") === "1") {
 }
 
 finishAutoplaySetup();
+if (!autoplayEnabled) {
+  mountRules((key) => ui.text(key));
+  // Any real interaction opens the context. Without this a player who walks
+  // straight into a battle would never hear anything, because the rules card
+  // would have been the only thing that ever armed it.
+  armOnFirstGesture();
+}
 if (!autoplayEnabled && state.demo?.modal === "act2Transition") scheduleAct2Intro();
 if (!autoplayEnabled && state.demo?.modal === "act3Transition") scheduleAct3Intro();
 

@@ -2829,6 +2829,76 @@ body.battle-stage-open #town-sheet {
 .stage-speed:active { background: rgba(43, 38, 32, 0.1); }
 .stage-speed:focus-visible { outline: 2px solid var(--cinnabar); outline-offset: 2px; }
 
+/* -- rules card ------------------------------------------------------------- */
+/* Always reachable, never in the way. */
+.rules-chip {
+  position: fixed;
+  right: max(10px, env(safe-area-inset-right));
+  bottom: max(10px, env(safe-area-inset-bottom));
+  z-index: 6;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(232, 220, 195, 0.34);
+  border-radius: 50%;
+  background: rgba(28, 25, 22, 0.72);
+  color: var(--paper-on-lacquer);
+  font: 400 16px var(--font-display);
+  cursor: pointer;
+}
+
+.rules-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 7;
+  display: grid;
+  place-items: center;
+  padding: max(16px, env(safe-area-inset-top)) 12px max(16px, env(safe-area-inset-bottom));
+  background: rgba(28, 25, 22, 0.9);
+}
+
+/* A hidden overlay must never eat a tap. Regression-checked. */
+.rules-layer[hidden] { display: none !important; pointer-events: none !important; }
+
+.rules-sheet {
+  width: min(520px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 18px 20px 14px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.rules-head { display: flex; justify-content: space-between; align-items: center; }
+.rules-head b { font: 400 19px var(--font-display); letter-spacing: .08em; }
+.rules-close {
+  min-width: 34px; min-height: 34px;
+  border: 0; background: none; color: var(--ink);
+  font: 400 20px var(--font-display); cursor: pointer;
+}
+
+.rules-row { margin-top: 13px; }
+.rules-row h3 {
+  margin: 0 0 3px;
+  color: var(--ink);
+  font: 400 13px var(--font-display);
+  letter-spacing: .1em;
+}
+.rules-row p {
+  margin: 0;
+  color: var(--ink-faint);
+  font: 12px/1.65 var(--font-body);
+  overflow-wrap: anywhere;
+}
+
+.rules-foot { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--rule-on-paper); }
+.rules-mute {
+  min-height: 34px; padding: 6px 14px;
+  border: 1px solid rgba(43, 38, 32, 0.4);
+  background: none; color: var(--ink);
+  font: 12px var(--font-body); cursor: pointer;
+}
+
 /* -- F3 unit motion --------------------------------------------------------- */
 /* A loosed shaft. Positioned by the animation's transform, so the element
    itself sits at the origin and never needs layout. */

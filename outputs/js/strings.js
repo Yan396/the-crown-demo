@@ -115,6 +115,23 @@ export const STRINGS = Object.freeze({
       sideEnemy: "匪队",
       sideLord: "追兵"
     }),
+    rules: Object.freeze({
+      title: "怎么玩",
+      open: "打开玩法说明",
+      close: "关闭",
+      soundOn: "音效：开",
+      soundOff: "音效：关",
+      marchTitle: "行军与城镇",
+      marchBody: "拖动地图给队伍指路，世界自己在走。走进城镇可以招兵、补员、置办酒食，酒馆里能接一份合同。",
+      armsTitle: "兵种与阵型",
+      armsBody: "枪克骑、骑克弓、弓克枪。战前选锋矢、横列或圆阵；克制的一方攻防都占优，斥候的情报有八成准。",
+      battleTitle: "战斗",
+      battleBody: "遇敌可以进攻或撤退。战斗会自己演完：点速度牌切 1×／2×／4×，长按跳过。结果在开打时就已经定了。",
+      mirrorTitle: "目标与镜子",
+      mirrorBody: "每一幕开始会问你一次「多少才够」。游戏只记下你说的和你做的，结局把两者并排放着。它不评判。",
+      buildsTitle: "两个版本",
+      buildsBody: "／demo／ 是给朋友试玩的短版，走到声望 100 结束。根路径是完整版，有采邑、称王与真结局。"
+    }),
     formation: Object.freeze({
       kicker: "战前 · 布阵",
       scout: "斥候来报：敌军似乎{shape}",
@@ -584,6 +601,23 @@ export const STRINGS = Object.freeze({
       sidePlayer: "Player",
       sideEnemy: "Bandits",
       sideLord: "Pursuers"
+    }),
+    rules: Object.freeze({
+      title: "How to play",
+      open: "Open how to play",
+      close: "Close",
+      soundOn: "Sound: on",
+      soundOff: "Sound: off",
+      marchTitle: "Marching and towns",
+      marchBody: "Drag the map to set your march; the world keeps running on its own. Enter a town to recruit, replenish, buy provisions, or take one tavern contract.",
+      armsTitle: "Arms and formations",
+      armsBody: "Spear beats cavalry, cavalry beats archers, archers beat spear. Before a fight pick wedge, line or circle; the countering side gains attack and defence, and your scout is right about eight times in ten.",
+      battleTitle: "Battle",
+      battleBody: "Meet an enemy and you may attack or retreat. The fight plays itself out: tap the speed chip for 1x/2x/4x, hold to skip. The outcome is already decided when it starts.",
+      mirrorTitle: "Goals and the mirror",
+      mirrorBody: "Each act asks you once how much would be enough. The game only records what you said and what you did, and sets them side by side at the end. It does not judge.",
+      buildsTitle: "Two builds",
+      buildsBody: "/demo/ is the short friend-test build and ends at 100 renown. The root path is the full version, with fiefs, kingship and the true endings."
     }),
     formation: Object.freeze({
       kicker: "Before Battle · Formation",
