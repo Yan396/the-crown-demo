@@ -144,6 +144,9 @@ test("Tauri shell defines local file commands, fullscreen, and macOS/Windows bun
   const rust = readFileSync(new URL("../desktop/src-tauri/src/main.rs", import.meta.url), "utf8");
   const config = JSON.parse(readFileSync(new URL("../desktop/src-tauri/tauri.conf.json", import.meta.url), "utf8"));
   const workflow = readFileSync(new URL("../.github/workflows/desktop-build.yml", import.meta.url), "utf8");
+  const pngIcon = readFileSync(new URL("../desktop/src-tauri/icons/icon.png", import.meta.url));
+  const icoIcon = readFileSync(new URL("../desktop/src-tauri/icons/icon.ico", import.meta.url));
+  const icnsIcon = readFileSync(new URL("../desktop/src-tauri/icons/icon.icns", import.meta.url));
   ["load_state", "save_state", "remove_state", "set_fullscreen"].forEach((command) => {
     assert.match(rust, new RegExp(`fn ${command}\\b`));
   });
@@ -152,6 +155,9 @@ test("Tauri shell defines local file commands, fullscreen, and macOS/Windows bun
   assert.match(workflow, /macos-latest/);
   assert.match(workflow, /windows-latest/);
   assert.match(workflow, /--bundles \$\{\{ matrix\.bundle \}\}/);
+  assert.deepEqual([...pngIcon.subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
+  assert.deepEqual([...icoIcon.subarray(0, 4)], [0x00, 0x00, 0x01, 0x00]);
+  assert.equal(icnsIcon.subarray(0, 4).toString("ascii"), "icns");
 });
 
 test("store kit contains exact positioning, six shot briefs, capsule, and 30-second cut list", () => {
