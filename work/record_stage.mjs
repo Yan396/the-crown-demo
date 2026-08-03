@@ -2,7 +2,7 @@
  * Battle-stage recorder and frame-budget probe.
  *
  * DEV TOOL, not a gate. It drives outputs/styleguide.html in a real Chromium
- * and produces the three promo recordings that styleguide.html embeds, plus a
+ * and produces the four acceptance recordings that styleguide.html embeds, plus a
  * frame-time report used to verify the 60fps budget at 390x844.
  *
  * Why a real browser and not the editor's preview pane: a hidden or backgrounded
@@ -35,16 +35,13 @@ const PHONE = { width: 390, height: 844 };
 // survives the downscale intact and the three clips then fit the shipped bundle.
 const CLIP_SCALE_W = 292;
 
-/* The three acceptance recordings, and what each one has to show. */
+/* The four acceptance recordings, and what each one has to show. */
 const CLIPS = [
   {
     name: "field-15s",
     fixture: "field",
     ms: 15000,
     kbps: 230,
-    // Two DIFFERENT orders, so the clip shows both a rank stepping in and three
-    // tokens converging on a marked man rather than the same beat twice.
-    orders: ["charge", "focus"],
     what: "mid-size field battle at 1x -- the promo standard"
   },
   {
@@ -60,6 +57,13 @@ const CLIPS = [
     ms: 9000,
     kbps: 170,
     what: "the charge arriving ahead of the infantry and stopping on contact"
+  },
+  {
+    name: "archer-kill",
+    fixture: "archerKill",
+    ms: 9000,
+    kbps: 170,
+    what: "one resolved archer kill: draw, flight, impact, recoil, ink, number, death"
   }
 ];
 
@@ -213,10 +217,7 @@ async function main() {
     // before asking it to play.
     await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
 
-    const info = await page.evaluate(
-      ({ fixture, orders }) => window.__SG_PLAY__(fixture, { autoOrders: true, orders }),
-      { fixture: clip.fixture, orders: clip.orders || null }
-    );
+    const info = await page.evaluate((fixture) => window.__SG_PLAY__(fixture), clip.fixture);
     const probe = await page.evaluate(`${PROBE}(${clip.ms})`);
     const beats = await page.evaluate(() => ({
       total: window.__SG_BEATS__.length,
@@ -226,7 +227,10 @@ async function main() {
       }, {}),
       tiers: [...new Set(window.__SG_BEATS__.filter((b) => b.tier).map((b) => b.tier))],
       shakes: window.__SG_STAGE__.shakesSpent,
-      commands: window.__SG_COMMANDS__.map((entry) => `${entry.n}:${entry.command}`)
+      countMismatches: window.__SG_COUNTS__.filter((entry) => (
+        entry.header.player !== entry.live.player || entry.header.enemy !== entry.live.enemy ||
+        entry.header.player !== entry.dom.player || entry.header.enemy !== entry.dom.enemy
+      )).length
     }));
 
     const video = probeOnly ? null : page.video();
@@ -237,19 +241,19 @@ async function main() {
       const target = path.join(clipsDir, `${clip.name}.webm`);
       fs.rmSync(target, { force: true });
       // Chromium writes VP8 at a default bitrate that is far more than an ink
-      // drawing needs. Re-encode to the clip's own budget so three recordings
+      // drawing needs. Re-encode to the clip's own budget so four recordings
       // can live inside the shipped bundle instead of next to it.
       await transcode(raw, target, clip);
       fs.rmSync(raw, { force: true });
       bytes = fs.statSync(target).size;
     }
-    report.push({ ...clip, tokens: info.tokens, windows: info.windows, probe, beats, bytes });
+    report.push({ ...clip, tokens: info.tokens, probe, beats, bytes });
     console.log(
       `${clip.name.padEnd(15)} ${String(probe.fps).padStart(5)}fps median  `
       + `p95 ${String(probe.p95Ms).padStart(5)}ms  over-budget ${probe.over16_7}/${probe.frames}  `
       + `${probeOnly ? "" : `${(bytes / 1024).toFixed(0)}KB  `}`
-      + `beats ${beats.total} ${JSON.stringify(beats.byType)} tiers=${beats.tiers.join("/")} shakes=${beats.shakes} `
-      + `orders=[${beats.commands.join(",")}]`
+      + `beats ${beats.total} ${JSON.stringify(beats.byType)} tiers=${beats.tiers.join("/")} `
+      + `shakes=${beats.shakes} count-mismatches=${beats.countMismatches}`
     );
   }
 
@@ -260,7 +264,7 @@ async function main() {
   const stillPage = await stillContext.newPage();
   await stillPage.goto(url, { waitUntil: "load" });
   await stillPage.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
-  await stillPage.evaluate(() => window.__SG_PLAY__("field", { autoOrders: true }));
+  await stillPage.evaluate(() => window.__SG_PLAY__("field"));
   const stillAtMs = 4100;
   await stillPage.waitForTimeout(3100);
   const rangeVisible = await stillPage.evaluate(() => {

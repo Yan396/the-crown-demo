@@ -5,7 +5,6 @@ import {
   FORMATION_LAYOUTS,
   FORMATION_SHAPE,
   WEIGHT_TIERS,
-  commandWindows,
   depthPlacement,
   movementDurationMs,
   movementSpeedFor,
@@ -148,13 +147,18 @@ export function normalizeScript(raw) {
       startTroops: total,
       weight,
       tokens: aggregateTokens(
-        (source.tokens || []).map((token) => ({
-          idx: token.idx,
-          troopType: token.troopType,
-          arm: token.arm || null,
-          capacity: Math.max(0, Math.min(weight, total - token.idx * weight)),
-          node: null
-        }))
+        (source.tokens || [])
+          .map((token) => ({
+            idx: token.idx,
+            troopType: token.troopType,
+            arm: token.arm || null,
+            capacity: Math.max(0, Math.min(weight, total - token.idx * weight)),
+            node: null
+          }))
+          // Never render a roster bucket that represents no soldiers. A stale
+          // or overlong token list used to create fighting "ghosts" while the
+          // header correctly showed the smaller startTroops value.
+          .filter((token) => token.capacity > 0)
       )
     };
     // Engine idx -> the visual token that stands for it. Strike events name an
@@ -180,7 +184,6 @@ export function normalizeScript(raw) {
       enemy: raw.formations.enemy || "line"
     };
   }
-  if (raw.command) normalized.command = raw.command;
   return normalized;
 }
 
@@ -262,6 +265,13 @@ export function scheduleEvents(events) {
 
 export function survivorsOf(side) {
   return side.tokens.reduce((sum, token) => sum + token.capacity, 0);
+}
+
+export function liveCountsForScript(script) {
+  return {
+    player: survivorsOf(script.sides.player),
+    enemy: survivorsOf(script.sides.enemy)
+  };
 }
 
 /**
@@ -622,13 +632,10 @@ export function createBattleStage(host, options = {}) {
   // age ramp once it runs past its area budget instead of silting up.
   let stains = [];
   let stainArea = 0;
-  // 7: the orders actually given, in order. This array IS the replay record.
-  let commandLog = [];
-  let commandWindowsAt = [];
-  let commandGateAt = -1;
-  let commandTimer = 0;
   let archerRangeShown = new Set();
-  let focusedTarget = null;
+  // Resolved arrow strikes travel on real compositor time while the script
+  // clock can pause. Hold each shaft at contact until its own strike beat.
+  let inflightArrows = new Map();
 
   /*
    * ITEM 9 — the one clock.
@@ -806,6 +813,7 @@ export function createBattleStage(host, options = {}) {
       token.damageBudget = budgets.get(`${sideKey}:${token.idx}`) || 0;
       token.hpMax = hpMaxes.get(`${sideKey}:${token.idx}`) || 0;
       token.hpCurrent = token.hpMax;
+      node.dataset.capacity = String(token.capacity);
       // Lateral scatter only. A random VERTICAL nudge would lift a man off the
       // ground line for no reason the camera can justify.
       const scatter = layout ? FORMATION_SHAPE.JITTER_SCALE : 1;
@@ -996,16 +1004,6 @@ export function createBattleStage(host, options = {}) {
     refreshArcherOverrun();
   }
 
-  function setTokenDepth(token, depth) {
-    if (!token?.node) return;
-    token.depth = Math.max(0, Math.min(1, depth));
-    const cam = depthPlacement(token.depth);
-    token.node.style.setProperty("--ty", `${cam.ty.toFixed(1)}px`);
-    token.node.style.setProperty("--tscale", cam.scale.toFixed(3));
-    token.node.style.setProperty("--fade", cam.fade.toFixed(2));
-    token.node.style.zIndex = String(cam.z);
-  }
-
   function tokenAxisX(token) {
     return (token?.baseX || 0) + (token?.melee || 0);
   }
@@ -1036,7 +1034,7 @@ export function createBattleStage(host, options = {}) {
         token.melee = (token.melee || 0) + retreat;
         token.node.style.setProperty("--mx", `${token.melee}px`);
         token.node.classList.add("is-overrun");
-        token.node.classList.remove("is-loosing", "is-aiming-focus");
+        token.node.classList.remove("is-loosing");
       });
     });
   }
@@ -1104,14 +1102,29 @@ export function createBattleStage(host, options = {}) {
 
   function syncCounts() {
     if (!countNodes.player) return;
-    const counts = endEvent
-      ? battleEndCounts(endEvent)
-      : {
-        player: survivorsOf(script.sides.player),
-        enemy: survivorsOf(script.sides.enemy)
-      };
+    // One source for both plates, at every beat: the live capacities that also
+    // decide whether a drawn token can fight. battle_end is validated against
+    // this source but never replaces it early while death poses are settling.
+    const counts = liveCountsForScript(script);
     countNodes.player.textContent = String(counts.player);
     countNodes.enemy.textContent = String(counts.enemy);
+    const domCounts = {
+      player: script.sides.player.tokens.reduce(
+        (sum, token) => sum + Number(token.node?.dataset.capacity || 0), 0
+      ),
+      enemy: script.sides.enemy.tokens.reduce(
+        (sum, token) => sum + Number(token.node?.dataset.capacity || 0), 0
+      )
+    };
+    options.onCountSync?.({
+      header: {
+        player: Number(countNodes.player.textContent),
+        enemy: Number(countNodes.enemy.textContent)
+      },
+      live: { ...counts },
+      dom: domCounts
+    });
+    return counts;
   }
 
   function tokenAt(sideKey, idx) {
@@ -1242,8 +1255,8 @@ export function createBattleStage(host, options = {}) {
 
   // A quadratic bezier from bow to chest, the shaft rotated to its own
   // velocity so it never flies sideways.
-  function flyArrow(from, to, delay = 0, { miss = false } = {}) {
-    if (!worldNode) return;
+  function flyArrow(from, to, delay = 0, { miss = false, holdAtImpact = false } = {}) {
+    if (!worldNode) return null;
     const arrow = document.createElement("i");
     arrow.className = miss ? "stage-shaft is-miss" : "stage-shaft";
     worldNode.appendChild(arrow);
@@ -1264,15 +1277,15 @@ export function createBattleStage(host, options = {}) {
           (Math.atan2(dy, dx) * 180 / Math.PI).toFixed(1)}deg)`,
         // A shaft that hits vanishes AT contact. A shaft that misses does not:
         // it stays where it stuck, which is the whole point of drawing it.
-        opacity: miss ? 1 : (t > 0.92 ? 0 : 1)
+        opacity: miss || holdAtImpact ? 1 : (t > 0.92 ? 0 : 1)
       });
     }
     if (!reducedMotion.matches && arrow.animate) {
       arrow.animate(frames, { duration: P.ARROW_LEAD_MS, delay, easing: "linear", fill: "both" });
     }
     if (!miss) {
-      ephemeral(arrow, delay + P.ARROW_LEAD_MS + 40);
-      return;
+      if (!holdAtImpact) ephemeral(arrow, delay + P.ARROW_LEAD_MS + 40);
+      return arrow;
     }
     // 4c: overshoot, stand in the ground at an angle, fade after two seconds.
     // Misses are what make a volley read as a volley rather than as a cue.
@@ -1284,6 +1297,7 @@ export function createBattleStage(host, options = {}) {
       arrow.classList.add("is-stuck");
     }, delay + P.ARROW_LEAD_MS));
     ephemeral(arrow, delay + P.ARROW_LEAD_MS + P.ARROW_STUCK_MS + 400);
+    return arrow;
   }
 
   // The four-pose bow cycle. Started NOCK+DRAW before the shaft leaves, so the
@@ -1482,12 +1496,9 @@ export function createBattleStage(host, options = {}) {
     // An overrun bow line has become a defensive line; it cannot loose again.
     if (!shooters.length) return;
     log(translate("stage.volley"));
-    const liveTargets = script.sides[targetSide].tokens.filter(
+    const targets = script.sides[targetSide].tokens.filter(
       (token) => token.capacity > 0 && token.node
     );
-    const focus = focusedTarget?.side === targetSide && focusedTarget.token.capacity > 0
-      ? focusedTarget.token : null;
-    const targets = focus ? [focus] : liveTargets;
     showArcherRange(event.side, shooters, targets);
     // The shooters draw as one rank, so the volley has a visible source.
     shooters.forEach((token, index) => {
@@ -1506,34 +1517,6 @@ export function createBattleStage(host, options = {}) {
       },
       P.BOW_NOCK_MS + P.BOW_DRAW_MS
     );
-    if (focus) {
-      const clearAfter = P.BOW_NOCK_MS + P.BOW_DRAW_MS + P.ARROW_LEAD_MS;
-      pending.push(window.setTimeout(clearFocusedTarget, clearAfter));
-    }
-  }
-
-  function performFocusedVolley(shooters, mark) {
-    const ready = shooters.filter((token) => token.node && token.capacity > 0 && !token.overrun);
-    if (!ready.length || !mark?.node || mark.capacity <= 0) return;
-    ready.forEach((token, index) => {
-      pending.push(window.setTimeout(() => drawBow(token.node), index * P.ARROW_SPREAD_MS));
-    });
-    const points = ready.map((token) => stagePoint(token.node));
-    const from = {
-      x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
-      y: points.reduce((sum, point) => sum + point.y, 0) / points.length
-    };
-    volleyArrows(
-      { arrows: ready.length },
-      from,
-      [mark],
-      stagePoint(mark.node),
-      P.BOW_NOCK_MS + P.BOW_DRAW_MS
-    );
-    pending.push(window.setTimeout(
-      clearFocusedTarget,
-      P.BOW_NOCK_MS + P.BOW_DRAW_MS + P.ARROW_LEAD_MS
-    ));
   }
 
   // The ONLY state this module mutates: inferred bucket capacities, which exist
@@ -1542,6 +1525,7 @@ export function createBattleStage(host, options = {}) {
     const target = tokenAt(event.to.side, event.to.idx);
     if (!target || target.capacity <= 0) return false;
     target.capacity -= 1;
+    if (target.node) target.node.dataset.capacity = String(target.capacity);
     return target.capacity === 0;
   }
 
@@ -1562,7 +1546,8 @@ export function createBattleStage(host, options = {}) {
     const from = tokenAt(event.from.side, event.from.idx);
     const to = tokenAt(event.to.side, event.to.idx);
     if (!from?.node || !to?.node || from.overrun) return;
-    flyArrow(stagePoint(from.node), stagePoint(to.node), 0);
+    const shaft = flyArrow(stagePoint(from.node), stagePoint(to.node), 0, { holdAtImpact: true });
+    if (shaft) inflightArrows.set(event, shaft);
     emitBeat({ type: "arrow", side: event.from.side });
   }
 
@@ -1581,7 +1566,17 @@ export function createBattleStage(host, options = {}) {
     const tierName = source ? source.tier || weightTierFor(source) : "light";
     const tier = WEIGHT_TIERS[tierName];
     const mounted = source?.arm === "cavalry";
+    const arrowStrike = source?.arm === "archer";
     const officer = Boolean(source?.isLieutenant);
+    // A resolved shaft waits at the target for this exact virtual beat. Remove
+    // it now, then run the same recoil/ink/number/death path as every other hit.
+    if (arrowStrike) {
+      const shaft = inflightArrows.get(event);
+      shaft?.getAnimations?.().forEach((animation) => animation.cancel());
+      shaft?.remove();
+      inflightArrows.delete(event);
+      emitBeat({ type: "arrow_impact", side: event.from.side, kill: Boolean(event.kill) });
+    }
     emitBeat({
       type: "strike",
       tier: tierName,
@@ -1641,7 +1636,6 @@ export function createBattleStage(host, options = {}) {
       paintStain(point.x, point.y, true, tier.splatterScale, script.sides[event.to.side].weight);
       if (emptied) killBeat(event, source, target, point, tier);
       else reel(target);
-      if (emptied && focusedTarget?.token === target) clearFocusedTarget();
     } else {
       reel(target);
     }
@@ -1742,185 +1736,6 @@ export function createBattleStage(host, options = {}) {
     }, TIMING.ROUT_SLOWMO));
   }
 
-  /* -- ITEM 7: orders, given on the field ------------------------------------ */
-
-  /*
-   * An order is something you give to an army that is already fighting, so it
-   * is asked for twice during the melee and never before it. There is no
-   * pre-battle order screen; the formation is the pre-battle commitment.
-   *
-   * PRESENTATION ONLY, and that boundary is the whole design. The engine
-   * resolved this battle before the first frame -- casualties, survivors and
-   * winner are already on the script. An order therefore CANNOT and DOES NOT
-   * re-resolve anything: it moves ranks, it writes a dispatch line, and it goes
-   * into telemetry. The balance-side command formula (CONFIG.F3_COMMANDS,
-   * applyF3BattleModifiers, chooseBattleCommand) is untouched and still owns
-   * the number side exactly as before.
-   *
-   * Replay: the two windows come from commandWindows(script), which reads only
-   * the script, so the same battle always asks at the same two beats. What was
-   * chosen is appended to `commandLog`, and that array is the replay record --
-   * feed it back through options.replayCommands and the performance repeats.
-   */
-  function commandOptionsAt() {
-    const alive = (sideKey) => script.sides[sideKey].tokens
-      .filter((token) => token.capacity > 0).length;
-    const own = alive("player");
-    const foe = alive("enemy");
-    const offered = [];
-    // Contextual: you press when you can afford to, you steady when you cannot,
-    // and you concentrate when there is a mass worth concentrating on.
-    if (own >= foe) offered.push("charge");
-    offered.push("hold");
-    if (foe >= P.COMMAND_FOCUS_TOKENS) offered.push("focus");
-    return offered;
-  }
-
-  function closeCommandGate() {
-    window.clearTimeout(commandTimer);
-    commandTimer = 0;
-    const wasOpen = commandGateAt >= 0;
-    commandGateAt = -1;
-    root?.querySelector(".stage-orders")?.remove();
-    root?.classList.remove("is-awaiting-order");
-    // The melee was held while the chips were up; let it run on again.
-    if (wasOpen) frozenUntilReal = performance.now();
-  }
-
-  function issueCommand(command, source = "player") {
-    if (!root || !script) return null;
-    const index = commandLog.length;
-    closeCommandGate();
-    const record = { n: index + 1, command, t: Math.round(virtualTime), source };
-    commandLog.push(record);
-    // The order lands on its own beat: 200ms of slow motion, then execution.
-    root.classList.add("is-slowmo");
-    pending.push(window.setTimeout(
-      () => root && root.classList.remove("is-slowmo"), P.COMMAND_SLOWMO_MS
-    ));
-    log(translate(`battleCommand.${command}`));
-    pending.push(window.setTimeout(() => executeCommand(command), P.COMMAND_SLOWMO_MS));
-    emitBeat({ type: "command", command, n: record.n });
-    options.onCommand?.(record);
-    return record;
-  }
-
-  /* The three orders, as three visibly different things happening to the line. */
-  function executeCommand(command) {
-    if (!root || !worldNode) return;
-    const own = script.sides.player.tokens.filter((token) => token.node && token.capacity > 0);
-    const meleeOwn = own.filter((token) => token.arm !== "archer");
-    const archers = own.filter((token) => token.arm === "archer" && !token.overrun);
-    if (command === "charge") {
-      // 全线压上 — melee steps in; the bow line deliberately stays behind.
-      meleeOwn.forEach((token) => {
-        token.melee = (token.melee || 0) + P.COMMAND_PRESS_STEP_PX;
-        token.node.style.setProperty("--mx", `${token.melee}px`);
-      });
-      root.classList.add("order-press");
-      pending.push(window.setTimeout(() => root && root.classList.remove("order-press"), 700));
-      refreshArcherOverrun();
-      return;
-    }
-    if (command === "hold") {
-      // 稳住阵线 — melee closes on itself while bows take one rear depth step.
-      if (!meleeOwn.length && !archers.length) return;
-      const centre = meleeOwn.length
-        ? meleeOwn.reduce((sum, token) => sum + token.melee, 0) / meleeOwn.length : 0;
-      meleeOwn.forEach((token) => {
-        token.melee = Math.round(centre + (token.melee - centre) * P.COMMAND_HOLD_TIGHTEN);
-        token.node.style.setProperty("--mx", `${token.melee}px`);
-      });
-      archers.forEach((token) => {
-        setTokenDepth(token, Math.min(1, token.depth + P.ARCHER_HOLD_BACK_DEPTH));
-      });
-      root.classList.add("order-hold");
-      pending.push(window.setTimeout(() => root && root.classList.remove("order-hold"), 700));
-      refreshArcherOverrun();
-      return;
-    }
-    // 集火敌将 — three melee figures converge; bows turn and put their next
-    // decorative volley into the same marked target.
-    const foes = script.sides.enemy.tokens.filter((token) => token.node && token.capacity > 0);
-    if (!foes.length) return;
-    // Deterministic pick: the enemy standing furthest forward, i.e. the one the
-    // line is already up against.
-    const mark = foes.reduce((best, token) => (token.melee < best.melee ? token : best), foes[0]);
-    clearFocusedTarget();
-    focusedTarget = { side: "enemy", token: mark };
-    mark.node.classList.add("is-marked");
-    archers.forEach((token) => token.node.classList.add("is-aiming-focus"));
-    const markX = mark.melee + mark.baseX;
-    meleeOwn
-      .slice()
-      .sort((first, second) =>
-        Math.abs(first.baseX + first.melee - markX) - Math.abs(second.baseX + second.melee - markX))
-      .slice(0, P.COMMAND_FOCUS_TOKENS)
-      .forEach((token) => {
-        token.melee = Math.round(token.melee + (markX - (token.baseX + token.melee)) * 0.55);
-        token.node.style.setProperty("--mx", `${token.melee}px`);
-        token.node.classList.add("is-converging");
-        pending.push(window.setTimeout(
-          () => token.node && token.node.classList.remove("is-converging"), P.COMMAND_FOCUS_MS
-        ));
-      });
-    performFocusedVolley(archers, mark);
-    refreshArcherOverrun();
-  }
-
-  function clearFocusedTarget() {
-    if (focusedTarget?.token?.node) focusedTarget.token.node.classList.remove("is-marked");
-    script?.sides.player.tokens.forEach((token) => {
-      token.node?.classList.remove("is-aiming-focus");
-    });
-    script?.sides.enemy.tokens.forEach((token) => {
-      token.node?.classList.remove("is-aiming-focus");
-    });
-    focusedTarget = null;
-  }
-
-  // The chips. Rendered inside the stage, over the melee, because that is where
-  // the decision is being made.
-  function openCommandGate(windowIndex) {
-    if (!root || commandLog.length >= P.COMMAND_WINDOWS) return;
-    const offered = commandOptionsAt();
-    const fallback = offered.includes(P.COMMAND_DEFAULT) ? P.COMMAND_DEFAULT : offered[0];
-    // Autoplay, reduced motion and a skipped battle never wait for a human.
-    if (options.autoCommand?.() || reducedMotion.matches) {
-      issueCommand(fallback, "auto");
-      return;
-    }
-    const replay = options.replayCommands?.()?.[windowIndex];
-    if (replay?.command && offered.includes(replay.command)) {
-      issueCommand(replay.command, "replay");
-      return;
-    }
-    commandGateAt = windowIndex;
-    root.classList.add("is-awaiting-order");
-    // Hold the melee where it is. The order is given INTO the fight, and the
-    // fight has to be legible while you decide.
-    frozenUntilReal = Number.POSITIVE_INFINITY;
-    const bar = document.createElement("div");
-    bar.className = "stage-orders";
-    bar.innerHTML =
-      `<small>${translate("battleCommand.kicker")}</small><div class="stage-order-chips">` +
-      offered.map((key) =>
-        `<button type="button" data-order="${key}">${translate(`battleCommand.${key}`)}</button>`
-      ).join("") + "</div>";
-    bar.addEventListener("click", (clicked) => {
-      const button = clicked.target.closest("[data-order]");
-      if (!button) return;
-      clicked.stopPropagation();
-      issueCommand(button.dataset.order, "player");
-    });
-    root.querySelector(".stage-paper").appendChild(bar);
-    // The field will not wait for ever: an unanswered window resolves itself so
-    // a battle can never stall on a chip nobody pressed.
-    commandTimer = window.setTimeout(() => {
-      if (commandGateAt === windowIndex) issueCommand(fallback, "timeout");
-    }, P.COMMAND_AUTO_MS);
-  }
-
   /* -- timeline -------------------------------------------------------------- */
 
   // The engine owns pacing: every event carries an absolute `t`, so the stage
@@ -1955,11 +1770,12 @@ export function createBattleStage(host, options = {}) {
             break;
           case "volley": performVolley(event); break;
           case "archer_volley": performArcherVolley(event); break;
-          // A `command` recorded by the engine is a pre-resolution artefact of
-          // the balance side; the stage no longer performs it, because the
-          // order the player actually gives now happens in the melee windows.
+          // Kept in the engine contract as dormant modifier plumbing. The
+          // presentation deliberately ignores it; formation is the only
+          // player decision around a battle.
           case "command": break;
           case "round_start":
+            syncCounts();
             log(translate("stage.round").replace("{n}", String(event.n)));
             breatheRound();
             break;
@@ -2000,21 +1816,8 @@ export function createBattleStage(host, options = {}) {
       });
     });
 
-    // ITEM 7: two order windows, derived from the script so a replay asks at
-    // the same two beats. They carry no data — dataRun is a no-op — so a
-    // skipped battle is unaffected by them in every way.
-    // `command` is emitted on the script only when the F3 army system is on,
-    // so it is the marker for "this build has battle orders at all". The demo
-    // build never carries it and therefore is never asked -- the demo boundary
-    // is not something the stage may widen.
-    commandWindowsAt = script.command ? commandWindows(script.events, times) : [];
-    const orderCues = commandWindowsAt.map((at, windowIndex) => ({
-      at, run: () => openCommandGate(windowIndex)
-    }));
-
     const cues = [
       ...arrowCues,
-      ...orderCues,
       { at: 0, run: () => setPhase("deploy") },
       { at: P.DEPLOY_MS, run: () => { setPhase("standoff"); log(translate("stage.standoff")); } },
       {
@@ -2045,11 +1848,13 @@ export function createBattleStage(host, options = {}) {
     if (!root) return;
     playing = false;
     endEvent = event;
-    const finalCounts = battleEndCounts(event);
+    const resolvedCounts = battleEndCounts(event);
+    const finalCounts = syncCounts();
+    root.dataset.countsMatch = String(
+      finalCounts.player === resolvedCounts.player && finalCounts.enemy === resolvedCounts.enemy
+    );
     root.dataset.playerSurvivors = String(finalCounts.player);
     root.dataset.enemySurvivors = String(finalCounts.enemy);
-    countNodes.player.textContent = String(finalCounts.player);
-    countNodes.enemy.textContent = String(finalCounts.enemy);
 
     const won = event.winner === "player";
     const drawn = event.winner === "draw";
@@ -2167,9 +1972,6 @@ export function createBattleStage(host, options = {}) {
   function skip() {
     if (!playing) return;
     playing = false;
-    // A skipped battle is not asked for orders: the orders are performance, and
-    // there is no performance left to give them to.
-    closeCommandGate();
     cancelAnimationFrame(rafId);
     if (options.onSkip) options.onSkip();
     // Apply the DATA of everything unplayed — same script, no theatre — so a
@@ -2184,15 +1986,13 @@ export function createBattleStage(host, options = {}) {
     dispose();
     suspended = false;
     script = normalizeScript(rawScript);
+    endEvent = null;
     doneCallback = onDone || null;
     shakesSpent = 0;
     stains = [];
     stainArea = 0;
-    commandLog = [];
-    commandWindowsAt = [];
-    commandGateAt = -1;
     archerRangeShown = new Set();
-    focusedTarget = null;
+    inflightArrows = new Map();
     roll = seededRandom(
       (script.sides.player.startTroops * 73856093) ^ (script.sides.enemy.startTroops * 19349663)
     );
@@ -2248,11 +2048,9 @@ export function createBattleStage(host, options = {}) {
     suspended = false;
     cancelAnimationFrame(rafId);
     window.clearTimeout(pressTimer);
-    window.clearTimeout(commandTimer);
-    commandTimer = 0;
-    commandGateAt = -1;
     archerRangeShown = new Set();
-    focusedTarget = null;
+    inflightArrows.forEach((shaft) => shaft.remove());
+    inflightArrows = new Map();
     stains = [];
     stainArea = 0;
     pending.forEach((id) => window.clearTimeout(id));
@@ -2267,6 +2065,7 @@ export function createBattleStage(host, options = {}) {
     countNodes = {};
     timeline = [];
     cursor = 0;
+    endEvent = null;
     audio?.disposeBattle?.();
     document.body.classList.remove("battle-stage-open");
   }
@@ -2284,20 +2083,10 @@ export function createBattleStage(host, options = {}) {
     // Survivors as the stage currently believes them — compared against
     // battle_end.survivors by the contract cases.
     get survivors() {
-      return endEvent
-        ? battleEndCounts(endEvent)
-        : script
-        ? { player: survivorsOf(script.sides.player), enemy: survivorsOf(script.sides.enemy) }
-        : null;
+      return script ? liveCountsForScript(script) : null;
     },
     get endEvent() { return endEvent; },
     get speed() { return speed; },
-    // ITEM 7's replay record: the orders given, in order, with the beat each
-    // was given on. Feed back through options.replayCommands to repeat a run.
-    get commands() { return commandLog.map((entry) => ({ ...entry })); },
-    // The two beats this script asks on. Derived, not stored, so it is the same
-    // answer every time the same script is played.
-    get commandWindows() { return commandWindowsAt.slice(); },
     get shakesSpent() { return shakesSpent; },
     // QA seam for the 390x844 still-frame acceptance. Coordinates are read
     // from the compositor, not reconstructed from the formation formula.
@@ -2320,8 +2109,6 @@ export function createBattleStage(host, options = {}) {
           };
         })
       );
-    },
-    // Test seam: drive an order without a pointer, exactly as a chip would.
-    issueCommand(command) { return issueCommand(command, "test"); }
+    }
   };
 }

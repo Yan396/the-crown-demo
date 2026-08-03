@@ -148,7 +148,8 @@ test("battle audio follows the existing event callbacks and ships no audio asset
   // and the host `audio` adapter can no longer double-fire alongside it, which
   // it did when performStrike called both audio?.hit?.() and crownAudio.hit().
   assert.match(stage, /function emitBeat\(payload\)/, "the one clock must exist");
-  assert.match(stage, /performStrike\(event, index\)[\s\S]{0,700}emitBeat\(\{\s*\n?\s*type: "strike"/);
+  const strike = stage.slice(stage.indexOf("function performStrike"), stage.indexOf("function reel"));
+  assert.match(strike, /emitBeat\(\{\s*\n?\s*type: "strike"/);
   assert.match(stage, /performRout\(event\)[\s\S]{0,100}emitBeat\(\{ type: "rout"/);
   assert.match(stage, /setPhase\("charge"\)[\s\S]{0,100}emitBeat\(\{ type: "charge" \}\)/);
   assert.match(stage, /dispose\(\)[\s\S]*?audio\?\.disposeBattle\?\.\(\)/);

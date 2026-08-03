@@ -107,9 +107,10 @@ test("no seeded player battle can produce a 0v0 victory", () => {
   }
 });
 
-test("autoplay checks every stage player count against the live HUD survivor count", () => {
+test("autoplay audits both side counts at every round boundary", () => {
   const result = simulateAutoplay(CONFIG.SEED, { v11: true, maxActiveSeconds: 1800 });
   assert.equal(result.battleScriptsChecked, result.state.stats.battles);
+  assert.ok(result.battleRoundBoundariesChecked > result.state.stats.battles);
   const ending = [...result.state.battleScript.events]
     .reverse()
     .find((event) => event.type === "battle_end");
@@ -146,7 +147,8 @@ test("the visible chip is the only speed control and 1x/2x/4x persists", () => {
   assert.match(stage, /class=\"stage-speed\"/);
   assert.match(stage, /chip\.dataset\.speed\s*=\s*String\(speed\)/);
   assert.match(stage, /advanceVirtualClock\(virtualTime, now - lastReal, speed\)/);
-  assert.match(stage, /const counts = endEvent\s*\? battleEndCounts\(endEvent\)/);
+  assert.match(stage, /const counts = liveCountsForScript\(script\)/);
+  assert.match(stage, /countNodes\.enemy\.textContent = String\(counts\.enemy\)/);
   assert.match(main, /query\.get\("battleStage"\) === "1"/);
   assert.match(main, /translate:\s*\(key, parameters\)\s*=>\s*ui\.text\(key, parameters\)/);
   assert.match(main, /state\.paused \|\| battlePresentationActive \|\| document\.visibilityState === "hidden"/);
