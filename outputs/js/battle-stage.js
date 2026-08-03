@@ -1,4 +1,5 @@
 import { stampSeal } from "./seal.js";
+import { crownAudio } from "./audio.js";
 import {
   CONFIG_PRESENTATION as P,
   FORMATION_LAYOUTS,
@@ -154,6 +155,9 @@ export function normalizeScript(raw) {
     events: raw.events.slice().sort((first, second) => first.t - second.t)
   };
   if (raw.lieutenant === "player") normalized.lieutenant = "player";
+  normalized.lieutenantIds = Array.isArray(raw.lieutenantIds)
+    ? raw.lieutenantIds.filter((id) => typeof id === "string" && id.length)
+    : [];
   if (raw.formations) {
     normalized.formations = {
       player: raw.formations.player || "line",
@@ -426,6 +430,66 @@ function lieutenantFigure() {
   );
 }
 
+/*
+ * The three officers, drawn apart at silhouette level so they separate at 26px
+ * the way their seal portraits do: 莽 leans in behind a heavy blade, 稳 stands
+ * square behind a shield, 贪 hangs back around a money bag.
+ */
+function officerMang() {
+  return (
+    '<path d="M7.4 13 3.4 0.6 5.1 0.2 9.1 12.6Z"/>' +
+    '<path class="fig-accent" d="M4.1 1.1Q0.4 2.6 -1.8 0.9Q0 5.6 5.1 4.4Z"/>' +
+    '<g class="fig-melee">' +
+    '<path d="M5.6 30.4 25.8 3.4 27.6 4.8 7.4 31.8Z"/>' +
+    '<path d="M24.4 4.6Q30.4 1.2 30.8 -1.4Q32.4 3.6 27.2 8.2Z"/>' +
+    "</g>" +
+    '<circle cx="14" cy="5.4" r="3.5"/>' +
+    '<path d="M11.6 2.8Q14 -2 16.6 2.8Q14.4 1.4 11.6 2.8Z"/>' +
+    '<path d="M8.6 10.4Q14 6.9 19.4 10.4L20.6 22.6Q14 25.2 7.8 22.6Z"/>' +
+    '<path d="M10 23 8.4 32Q10 32.9 11.7 32L12.4 23.6Z"/>' +
+    '<path d="M15.6 23.6 17.4 32Q19.1 32.9 20.6 32L18.2 23Z"/>' +
+    '<path class="fig-accent" d="M9.2 18.8Q14 20.4 18.8 18.8L19.2 21.2Q14 22.8 8.8 21.2Z"/>'
+  );
+}
+
+function officerWen() {
+  return (
+    '<path d="M6.6 12 4.2 0.8 5.8 0.5 8.2 11.8Z"/>' +
+    '<path class="fig-accent" d="M5 1.2Q1.8 2.6 -0.2 1.2Q1.4 4.8 5.8 3.8Z"/>' +
+    '<circle cx="12.4" cy="5" r="3.3"/>' +
+    '<path d="M9 2.4h6.8v2.1H9z"/>' +
+    '<path d="M7.4 9.6Q12.4 7.2 17.4 9.6L18 22.2Q12.4 24.6 6.8 22.2Z"/>' +
+    '<path d="M7.1 9.9Q12.4 6.9 17.7 9.9Q18.1 12.4 17.2 13.4Q12.4 10.6 7.6 13.4Q6.7 12.4 7.1 9.9Z"/>' +
+    '<path d="M8.8 22.6 7.6 32Q9.2 32.8 10.8 32L11.4 23.2Z"/>' +
+    '<path d="M14 23.2 15.6 32Q17.2 32.8 18.6 32L17 22.6Z"/>' +
+    '<g class="fig-melee">' +
+    '<path d="M17 13.6Q19.8 14 21.6 15.6L20.2 17.4Q18.2 15.8 16.2 15.6Z"/>' +
+    '<circle cx="24" cy="17.4" r="6.2"/>' +
+    "</g>"
+  );
+}
+
+function officerTan() {
+  return (
+    '<circle cx="12.6" cy="5.8" r="3.4"/>' +
+    '<path d="M9.4 3.6Q12.6 1 15.8 3.6 12.6 2.6 9.4 3.6Z"/>' +
+    '<path d="M9.6 10.2Q12.6 8.2 15.6 10.2L16.8 21.8Q12.6 23.8 8.4 21.8Z"/>' +
+    '<path d="M10 22.2 8.2 30.8Q9.5 31.6 11 30.9L11.8 22.6Z"/>' +
+    '<path d="M13.4 22.6 15.4 30.6Q16.8 31.2 17.8 30.4L15.6 22.2Z"/>' +
+    '<g class="fig-melee">' +
+    '<path d="M16.2 13.4Q19 13.8 20.8 15.2L19.6 17Q17.6 15.6 15.6 15.4Z"/>' +
+    '<path d="M21.4 15.2Q27.6 16.6 27.2 22.4Q26.8 27.6 21.6 27.4Q16.8 27.2 17 22Q17.2 16.6 21.4 15.2Z"/>' +
+    "</g>" +
+    '<path class="fig-accent" d="M20.4 14.2q2.6-1 5 .2l-.6 2.2q-2-1-4.2-.2Z"/>'
+  );
+}
+
+const OFFICERS = { chen_mang: officerMang, shen_wen: officerWen, jia_duojin: officerTan };
+
+export function officerFigureFor(id) {
+  return OFFICERS[id] || null;
+}
+
 const FIGURES = {
   militia: militiaFigure,
   veteran: veteranFigure,
@@ -573,13 +637,23 @@ export function createBattleStage(host, options = {}) {
       // The lieutenant takes the leading position of his own side. He replaces
       // no soldier: the token keeps its troopType and capacity, only the drawn
       // figure changes, so survivor accounting is unaffected.
-      const isLieutenant = script.lieutenant === sideKey && index === 0;
+      // Officers take the leading positions of their own side, one each, in
+      // roster order. Without ids (an older script) the generic officer figure
+      // is used exactly as before.
+      const officerIds = script.lieutenantIds || [];
+      const isLieutenant = script.lieutenant === sideKey
+        && index < Math.max(1, officerIds.length);
+      const officerId = isLieutenant ? officerIds[index] || null : null;
+      const officerDraw = officerId ? officerFigureFor(officerId) : null;
       const node = document.createElement("i");
       node.className = isLieutenant
-        ? `stage-token unit-${token.troopType || "militia"} is-lieutenant`
+        ? `stage-token unit-${token.troopType || "militia"} is-lieutenant${
+          officerId ? ` officer-${officerId}` : ""}`
         : `stage-token unit-${token.troopType || "militia"}${token.arm ? ` arm-${token.arm}` : ""}`;
-      node.innerHTML = figureSvg(isLieutenant ? "lieutenant" : token.troopType, token.arm);
-      // Every token carries a bar; CSS keeps them hidden outside v1.1.
+      node.innerHTML = officerDraw
+        ? `<svg viewBox="0 0 32 34" aria-hidden="true" focusable="false">`
+          + `<g class="fig-pose" fill="currentColor">${officerDraw()}</g></svg>`
+        : figureSvg(isLieutenant ? "lieutenant" : token.troopType, token.arm);
       const bar = document.createElement("b");
       bar.className = "stage-hp";
       bar.innerHTML = '<i></i>';
@@ -957,6 +1031,7 @@ export function createBattleStage(host, options = {}) {
     for (let index = 0; index < arrows; index += 1) {
       const arrow = document.createElement("i");
       arrow.className = "stage-arrow";
+      crownAudio.arrow();
       const target = targets.length ? targets[Math.floor(roll() * targets.length)] : null;
       const to = target ? stagePoint(target.node)
         : { x: worldNode.clientWidth * 0.25, y: worldNode.clientHeight * 0.62 };
@@ -990,6 +1065,7 @@ export function createBattleStage(host, options = {}) {
     for (let index = 0; index < arrows; index += 1) {
       const arrow = document.createElement("i");
       arrow.className = "stage-arrow";
+      crownAudio.arrow();
       const target = targets.length ? targets[Math.floor(roll() * targets.length)] : null;
       const to = target ? stagePoint(target.node)
         : { x: worldNode.clientWidth * (targetSide === "enemy" ? 0.75 : 0.25), y: worldNode.clientHeight * 0.62 };
@@ -1018,6 +1094,7 @@ export function createBattleStage(host, options = {}) {
     const to = tokenAt(event.to.side, event.to.idx);
     if (!from?.node || !to?.node) return;
     flyArrow(stagePoint(from.node), stagePoint(to.node), 0);
+    crownAudio.arrow();
   }
 
   function performStrike(event) {
@@ -1027,6 +1104,9 @@ export function createBattleStage(host, options = {}) {
     // Cavalry lands heavier than a spear: longer freeze, wider splatter, and a
     // bigger knock on whoever it hit. The difference has to be felt.
     const mounted = source?.arm === "cavalry";
+    // Cavalry lands with its own weight; a spear keeps the existing hit.
+    if (mounted) crownAudio.cavalry();
+    else crownAudio.hit({ kill: Boolean(event.kill), dmgShown: event.dmgShown });
     const pause = mounted ? P.CAVALRY_HIT_PAUSE_MS : TIMING.HIT_PAUSE;
     if (source?.node) {
       actorSlot(() => {

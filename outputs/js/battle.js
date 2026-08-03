@@ -979,7 +979,14 @@ export function buildBattleScript(state, battle, result, winner) {
     // than a side field: a side's shape is fixed by the contract. It names the
     // side he rides with; he is not a troop and holds no token capacity, so
     // survivor accounting is untouched.
-    if (getLieutenants(state).length) script.lieutenant = "player";
+    const officers = getLieutenants(state);
+    if (officers.length) {
+      script.lieutenant = "player";
+      // Names, for drawing only. Nothing downstream of this reads them.
+      script.lieutenantIds = officers
+        .map((entry) => (typeof entry === "string" ? entry : entry?.id))
+        .filter((id) => typeof id === "string" && id.length);
+    }
   }
   if (state.features?.f3) script.command = battle.commands?.player || CONFIG.F3_AUTOPLAY_COMMAND;
   return script;

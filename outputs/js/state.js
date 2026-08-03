@@ -664,10 +664,18 @@ function isScriptReference(value, sides) {
 
 export function isBattleScript(value) {
   const baseKeys = ["battleId", "terrain", "sides", "events"];
-  const allowedKeys = [...baseKeys, "formations", "lieutenant", "command"];
+  const allowedKeys = [...baseKeys, "formations", "lieutenant", "lieutenantIds", "command"];
   if (!value || !baseKeys.every((key) => Object.hasOwn(value, key))) return false;
   if (Object.keys(value).some((key) => !allowedKeys.includes(key))) return false;
   if (Object.hasOwn(value, "lieutenant") && value.lieutenant !== "player") return false;
+  // Presentation metadata only: which named officers ride with that side, so
+  // the stage can draw them apart. Optional -- an older script without it still
+  // validates and still falls back to the generic officer figure.
+  if (
+    Object.hasOwn(value, "lieutenantIds") &&
+    (!Array.isArray(value.lieutenantIds) ||
+      !value.lieutenantIds.every((id) => typeof id === "string" && id.length))
+  ) return false;
   if (Object.hasOwn(value, "command") && !Object.hasOwn(CONFIG.F3_COMMANDS, value.command)) return false;
   if (
     Object.hasOwn(value, "formations") &&
