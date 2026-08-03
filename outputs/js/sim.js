@@ -1238,7 +1238,11 @@ function autoplayDecision(state) {
     return;
   }
 
-  if (state.player.act >= 2 && !contract) {
+  // Risky tavern work teaches the Act 2 loop. Once Act 3 begins the greedy
+  // autoplay bot must pursue the renown/fief arc instead of repeatedly paying
+  // a 15-renown failure penalty that can cancel hours of otherwise valid wins.
+  // This is bot policy only; player contract rules and balance stay unchanged.
+  if (state.player.act === 2 && !contract) {
     if (town && (!fullVersion || town.factionId === state.autoplay.patronFactionId)) {
       acceptMercenaryContract(state, town.id, "risky");
     }
