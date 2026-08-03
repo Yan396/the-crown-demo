@@ -413,7 +413,11 @@ test("static: no forbidden technology or content leakage", () => {
     ["alternate persistence", /sessionStorage|indexedDB/i],
     ["quests", /\bquests?\b/i],
     ["difficulty modes", /\bdifficult(?:y|ies)\b/i],
-    ["sound/audio", /new\s+Audio\b|AudioContext|<audio\b/i],
+    // Narrowed by explicit authorisation: runtime Web Audio SYNTHESIS is
+    // allowed (no files, no bytes, no dependency). What stays banned is what
+    // the clause was actually protecting against -- audio assets, music,
+    // loops, network audio and audio libraries.
+    ["audio files/music/deps", /new\s+Audio\b|<audio\b|\.(?:mp3|wav|ogg|m4a|aac|flac)\b|\bhowler\b|\btone\.js\b|audioSprite/i],
     ["accounts/auth", /\b(?:login|logout|signIn|signUp|accountId|authentication)\b/i],
     ["third-party SDK", /\b(?:firebase|supabase|sentry|mixpanel|amplitude|gtag)\b/i],
     ["unseeded randomness", /Math\.random\s*\(/],

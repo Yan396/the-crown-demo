@@ -70,13 +70,23 @@ function tone({ type = "sine", freq = 440, dur = 0.12, peak = 0.6, sweepTo = nul
   osc.stop(at + dur + 0.05);
 }
 
+// A local noise source. Deliberately NOT Math.random: the project forbids
+// unseeded randomness outright, and presentation has no business reaching for
+// it even for a noise buffer. This stream is local to audio and touches
+// nothing else.
+let noiseSeed = 0x9e3779b9;
+function nextNoise() {
+  noiseSeed = (Math.imul(noiseSeed ^ (noiseSeed >>> 15), noiseSeed | 1) + 0x6d2b79f5) >>> 0;
+  return ((noiseSeed ^ (noiseSeed >>> 14)) >>> 0) / 4294967296;
+}
+
 function noise({ dur = 0.09, peak = 0.5, band = 1200 }) {
   if (!ready()) return;
   const at = context.currentTime;
   const frames = Math.max(1, Math.floor(context.sampleRate * dur));
   const buffer = context.createBuffer(1, frames, context.sampleRate);
   const data = buffer.getChannelData(0);
-  for (let i = 0; i < frames; i += 1) data[i] = Math.random() * 2 - 1;
+  for (let i = 0; i < frames; i += 1) data[i] = nextNoise() * 2 - 1;
   const src = context.createBufferSource();
   src.buffer = buffer;
   const filter = context.createBiquadFilter();
