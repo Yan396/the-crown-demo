@@ -1523,6 +1523,10 @@ export function startBattle(state, bandit, options = {}) {
     ? state.battlePlayback.speed
     : 1;
   state.battlePlayback.skip = false;
+  // The orders given on the stage belong to THIS battle. Carrying them over
+  // would both replay the last battle's orders into this one instead of asking,
+  // and grow without bound inside the save.
+  state.battlePlayback.commands = [];
   recordBiggestBattle(state, {
     tick: state.tick,
     banditId: bandit.id,

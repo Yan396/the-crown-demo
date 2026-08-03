@@ -450,6 +450,9 @@ test("7: the record replays, and never exceeds two", () => {
   assert.match(stage, /\{ n: index \+ 1, command, t: Math\.round\(virtualTime\), source \}/);
   // Autoplay and reduced motion answer instantly; a skipped battle is never asked.
   assert.match(stage, /if \(options\.autoCommand\?\.\(\) \|\| reducedMotion\.matches\)/);
+  // The record is per battle. Carrying it over would replay the LAST battle's
+  // orders into this one instead of asking, and grow unbounded in the save.
+  assert.match(battle, /state\.battlePlayback\.commands = \[\];/);
   assert.match(stage, /closeCommandGate\(\);\s*\n\s*cancelAnimationFrame/);
 });
 
