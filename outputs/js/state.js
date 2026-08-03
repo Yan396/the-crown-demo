@@ -136,7 +136,19 @@ export function incrementTroop(party, type, amount = 1, arm = null) {
     stack = { type, count: 0, xp: 0, ...(arm === null ? {} : { arm }) };
     party.troops.push(stack);
   }
+  const before = stack.count;
   stack.count = Math.max(0, stack.count + Math.floor(amount));
+  const added = stack.count - before;
+  // Emergency rebuilding from a lone initialized v1.1 survivor must give the
+  // new bodies real HP. Preserve the survivor's damage while ensuring recovery
+  // recruits do not arrive already dead.
+  if (
+    added > 0 && before <= 1 &&
+    Number.isFinite(stack.hpPerSoldier) && stack.hpPerSoldier > 0 &&
+    Number.isFinite(stack.hpCurrent)
+  ) {
+    stack.hpCurrent += added * stack.hpPerSoldier;
+  }
   return stack.count;
 }
 

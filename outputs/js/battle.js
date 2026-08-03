@@ -289,7 +289,12 @@ function resolveHpRound(state, bandit, ctx) {
   let enemyDamageApplied = 0;
   let playerDamageApplied = 0;
   let lieutenantAbsorbed = 0;
-  const forced = { player: false, enemy: false };
+  const forced = {
+    player: false,
+    enemy: false,
+    playerRatio: null,
+    enemyRatio: null
+  };
   let outcome = null;
 
   for (let index = 0; index < BATTLE_STRIKE_WAVES; index += 1) {
@@ -310,6 +315,12 @@ function resolveHpRound(state, bandit, ctx) {
     playerDamageApplied += absorbedThisWave + playerHit.damage;
     forced.enemy ||= enemyHit.forcedRout;
     forced.player ||= playerHit.forcedRout;
+    if (enemyHit.forcedRout) {
+      forced.enemyRatio = enemyHit.remainingAfterImpact / Math.max(1, battle.enemyStartHp);
+    }
+    if (playerHit.forcedRout) {
+      forced.playerRatio = playerHit.remainingAfterImpact / Math.max(1, battle.playerStartHp);
+    }
     outcome = roundOutcome(state, bandit, battle, forced);
     if (outcome) break;
   }
@@ -355,8 +366,17 @@ function determineWinner(first, second, firstStart, secondStart, options = {}) {
   if (firstRouted && secondRouted) {
     const firstStartStrength = Math.max(1, Number(options.firstStartStrength) || firstStart);
     const secondStartStrength = Math.max(1, Number(options.secondStartStrength) || secondStart);
-    const firstRatio = getPartyStrength(first) / firstStartStrength;
-    const secondRatio = getPartyStrength(second) / secondStartStrength;
+    // The last-soldier rout clamp deliberately keeps both rosters at one.
+    // Comparing roster strength here therefore turns most 1v1s into an
+    // endless-looking draw. v1.1 supplies the post-impact HP ratios (including
+    // overkill pressure) so simultaneous routs still have a meaningful victor;
+    // a genuinely equal impact remains a draw.
+    const firstRatio = Number.isFinite(options.firstRemainingRatio)
+      ? options.firstRemainingRatio
+      : getPartyStrength(first) / firstStartStrength;
+    const secondRatio = Number.isFinite(options.secondRemainingRatio)
+      ? options.secondRemainingRatio
+      : getPartyStrength(second) / secondStartStrength;
     if (Math.abs(firstRatio - secondRatio) > Number.EPSILON) {
       return firstRatio > secondRatio ? "first" : "second";
     }
@@ -398,16 +418,30 @@ function applyRoutClampedHpDamage(party, requested) {
   const hp = partyHp(party);
   const wanted = Math.max(0, Number(requested) || 0);
   if (available <= 0 || wanted <= 0) {
-    return { deaths: 0, damage: 0, forcedRout: available <= 0 && wanted > 0 };
+    return {
+      deaths: 0,
+      damage: 0,
+      forcedRout: available <= 0 && wanted > 0,
+      remainingAfterImpact: hp - wanted
+    };
   }
   const forcedRout = wanted >= hp;
   // A routed last soldier keeps a fractional positive pool. This is the clamp
   // that prevents a strike wave from erasing a side before rout is checked.
   const damage = Math.min(wanted, Math.max(0, hp - 0.5));
-  return { deaths: applyHpDamage(party, damage), damage, forcedRout };
+  return {
+    deaths: applyHpDamage(party, damage),
+    damage,
+    forcedRout,
+    remainingAfterImpact: hp - wanted
+  };
 }
 
 function roundOutcome(state, bandit, battle, forced = {}) {
+  // Preserve the established multi-unit simultaneous-rout semantics. The
+  // post-impact tiebreaker exists specifically for the degenerate 1v1 case,
+  // where the safety clamp makes both sides indistinguishable at one head.
+  const loneDuel = battle.playerStart === 1 && battle.banditStart === 1;
   return determineWinner(
     state.player,
     bandit,
@@ -417,6 +451,8 @@ function roundOutcome(state, bandit, battle, forced = {}) {
       allowDraw: true,
       firstForcedRout: forced.player,
       secondForcedRout: forced.enemy,
+      firstRemainingRatio: loneDuel ? forced.playerRatio : null,
+      secondRemainingRatio: loneDuel ? forced.enemyRatio : null,
       firstStartStrength: battle.playerStartStrength,
       secondStartStrength: battle.enemyStartStrength
     }
@@ -470,6 +506,12 @@ function cloneRoster(party) {
 
 function rosterCount(roster) {
   return (roster || []).reduce((sum, stack) => sum + Math.max(0, Math.floor(stack.count || 0)), 0);
+}
+
+function rosterFullHp(roster) {
+  return (roster || []).reduce((sum, stack) => (
+    sum + Math.max(0, Math.floor(stack.count || 0)) * hpPerSoldierFor(stack.type)
+  ), 0);
 }
 
 function reconstructRoster(party, startTroops, defaultType) {
@@ -670,6 +712,16 @@ function ensureBattleCapture(state, battle, bandit) {
     0,
     Number(battle.enemyStartStrength) || getPartyStrength({ troops: battle.enemyStartRoster })
   );
+  if (isV11State(state)) {
+    battle.playerStartHp = Math.max(
+      0.5,
+      Number(battle.playerStartHp) || rosterFullHp(battle.playerStartRoster)
+    );
+    battle.enemyStartHp = Math.max(
+      0.5,
+      Number(battle.enemyStartHp) || rosterFullHp(battle.enemyStartRoster)
+    );
+  }
   if (!Array.isArray(battle.rounds)) battle.rounds = [];
   if (
     battle.rounds.length === 0 &&
@@ -1525,6 +1577,10 @@ export function startBattle(state, bandit, options = {}) {
     ? 1 + CONFIG_V11.LIEUTENANT_ATTACK_BONUS
     : 1;
   const playerAttackMultiplier = consumePlayerAttackMultiplier(state) * lieutenantAttackMultiplier;
+  if (isV11State(state)) {
+    ensurePartyHp(state.player);
+    ensurePartyHp(bandit);
+  }
   const playerStart = getTroopCount(state.player);
   const banditStart = getTroopCount(bandit);
   const elite = Boolean(bandit.elite || bandit.isElite);
@@ -1560,6 +1616,8 @@ export function startBattle(state, bandit, options = {}) {
     enemyStartRoster: cloneRoster(bandit),
     playerStartStrength: getPartyStrength(state.player),
     enemyStartStrength: getPartyStrength(bandit),
+    playerStartHp: isV11State(state) ? partyHp(state.player) : null,
+    enemyStartHp: isV11State(state) ? partyHp(bandit) : null,
     lieutenantHp: isV11State(state) && hasLieutenant(state, "chen_mang")
       ? CONFIG_V11.LIEUTENANT_HP
       : null,
