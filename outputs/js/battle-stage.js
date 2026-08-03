@@ -5,6 +5,7 @@ import {
   FORMATION_LAYOUTS,
   FORMATION_SHAPE,
   WEIGHT_TIERS,
+  archerPursuitDurationMs,
   depthPlacement,
   depthRiseFor,
   facingToward,
@@ -177,6 +178,7 @@ export function normalizeScript(raw) {
     sides,
     events: raw.events.slice().sort((first, second) => first.t - second.t)
   };
+  if (raw.eliteEnemy === true) normalized.eliteEnemy = true;
   if (raw.lieutenant === "player") normalized.lieutenant = "player";
   normalized.lieutenantIds = Array.isArray(raw.lieutenantIds)
     ? raw.lieutenantIds.filter((id) => typeof id === "string" && id.length)
@@ -427,6 +429,22 @@ function banditFigure() {
   );
 }
 
+// Elite packs keep the same bandit troop type and combat numbers. Their battle
+// read comes from a ragged wolf-tail standard, a saw-tooth shoulder pelt and a
+// heavier silhouette; the first token carries the standard so the pack has a
+// focal point without inventing a new unit.
+function eliteBanditFigure(leader = false) {
+  return (
+    (leader
+      ? '<path d="M8.2 14.2 5.8 0.8 7.4 0.4 9.8 13.8Z"/>'
+        + '<path d="M6.5 1.2Q1.8 2.2 0.4 0.2L1.4 5.8Q4.6 7.2 7.2 4.4Z"/>'
+      : "")
+    + '<path d="M8.4 11.8 10.2 8.8 12 10.2 13.8 8.5 15.5 10.2 18 8.8 19.4 12.8'
+    + 'Q14 15.2 8.4 11.8Z"/>'
+    + banditFigure()
+  );
+}
+
 /*
  * Horse and rider as ONE brush mass.
  *
@@ -574,13 +592,14 @@ const FIGURES = {
   lieutenant: lieutenantFigure
 };
 
-function figureSvg(troopType, arm = null) {
+function figureSvg(troopType, arm = null, eliteBandit = false, eliteLeader = false) {
   if (arm === "archer") return archerFigure();
   if (arm === "cavalry") {
     return '<svg viewBox="0 0 32 34" aria-hidden="true" focusable="false">' +
       '<g class="fig-pose" fill="currentColor">' + cavalryFigure() + "</g></svg>";
   }
-  const draw = FIGURES[troopType] || FIGURES.militia;
+  const draw = eliteBandit ? () => eliteBanditFigure(eliteLeader)
+    : FIGURES[troopType] || FIGURES.militia;
   // `fig-pose` carries the lean/turn keyframes so the <svg> keeps facing as its
   // own untouched property.
   return (
@@ -843,8 +862,13 @@ export function createBattleStage(host, options = {}) {
         && index < Math.max(1, officerIds.length);
       const officerId = isLieutenant ? officerIds[index] || null : null;
       const officerDraw = officerId ? officerFigureFor(officerId) : null;
+      const eliteBandit = Boolean(
+        script.eliteEnemy && sideKey === "enemy" && token.troopType === "bandit"
+      );
+      const eliteLeader = eliteBandit && index === 0;
       token.isLieutenant = isLieutenant;
       token.officerId = officerId;
+      token.isEliteBandit = eliteBandit;
       // The tier is fixed once, at spawn, from what the engine already put on
       // the token. It decides the rhythm of every blow this figure throws.
       token.tier = weightTierFor(token);
@@ -853,11 +877,17 @@ export function createBattleStage(host, options = {}) {
         ? `stage-token unit-${token.troopType || "militia"} tier-${token.tier} is-lieutenant${
           officerId ? ` officer-${officerId}` : ""}`
         : `stage-token unit-${token.troopType || "militia"} tier-${token.tier}${
-          token.arm ? ` arm-${token.arm}` : ""}`;
+          token.arm ? ` arm-${token.arm}` : ""}${
+          eliteBandit ? ` is-elite-bandit${eliteLeader ? " is-elite-leader" : ""}` : ""}`;
       node.innerHTML = officerDraw
         ? `<svg viewBox="0 0 32 34" aria-hidden="true" focusable="false">`
           + `<g class="fig-pose" fill="currentColor">${officerDraw()}</g></svg>`
-        : figureSvg(isLieutenant ? "lieutenant" : token.troopType, token.arm);
+        : figureSvg(
+          isLieutenant ? "lieutenant" : token.troopType,
+          token.arm,
+          eliteBandit,
+          eliteLeader
+        );
       // 6b: an officer is named on the field, always visible, so "that big one
       // is somebody" needs no click to confirm.
       if (isLieutenant) {
@@ -1170,6 +1200,61 @@ export function createBattleStage(host, options = {}) {
     const source = tokenAt(event.from.side, event.from.idx);
     const target = tokenAt(event.to.side, event.to.idx);
     if (source && target) requestFacing(source, target, "strike-target");
+  }
+
+  function isBanditPursuingArcher(source, target) {
+    return Boolean(
+      source?.node && target?.node &&
+      source.side === "enemy" && source.troopType === "bandit" &&
+      source.arm !== "archer" && target.arm === "archer"
+    );
+  }
+
+  // Rear-line hits receive a real approach before their already-resolved
+  // strike. The strike beat does not move; this starts early enough that the
+  // bandit reaches melee range before it, preserving outcome and sync while
+  // removing the visual teleport through the infantry screen.
+  function prepareArcherPursuit(event, hitAt) {
+    const source = tokenAt(event.from.side, event.from.idx);
+    const target = tokenAt(event.to.side, event.to.idx);
+    if (!isBanditPursuingArcher(source, target)) return false;
+    const begin = () => {
+      if (!isBanditPursuingArcher(source, target) || source.capacity <= 0) return;
+      const delta = tokenScreenX(target) - tokenScreenX(source);
+      const direction = delta < 0 ? -1 : 1;
+      const distance = Math.max(0, Math.abs(delta) - P.ARCHER_MELEE_REACH_PX);
+      if (distance <= 1) return;
+      const virtualDuration = archerPursuitDurationMs(distance);
+      const remainingVirtual = Math.max(1, hitAt - virtualTime);
+      if (remainingVirtual > virtualDuration + 16) {
+        pending.push(window.setTimeout(
+          begin,
+          Math.max(0, (remainingVirtual - virtualDuration) / Math.max(1, speed))
+        ));
+        return;
+      }
+      const duration = Math.min(virtualDuration, remainingVirtual);
+      const wallDuration = Math.max(80, duration / Math.max(1, speed));
+      requestFacing(source, target, "archer-pursuit");
+      source.melee = (source.melee || 0) + direction * distance;
+      source.node.style.setProperty("--pursuit-ms", `${Math.round(wallDuration)}ms`);
+      source.node.style.setProperty("--mx", `${source.melee}px`);
+      source.node.classList.add("is-pursuing");
+      source.pursuitTarget = target.idx;
+      emitBeat({
+        type: "pursuit",
+        side: source.side,
+        sourceIdx: source.idx,
+        targetSide: target.side,
+        targetIdx: target.idx,
+        distance: Math.round(distance)
+      });
+      pending.push(window.setTimeout(() => {
+        source.node?.classList.remove("is-pursuing");
+      }, wallDuration + 20));
+    };
+    begin();
+    return true;
   }
 
   // Once a hostile melee token crosses the rear bow line, that bow line is
@@ -1775,6 +1860,13 @@ export function createBattleStage(host, options = {}) {
       kill: Boolean(event.kill),
       dmgShown: event.dmgShown,
       side: event.from.side,
+      fromIdx: source?.idx ?? null,
+      toIdx: target?.idx ?? null,
+      fromArm: source?.arm || null,
+      toArm: target?.arm || null,
+      distance: source?.node && target?.node
+        ? Math.round(Math.abs(tokenScreenX(target) - tokenScreenX(source)))
+        : null,
       lieutenant: officer
     });
     // The hit-pause IS the contact hold: the whole stage stops for exactly as
@@ -2028,6 +2120,7 @@ export function createBattleStage(host, options = {}) {
     // the LAUNCH keeps the impact in sync; delaying the hit would not.
     const arrowCues = [];
     const facingCues = [];
+    const pursuitCues = [];
     const drawLead = P.ARROW_LEAD_MS + P.BOW_NOCK_MS + P.BOW_DRAW_MS;
     script.events.forEach((event, index) => {
       if (event.type !== "strike") return;
@@ -2037,6 +2130,16 @@ export function createBattleStage(host, options = {}) {
         at: Math.max(0, times[index] - facingLead),
         run: () => prepareStrikeFacing(event)
       });
+      const target = script.sides[event.to.side]?.byIdx?.get(event.to.idx);
+      if (
+        shooter?.side === "enemy" && shooter.troopType === "bandit" &&
+        shooter.arm !== "archer" && target?.arm === "archer"
+      ) {
+        pursuitCues.push({
+          at: Math.max(contactAt, times[index] - P.ARCHER_PURSUIT_MAX_MS),
+          run: () => prepareArcherPursuit(event, times[index])
+        });
+      }
       if (shooter?.arm !== "archer") return;
       // Two cues, not one: the draw starts a full nock+draw earlier so the
       // release snap and the launch are the same instant.
@@ -2049,6 +2152,7 @@ export function createBattleStage(host, options = {}) {
 
     const cues = [
       ...facingCues,
+      ...pursuitCues,
       ...arrowCues,
       { at: 0, run: () => setPhase("deploy") },
       { at: P.DEPLOY_MS, run: () => { setPhase("standoff"); log(translate("stage.standoff")); } },
@@ -2336,6 +2440,8 @@ export function createBattleStage(host, options = {}) {
             speed: token.moveSpeed,
             depth: token.depth,
             overrun: Boolean(token.overrun),
+            elite: Boolean(token.isEliteBandit),
+            eliteLeader: Boolean(token.isEliteBandit && token.node.classList.contains("is-elite-leader")),
             facing: token.facing,
             turning: Boolean(token.turningUntil),
             targetSide: token.targetSide || null,

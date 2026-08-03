@@ -26,6 +26,7 @@ import {
   FORMATION_SHAPE,
   TIER_ORDER,
   WEIGHT_TIERS,
+  archerPursuitDurationMs,
   armyBandRatio,
   facingToward,
   isRearHit,
@@ -443,6 +444,32 @@ test("archers: rear rank, hold the charge, show range once, and stop when overru
   assert.equal(archerLineCrossed("enemy", [300, 312], [294, 280]), true);
 });
 
+test("archers: bandits cross the measured rear gap before their strike lands", () => {
+  assert.equal(archerPursuitDurationMs(20), P.ARCHER_PURSUIT_MIN_MS);
+  assert.equal(archerPursuitDurationMs(999), P.ARCHER_PURSUIT_MAX_MS);
+  assert.match(battle, /chooseProtectedTargetBucket/);
+  assert.match(battle, /bucket\.arm !== "archer"/);
+  assert.match(battle, /deferArcherTargets/);
+  assert.match(stage, /function prepareArcherPursuit\(event, hitAt\)/);
+  assert.match(stage, /source\.troopType === "bandit"/);
+  assert.match(stage, /at: Math\.max\(contactAt, times\[index\] - P\.ARCHER_PURSUIT_MAX_MS\)/);
+  assert.match(stage, /source\.node\.style\.setProperty\("--pursuit-ms"/);
+  assert.match(stage, /type: "pursuit"/);
+  assert.match(css, /\.battle-stage\.phase-melee \.stage-token\.is-pursuing/);
+  assert.match(guide, /elitePursuit/);
+});
+
+test("elite bandits carry battle metadata, a heavier silhouette and a distinct plate", () => {
+  assert.equal(STRINGS.zh.stage.sideElite, "精锐匪队");
+  assert.equal(STRINGS.en.stage.sideElite, "Elite Bandits");
+  assert.match(battle, /script\.eliteEnemy = true/);
+  assert.match(stage, /function eliteBanditFigure\(leader = false\)/);
+  assert.match(stage, /is-elite-bandit/);
+  assert.match(stage, /is-elite-leader/);
+  assert.match(css, /\.stage-token\.is-elite-bandit/);
+  assert.match(css, /\.stage-token\.is-elite-leader/);
+});
+
 /* ---- 6. lieutenants ------------------------------------------------------ */
 
 test("6a: an officer is 30% larger, banners and all, with his own silhouette", () => {
@@ -650,6 +677,25 @@ test("acceptance: a flanked pair turns to face each other at 390x844", () => {
   assert.equal(still.backToBack, false);
   assert.ok(still.rearHits >= 1, "fixture never exercised a rear hit");
   assert.ok(still.turns >= 2, "both flanking participants did not pivot");
+});
+
+test("acceptance: elite bandits walk into archer reach before striking", () => {
+  const file = new URL("./fixtures/elite-archer-pursuit.png", import.meta.url);
+  const image = readFileSync(file);
+  assert.ok(image.length > 20_000, "elite pursuit acceptance still is missing or empty");
+  assert.deepEqual([...image.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  const report = JSON.parse(readFileSync(
+    new URL("./fixtures/stage-recording-report.json", import.meta.url), "utf8"
+  ));
+  const still = report.find((entry) => entry.name === "elite-archer-pursuit");
+  assert.ok(still, "elite pursuit acceptance report is missing");
+  assert.deepEqual(still.viewport, { width: 390, height: 844 });
+  assert.equal(still.enemyLabel, "精锐匪队");
+  assert.equal(still.eliteCount, 3);
+  assert.equal(still.eliteLeaderCount, 1);
+  assert.equal(still.reachedBeforeStrike, true);
+  assert.ok(still.pursuitIndex >= 0 && still.strikeIndex > still.pursuitIndex);
+  assert.ok(still.strikeDistance <= P.ARCHER_MELEE_REACH_PX + 4);
 });
 
 test("acceptance: individual strikes stay countable at 2x", () => {

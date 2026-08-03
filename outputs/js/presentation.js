@@ -140,6 +140,12 @@ export const CONFIG_PRESENTATION = Object.freeze({
   ARCHER_RANGE_ARC_MS: 900,
   ARCHER_OVERRUN_MARGIN_PX: 12,
   ARCHER_OVERRUN_BACKSTEP_PX: 12,
+  // A melee attacker does not teleport through the screen to a rear archer.
+  // The pursuit starts before the resolved hit and covers the measured gap.
+  ARCHER_PURSUIT_MIN_MS: 520,
+  ARCHER_PURSUIT_MAX_MS: 1200,
+  ARCHER_MELEE_REACH_PX: 24,
+  ARCHER_PURSUIT_PX_PER_MS: 0.12,
   // Legacy alias for the heavy tier's contact hold. The performance reads the
   // tier table now; this key is kept, and kept truthful, because it is part of
   // the existing presentation contract.
@@ -271,6 +277,17 @@ export function facingToward(selfX, targetX, current = 1) {
   const delta = (Number(targetX) || 0) - (Number(selfX) || 0);
   if (Math.abs(delta) < 0.5) return current < 0 ? -1 : 1;
   return delta > 0 ? 1 : -1;
+}
+
+export function archerPursuitDurationMs(distancePx) {
+  const distance = Math.max(0, Math.abs(Number(distancePx) || 0));
+  return Math.round(Math.max(
+    CONFIG_PRESENTATION.ARCHER_PURSUIT_MIN_MS,
+    Math.min(
+      CONFIG_PRESENTATION.ARCHER_PURSUIT_MAX_MS,
+      distance / CONFIG_PRESENTATION.ARCHER_PURSUIT_PX_PER_MS
+    )
+  ));
 }
 
 export function isRearHit(facing, selfX, attackerX) {

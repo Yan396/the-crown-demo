@@ -41,6 +41,7 @@
   <button data-play="town">守城齐射</button>
   <button data-play="officers">部将</button>
   <button data-play="flank">侧击转身</button>
+  <button data-play="elitePursuit">精锐追弓</button>
   <button id="check-skip">跳过一致性校验</button>
 </div>
 <code id="verdict"></code>
@@ -233,6 +234,40 @@ const FIXTURES = {
       }
     ],
     formations: { player: "line", enemy: "line" },
+    command: "hold"
+  }),
+  elitePursuit: () => ({
+    battleId: "sg-elite-archer-pursuit",
+    terrain: "field",
+    eliteEnemy: true,
+    sides: {
+      player: side("我军", 3, [SPEAR, VET, BOW]),
+      enemy: side("精锐匪队", 3, [FOE])
+    },
+    events: [
+      { t: 0, type: "battle_start" },
+      { t: 100, type: "round_start", n: 1 },
+      {
+        t: 120, type: "strike", beat: 0,
+        from: { side: "enemy", idx: 1 }, to: { side: "player", idx: 0 },
+        kill: true, dmgShown: 6, hpAfter: 0
+      },
+      {
+        t: 140, type: "strike", beat: 1,
+        from: { side: "enemy", idx: 2 }, to: { side: "player", idx: 1 },
+        kill: true, dmgShown: 7, hpAfter: 0
+      },
+      {
+        t: 160, type: "strike", beat: 2,
+        from: { side: "enemy", idx: 0 }, to: { side: "player", idx: 2 },
+        kill: false, dmgShown: 4, hpAfter: 5
+      },
+      {
+        t: 220, type: "battle_end", winner: "enemy",
+        loot: { gold: 0, renown: 0 }, survivors: { player: 1, enemy: 3 }
+      }
+    ],
+    formations: { player: "line", enemy: "wedge" },
     command: "hold"
   })
 };

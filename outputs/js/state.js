@@ -664,10 +664,20 @@ function isScriptReference(value, sides) {
 
 export function isBattleScript(value) {
   const baseKeys = ["battleId", "terrain", "sides", "events"];
-  const allowedKeys = [...baseKeys, "formations", "lieutenant", "lieutenantIds", "command"];
+  const allowedKeys = [
+    ...baseKeys,
+    "formations",
+    "lieutenant",
+    "lieutenantIds",
+    "command",
+    "eliteEnemy"
+  ];
   if (!value || !baseKeys.every((key) => Object.hasOwn(value, key))) return false;
   if (Object.keys(value).some((key) => !allowedKeys.includes(key))) return false;
   if (Object.hasOwn(value, "lieutenant") && value.lieutenant !== "player") return false;
+  // Spawn-frozen enemy identity, carried only so the stage can distinguish an
+  // elite pack. It never participates in damage, targeting or survivor math.
+  if (Object.hasOwn(value, "eliteEnemy") && value.eliteEnemy !== true) return false;
   // Presentation metadata only: which named officers ride with that side, so
   // the stage can draw them apart. Optional -- an older script without it still
   // validates and still falls back to the generic officer figure.

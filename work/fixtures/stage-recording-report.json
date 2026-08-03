@@ -10,23 +10,24 @@
       "enemy": 16
     },
     "probe": {
-      "frames": 1827,
-      "medianMs": 8,
-      "p95Ms": 10.7,
-      "worstMs": 374.2,
-      "over16_7": 10,
-      "fps": 125
+      "frames": 1707,
+      "medianMs": 8.3,
+      "p95Ms": 9.3,
+      "worstMs": 345.2,
+      "over16_7": 13,
+      "fps": 120.5
     },
     "beats": {
-      "total": 58,
+      "total": 59,
       "byType": {
         "arrow": 4,
         "charge": 1,
-        "turn": 9,
+        "turn": 8,
         "shake": 2,
+        "pursuit": 1,
+        "rear_hit": 15,
         "strike": 18,
         "kill": 8,
-        "rear_hit": 14,
         "arrow_impact": 2
       },
       "tiers": [
@@ -37,7 +38,7 @@
       "shakes": 2,
       "countMismatches": 0
     },
-    "bytes": 463473
+    "bytes": 451827
   },
   {
     "name": "archer-volley",
@@ -50,22 +51,24 @@
       "enemy": 8
     },
     "probe": {
-      "frames": 1098,
-      "medianMs": 8.1,
-      "p95Ms": 11.5,
-      "worstMs": 24.1,
-      "over16_7": 6,
-      "fps": 123.5
+      "frames": 1015,
+      "medianMs": 8.4,
+      "p95Ms": 15.8,
+      "worstMs": 26.7,
+      "over16_7": 23,
+      "fps": 119
     },
     "beats": {
-      "total": 22,
+      "total": 25,
       "byType": {
         "arrow": 5,
         "charge": 1,
         "shake": 1,
+        "pursuit": 2,
         "arrow_impact": 4,
         "strike": 8,
-        "kill": 3
+        "kill": 3,
+        "rear_hit": 1
       },
       "tiers": [
         "light",
@@ -74,7 +77,7 @@
       "shakes": 1,
       "countMismatches": 0
     },
-    "bytes": 199930
+    "bytes": 198889
   },
   {
     "name": "cavalry-charge",
@@ -87,22 +90,22 @@
       "enemy": 10
     },
     "probe": {
-      "frames": 1087,
-      "medianMs": 8.2,
-      "p95Ms": 11.9,
-      "worstMs": 30.5,
-      "over16_7": 10,
-      "fps": 122
+      "frames": 1064,
+      "medianMs": 8.3,
+      "p95Ms": 9.3,
+      "worstMs": 33.9,
+      "over16_7": 6,
+      "fps": 120.5
     },
     "beats": {
-      "total": 21,
+      "total": 24,
       "byType": {
         "charge": 1,
         "shake": 1,
-        "strike": 7,
+        "strike": 8,
         "kill": 3,
-        "turn": 4,
-        "rear_hit": 5
+        "turn": 5,
+        "rear_hit": 6
       },
       "tiers": [
         "light",
@@ -112,7 +115,7 @@
       "shakes": 1,
       "countMismatches": 0
     },
-    "bytes": 209280
+    "bytes": 226859
   },
   {
     "name": "archer-kill",
@@ -125,12 +128,12 @@
       "enemy": 4
     },
     "probe": {
-      "frames": 1101,
-      "medianMs": 8.1,
-      "p95Ms": 11.4,
-      "worstMs": 45.6,
-      "over16_7": 8,
-      "fps": 123.5
+      "frames": 1056,
+      "medianMs": 8.3,
+      "p95Ms": 9.2,
+      "worstMs": 37.5,
+      "over16_7": 11,
+      "fps": 120.5
     },
     "beats": {
       "total": 7,
@@ -149,7 +152,7 @@
       "shakes": 2,
       "countMismatches": 0
     },
-    "bytes": 182126
+    "bytes": 181579
   },
   {
     "name": "unit-behavior-midcharge",
@@ -160,10 +163,10 @@
       "height": 844
     },
     "groups": {
-      "cavalry": 240.3,
-      "militia": 158.9,
-      "veteran": 162.4,
-      "archer": 139
+      "cavalry": 240.2,
+      "militia": 158.2,
+      "veteran": 161.6,
+      "archer": 138.9
     },
     "staggered": true,
     "rangeVisible": true,
@@ -185,12 +188,14 @@
       "speed": 1,
       "depth": 0.66,
       "overrun": false,
+      "elite": false,
+      "eliteLeader": false,
       "facing": -1,
       "turning": false,
       "targetSide": "enemy",
       "targetIdx": 1,
       "x": 274.9,
-      "y": 141.5
+      "y": 141.4
     },
     "target": {
       "side": "enemy",
@@ -200,11 +205,13 @@
       "speed": 1,
       "depth": 0.404,
       "overrun": false,
+      "elite": false,
+      "eliteLeader": false,
       "facing": 1,
       "turning": false,
       "targetSide": "player",
       "targetIdx": 5,
-      "x": 237.5,
+      "x": 237.4,
       "y": 183.9
     },
     "faceEachOther": true,
@@ -212,5 +219,22 @@
     "rearHits": 1,
     "turns": 2,
     "screenshot": "work/fixtures/facing-midmelee.png"
+  },
+  {
+    "name": "elite-archer-pursuit",
+    "fixture": "elitePursuit",
+    "atMs": 10400,
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "eliteCount": 3,
+    "eliteLeaderCount": 1,
+    "enemyLabel": "精锐匪队",
+    "pursuitIndex": 6,
+    "strikeIndex": 7,
+    "strikeDistance": 21,
+    "reachedBeforeStrike": true,
+    "screenshot": "work/fixtures/elite-archer-pursuit.png"
   }
 ]

@@ -606,6 +606,7 @@ function buildTokenBuckets(roster, startTroops, fallbackType) {
       idx,
       capacity,
       remaining: capacity,
+      arm: troopArmAt(roster, offset),
       hpPerSoldier: hpPerSoldierFor(troopType)
     });
   }
@@ -627,6 +628,16 @@ function chooseWeightedBucket(rng, buckets, consume = false) {
   }
   if (consume) selected.remaining = Math.max(0, selected.remaining - 1);
   return selected;
+}
+
+// Archers are a rear line, not a random body in the casualty lottery. The
+// resolved casualty COUNT remains untouched; this only decides which visual
+// bucket carries each already-resolved hit. As long as any melee bucket still
+// stands, the rear line cannot be selected.
+function chooseProtectedTargetBucket(rng, buckets, consume = false) {
+  const available = buckets.filter((bucket) => bucket.remaining > 0);
+  const screen = available.filter((bucket) => bucket.arm !== "archer");
+  return chooseWeightedBucket(rng, screen.length ? screen : available, consume);
 }
 
 function damageShares(totalDamage, count, rng) {
@@ -689,7 +700,11 @@ function sideLabels(state, battle = null) {
   const stage = (STRINGS[state.settings?.language] || STRINGS.zh).stage;
   return {
     player: stage.sidePlayer,
-    enemy: battle?.enemyKind === "lord" ? stage.sideLord : stage.sideEnemy
+    enemy: battle?.enemyKind === "lord"
+      ? stage.sideLord
+      : battle?.elite
+        ? stage.sideElite
+        : stage.sideEnemy
   };
 }
 
@@ -707,7 +722,7 @@ function buildStrikeDrafts(rng, round, playerBuckets, enemyBuckets) {
   // presentation must not remove an aggregated token on its first hit.
   for (let index = 0; index < round.enemyLoss; index += 1) {
     const from = chooseWeightedBucket(rng, playerAttackBuckets, false);
-    const to = chooseWeightedBucket(rng, enemyBuckets, true);
+    const to = chooseProtectedTargetBucket(rng, enemyBuckets, true);
     if (!from || !to) break;
     drafts.push({
       from: { side: "player", idx: from.idx },
@@ -718,7 +733,7 @@ function buildStrikeDrafts(rng, round, playerBuckets, enemyBuckets) {
   }
   for (let index = 0; index < round.playerLoss; index += 1) {
     const from = chooseWeightedBucket(rng, enemyAttackBuckets, false);
-    const to = chooseWeightedBucket(rng, playerBuckets, true);
+    const to = chooseProtectedTargetBucket(rng, playerBuckets, true);
     if (!from || !to) break;
     drafts.push({
       from: { side: "enemy", idx: from.idx },
@@ -750,7 +765,11 @@ function addGlancingBlows(rng, round, playerBuckets, enemyBuckets, drafts) {
       hpDealt: round.playerHpDealt || 0 }
   ];
   sides.forEach((side) => {
-    const live = side.buckets.filter((bucket) => bucket.hpPerSoldier > 0);
+    const available = side.buckets.filter(
+      (bucket) => bucket.hpPerSoldier > 0 && bucket.remaining > 0
+    );
+    const screen = available.filter((bucket) => bucket.arm !== "archer");
+    const live = screen.length ? screen : available;
     if (!live.length || side.hpDealt <= 0) return;
     const perSoldier = live[0].hpPerSoldier;
     const blowSize = Math.max(1, perSoldier * CONFIG_V11.HP_GLANCING_BLOW_FRACTION);
@@ -768,6 +787,21 @@ function addGlancingBlows(rng, round, playerBuckets, enemyBuckets, drafts) {
     }
   });
   return drafts;
+}
+
+function targetArmForDraft(draft, playerBuckets, enemyBuckets) {
+  const buckets = draft.to.side === "player" ? playerBuckets : enemyBuckets;
+  return buckets.find((bucket) => bucket.idx === draft.to.idx)?.arm || "spear";
+}
+
+function deferArcherTargets(drafts, playerBuckets, enemyBuckets) {
+  const front = [];
+  const rear = [];
+  drafts.forEach((draft) => {
+    const targetArm = targetArmForDraft(draft, playerBuckets, enemyBuckets);
+    (targetArm === "archer" ? rear : front).push(draft);
+  });
+  return front.concat(rear);
 }
 
 // Walk the emitted order and stamp each strike with the target's remaining
@@ -879,9 +913,23 @@ export function buildBattleScript(state, battle, result, winner) {
         rng, scriptedRound, playerSide.buckets, enemySide.buckets, drafts
       ));
     }
+    drafts = deferArcherTargets(drafts, playerSide.buckets, enemySide.buckets);
+    const frontCount = drafts.filter(
+      (draft) => targetArmForDraft(draft, playerSide.buckets, enemySide.buckets) !== "archer"
+    ).length;
+    const hasRearTargets = frontCount < drafts.length;
     const waveCount = drafts.length >= 3 ? 3 : drafts.length >= 2 ? 2 : 1;
+    const frontWaveCount = frontCount >= 2 ? 2 : 1;
     drafts.forEach((draft, index) => {
-      const beat = waveCount === 1 ? 0 : index % waveCount;
+      const rearTarget = targetArmForDraft(
+        draft, playerSide.buckets, enemySide.buckets
+      ) === "archer";
+      // When a round finally exhausts the screen and reaches a bow line, every
+      // front-line hit lands in the first two waves; the rear pursuit owns the
+      // third. Sorting by t can no longer put an archer hit before the screen.
+      const beat = hasRearTargets && frontCount > 0
+        ? rearTarget ? 2 : index % frontWaveCount
+        : waveCount === 1 ? 0 : index % waveCount;
       events.push({
         t: roundTime + SCRIPT_TIMING.strikeLead + beat * SCRIPT_TIMING.beatGap
           + Math.floor(nextFloat(rng) * SCRIPT_TIMING.beatJitter),
@@ -988,6 +1036,9 @@ export function buildBattleScript(state, battle, result, winner) {
         .map((entry) => (typeof entry === "string" ? entry : entry?.id))
         .filter((id) => typeof id === "string" && id.length);
     }
+  }
+  if (battle.elite && (battle.enemyKind || "bandit") === "bandit") {
+    script.eliteEnemy = true;
   }
   if (state.features?.f3) script.command = battle.commands?.player || CONFIG.F3_AUTOPLAY_COMMAND;
   return script;

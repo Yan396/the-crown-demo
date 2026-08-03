@@ -2923,6 +2923,33 @@ body.battle-stage-open #sound-button {
   animation: token-idle var(--sway, 2s) ease-in-out infinite alternate;
 }
 
+/* Elite packs are still bandits mechanically. On stage their heavier pelted
+   mass and the lead wolf-tail standard distinguish them without adding a troop
+   type or using the player's cinnabar accent. */
+.stage-token.is-elite-bandit {
+  width: calc(var(--token-w, 60px) * 1.1);
+  height: calc(var(--token-h, 76px) * 1.1);
+}
+
+.stage-token.is-elite-leader {
+  width: calc(var(--token-w, 60px) * 1.2);
+  height: calc(var(--token-h, 76px) * 1.2);
+}
+
+/* A bandit crossing the last gap to the bow line owns a measured transition.
+   This rule sits after the generic melee reposition rule so it cannot collapse
+   back to the 420ms shuffle and appear to hit the archer from midfield. */
+.battle-stage.phase-melee .stage-token.is-pursuing {
+  transition-duration: var(--pursuit-ms, 720ms);
+  transition-timing-function: cubic-bezier(0.36, 0.02, 0.22, 1);
+  animation: token-pursuit-step 180ms steps(2, end) infinite;
+}
+
+@keyframes token-pursuit-step {
+  0% { translate: 0 0; }
+  100% { translate: 0 -2px; }
+}
+
 /* -- phase choreography ----------------------------------------------------- */
 /* The camera is one continuous push: wide on deployment, tight on the rout. */
 .stage-world {

@@ -118,6 +118,7 @@ export const STRINGS = Object.freeze({
       continue: "继 续",
       sidePlayer: "我军",
       sideEnemy: "匪队",
+      sideElite: "精锐匪队",
       sideLord: "追兵"
     }),
     formation: Object.freeze({
@@ -612,6 +613,7 @@ export const STRINGS = Object.freeze({
       continue: "Continue",
       sidePlayer: "Player",
       sideEnemy: "Bandits",
+      sideElite: "Elite Bandits",
       sideLord: "Pursuers"
     }),
     formation: Object.freeze({

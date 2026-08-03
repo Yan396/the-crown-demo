@@ -25,6 +25,7 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { CONFIG_PRESENTATION as P } from "../outputs/js/presentation.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outputs = path.join(root, "outputs");
@@ -353,6 +354,60 @@ async function main() {
     `facing still    attacker=${facingProof.attacker.x.toFixed(1)}/${facingProof.attacker.facing} `
     + `target=${facingProof.target.x.toFixed(1)}/${facingProof.target.facing} `
     + `rear=${facingProof.rearHits} turns=${facingProof.turns}`
+  );
+
+  // Elite/rear-line acceptance: the two melee defenders fall first, then a
+  // bandit must emit a pursuit beat and physically arrive before his strike on
+  // the surviving archer. This is the permanent guard against ranged
+  // teleport-hits returning.
+  const pursuitContext = await browser.newContext({ viewport: PHONE, deviceScaleFactor: 2 });
+  const pursuitPage = await pursuitContext.newPage();
+  await pursuitPage.goto(url, { waitUntil: "load" });
+  await pursuitPage.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+  await pursuitPage.evaluate(() => window.__SG_PLAY__("elitePursuit"));
+  const pursuitAtMs = 10400;
+  await pursuitPage.waitForTimeout(pursuitAtMs);
+  const pursuitProof = await pursuitPage.evaluate((reach) => {
+    const beats = window.__SG_BEATS__ || [];
+    const positions = window.__SG_STAGE__.unitPositions;
+    const pursuitIndex = beats.findIndex((beat) => beat.type === "pursuit");
+    const strikeIndex = beats.findIndex(
+      (beat) => beat.type === "strike" && beat.side === "enemy" && beat.toArm === "archer"
+    );
+    const strike = beats[strikeIndex] || null;
+    return {
+      eliteCount: positions.filter((token) => token.side === "enemy" && token.elite).length,
+      eliteLeaderCount: positions.filter(
+        (token) => token.side === "enemy" && token.eliteLeader
+      ).length,
+      enemyLabel: document.querySelectorAll(".plate-name")[1]?.textContent || "",
+      pursuitIndex,
+      strikeIndex,
+      strikeDistance: strike?.distance ?? null,
+      reachedBeforeStrike: pursuitIndex >= 0 && strikeIndex > pursuitIndex
+        && Number.isFinite(strike?.distance) && strike.distance <= reach + 4
+    };
+  }, P.ARCHER_MELEE_REACH_PX);
+  const pursuitFile = path.join(root, "work", "fixtures", "elite-archer-pursuit.png");
+  await pursuitPage.screenshot({ path: pursuitFile });
+  await pursuitContext.close();
+  if (
+    pursuitProof.eliteCount !== 3 || pursuitProof.eliteLeaderCount !== 1 ||
+    pursuitProof.enemyLabel !== "精锐匪队" || !pursuitProof.reachedBeforeStrike
+  ) {
+    throw new Error(`elite pursuit acceptance failed: ${JSON.stringify(pursuitProof)}`);
+  }
+  report.push({
+    name: "elite-archer-pursuit",
+    fixture: "elitePursuit",
+    atMs: pursuitAtMs,
+    viewport: PHONE,
+    ...pursuitProof,
+    screenshot: "work/fixtures/elite-archer-pursuit.png"
+  });
+  console.log(
+    `elite pursuit   elite=${pursuitProof.eliteCount}/${pursuitProof.eliteLeaderCount} `
+    + `distance=${pursuitProof.strikeDistance}px order=${pursuitProof.pursuitIndex}<${pursuitProof.strikeIndex}`
   );
 
   await browser.close();
