@@ -502,6 +502,7 @@ ui = createUi({
       updateSessionPeaks(state);
       persist(true);
       ui.playRecruitFx(from, renderer.worldToScreen(state.player.pos));
+      crownAudio.recruit();
       ui.showToast("toast.recruited");
     } else if (result.reason === "gold") {
       ui.showToast("toast.goldInsufficient");

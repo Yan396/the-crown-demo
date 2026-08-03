@@ -132,6 +132,10 @@ export class CrownAudio {
     return this.voice(source, [filter, envelope], stop + 0.01, battle);
   }
 
+  now() {
+    return this.context ? this.context.currentTime : Date.now() / 1000;
+  }
+
   tap() {
     if (!this.enabled) return;
     this.oscillator({ frequency: 720, endFrequency: 410, duration: 0.045, gain: 0.055, type: "triangle" });
@@ -152,6 +156,34 @@ export class CrownAudio {
       frequency: kill ? 520 : 840,
       battle: true
     });
+  }
+
+  /*
+   * A drawn shaft. Throttled inside the class so a volley reads as a shower
+   * rather than a rattle, and so callers cannot forget to throttle.
+   */
+  arrow() {
+    if (!this.enabled) return;
+    const now = this.now();
+    if (now - (this.lastArrowAt || -Infinity) < 0.07) return;
+    this.lastArrowAt = now;
+    this.noise({ duration: 0.05, gain: 0.03, frequency: 2600, battle: true });
+  }
+
+  // Horse and man landing together: this must not sound like a spear.
+  cavalry() {
+    if (!this.enabled) return;
+    const now = this.now();
+    if (now - (this.lastCavalryAt || -Infinity) < 0.12) return;
+    this.lastCavalryAt = now;
+    this.noise({ duration: 0.16, gain: 0.09, frequency: 220, type: "lowpass", battle: true });
+    this.oscillator({ frequency: 96, endFrequency: 46, duration: 0.2, gain: 0.11, battle: true });
+  }
+
+  // Fires only on a successful recruit; a refused one stays silent.
+  recruit() {
+    if (!this.enabled) return;
+    this.oscillator({ frequency: 620, endFrequency: 880, duration: 0.14, gain: 0.05, type: "triangle" });
   }
 
   seal() {
