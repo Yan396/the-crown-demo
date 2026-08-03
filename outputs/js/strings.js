@@ -109,6 +109,8 @@ export const STRINGS = Object.freeze({
       round: "第 {n} 轮",
       volley: "城头齐射",
       rout: "阵线崩了",
+      bannerFalls: "帅旗倒了",
+      officer: "部将",
       hint: "点击加速 · 长按跳过",
       speedLabel: "战斗速度 {speed}倍",
       tallyGold: "缴获",
@@ -131,7 +133,7 @@ export const STRINGS = Object.freeze({
       })
     }),
     battleCommand: Object.freeze({
-      kicker: "战前 · 军令",
+      kicker: "阵中 · 传令",
       copy: "一令既出，全军照此而战。",
       charge: "全线压上",
       hold: "稳住阵线",
@@ -601,6 +603,8 @@ export const STRINGS = Object.freeze({
       round: "Round {n}",
       volley: "Volley from the wall",
       rout: "The line breaks",
+      bannerFalls: "The banner falls",
+      officer: "Officer",
       hint: "Tap to speed up · hold to skip",
       speedLabel: "Battle speed {speed}x",
       tallyGold: "Loot",
@@ -623,7 +627,7 @@ export const STRINGS = Object.freeze({
       })
     }),
     battleCommand: Object.freeze({
-      kicker: "Before battle · Order",
+      kicker: "In the line · Order",
       copy: "One order; the whole line follows it.",
       charge: "Press the whole line",
       hold: "Hold the line",

@@ -1,0 +1,139 @@
+[
+  {
+    "name": "field-15s",
+    "fixture": "field",
+    "ms": 15000,
+    "kbps": 230,
+    "orders": [
+      "charge",
+      "focus"
+    ],
+    "what": "mid-size field battle at 1x -- the promo standard",
+    "tokens": {
+      "player": 16,
+      "enemy": 16
+    },
+    "windows": [
+      5000,
+      7800
+    ],
+    "probe": {
+      "frames": 1771,
+      "medianMs": 8.3,
+      "p95Ms": 9.2,
+      "worstMs": 250.5,
+      "over16_7": 1,
+      "fps": 120.5
+    },
+    "beats": {
+      "total": 37,
+      "byType": {
+        "arrow": 6,
+        "charge": 1,
+        "command": 2,
+        "shake": 2,
+        "strike": 18,
+        "kill": 8
+      },
+      "tiers": [
+        "light",
+        "heavy",
+        "medium"
+      ],
+      "shakes": 2,
+      "commands": [
+        "1:charge",
+        "2:focus"
+      ]
+    },
+    "bytes": 448624
+  },
+  {
+    "name": "archer-volley",
+    "fixture": "archers",
+    "ms": 9000,
+    "kbps": 170,
+    "what": "the bow cycle close: nock, full draw, release snap, shafts in flight",
+    "tokens": {
+      "player": 8,
+      "enemy": 8
+    },
+    "windows": [
+      5000,
+      7800
+    ],
+    "probe": {
+      "frames": 1077,
+      "medianMs": 8.3,
+      "p95Ms": 9.2,
+      "worstMs": 26,
+      "over16_7": 1,
+      "fps": 120.5
+    },
+    "beats": {
+      "total": 25,
+      "byType": {
+        "arrow": 10,
+        "charge": 1,
+        "command": 2,
+        "shake": 1,
+        "strike": 8,
+        "kill": 3
+      },
+      "tiers": [
+        "light",
+        "medium"
+      ],
+      "shakes": 1,
+      "commands": [
+        "1:hold",
+        "2:hold"
+      ]
+    },
+    "bytes": 203584
+  },
+  {
+    "name": "cavalry-charge",
+    "fixture": "cavalry",
+    "ms": 9000,
+    "kbps": 170,
+    "what": "the charge arriving ahead of the infantry and stopping on contact",
+    "tokens": {
+      "player": 10,
+      "enemy": 10
+    },
+    "windows": [
+      5000,
+      7800
+    ],
+    "probe": {
+      "frames": 1080,
+      "medianMs": 8.3,
+      "p95Ms": 9.3,
+      "worstMs": 10.1,
+      "over16_7": 0,
+      "fps": 120.5
+    },
+    "beats": {
+      "total": 14,
+      "byType": {
+        "charge": 1,
+        "command": 2,
+        "shake": 1,
+        "strike": 7,
+        "kill": 3
+      },
+      "tiers": [
+        "light",
+        "heavy",
+        "medium"
+      ],
+      "shakes": 1,
+      "commands": [
+        "1:hold",
+        "2:hold"
+      ]
+    },
+    "bytes": 202845
+  }
+]

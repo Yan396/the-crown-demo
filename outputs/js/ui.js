@@ -206,10 +206,6 @@ export function createUi(callbacks) {
     formationWedge: element("formation-wedge"),
     formationLine: element("formation-line"),
     formationCircle: element("formation-circle"),
-    battleCommandModal: element("battle-command-modal"),
-    battleCommandKicker: element("battle-command-kicker"),
-    battleCommandCopy: element("battle-command-copy"),
-    battleCommandButtons: [...document.querySelectorAll("[data-battle-command]")],
     fiefThreatModal: element("fief-threat-modal"),
     fiefThreatKicker: element("fief-threat-kicker"),
     fiefThreatTitle: element("fief-threat-title"),
@@ -511,15 +507,6 @@ export function createUi(callbacks) {
     });
   }
 
-  function syncBattleCommandModal(state) {
-    refs.battleCommandModal.hidden = !Boolean(
-      state.features?.f3 &&
-      state.demo?.modal === "battleCommand" &&
-      state.battle?.commands &&
-      !state.battle.commands.resolved
-    );
-  }
-
   function contractSummary(contract) {
     if (!contract?.active) return "";
     if (contract.type === "escort") {
@@ -791,11 +778,6 @@ export function createUi(callbacks) {
     refs.formationWedge.textContent = t("formation.wedge");
     refs.formationLine.textContent = t("formation.line");
     refs.formationCircle.textContent = t("formation.circle");
-    refs.battleCommandKicker.textContent = t("battleCommand.kicker");
-    refs.battleCommandCopy.textContent = t("battleCommand.copy");
-    refs.battleCommandButtons.forEach((button) => {
-      button.textContent = t(`battleCommand.${button.dataset.battleCommand}`);
-    });
     refs.settingsTitle.textContent = t("settings.title");
     refs.settingsClose.setAttribute("aria-label", t("aria.closeSettings"));
     refs.languageLabel.textContent = t("settings.language");
@@ -1262,7 +1244,6 @@ export function createUi(callbacks) {
     syncFiefThreat(state);
     syncRoadEvent(state);
     syncFormationModal(state);
-    syncBattleCommandModal(state);
     renderEnding(state);
     updateNumberBudget();
   }
@@ -1564,9 +1545,6 @@ export function createUi(callbacks) {
   refs.roadEventChoiceB.addEventListener("click", () => callbacks.onRoadEventChoice(1));
   [refs.formationWedge, refs.formationLine, refs.formationCircle].forEach((button) => {
     button.addEventListener("click", () => callbacks.onChooseFormation(button.dataset.formation));
-  });
-  refs.battleCommandButtons.forEach((button) => {
-    button.addEventListener("click", () => callbacks.onChooseBattleCommand(button.dataset.battleCommand));
   });
   refs.shareResult.addEventListener("click", () => callbacks.onShare());
   refs.replay.addEventListener("click", () => callbacks.onNewSeed(true));

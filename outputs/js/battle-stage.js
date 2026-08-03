@@ -4,7 +4,13 @@ import {
   CONFIG_PRESENTATION as P,
   FORMATION_LAYOUTS,
   FORMATION_SHAPE,
-  depthPlacement
+  WEIGHT_TIERS,
+  commandWindows,
+  depthPlacement,
+  shakeOffsetPx,
+  strikeDurationMs,
+  tokenHeightPx,
+  weightTierFor
 } from "./presentation.js";
 
 /*
@@ -33,16 +39,16 @@ const MAX_SCRIPT_TOKENS = 24; // mirrors the engine's bucketing constant
 
 // Kept as the module's local names; the values now live in presentation.js so
 // the whole performance can be retimed from one place.
+// The hit pause is no longer here: it is the tier's own contact hold, read from
+// WEIGHT_TIERS at the moment of the blow. P.STRIKE_PAUSE_MS stays in the
+// presentation config as the untiered default it always was.
 const TIMING = Object.freeze({
-  HIT_PAUSE: P.STRIKE_PAUSE_MS,
   ROUT_SLOWMO: P.ROUT_SLOWMO_MS,
   LONG_PRESS: P.LONG_PRESS_MS,
   ARROW_FLIGHT: P.ARROW_FLIGHT_MS
 });
 
 const PHASES = Object.freeze(["deploy", "standoff", "charge", "melee", "rout"]);
-
-const TOKEN_WIDTH = 38; // mirrors .stage-token width in ui.css
 
 export function normalizePlaybackSpeed(value) {
   const numeric = Number(value);
@@ -320,14 +326,25 @@ function archerFigure() {
   return (
     '<svg viewBox="0 0 32 34" aria-hidden="true" focusable="false">' +
     '<g class="fig-pose" fill="currentColor">' +
-    '<path d="M20.4 4.2Q26.4 15 20.4 25.8L18.9 24.9Q24.4 15 18.9 5.1Z"/>' +
-    '<path class="archer-string" d="M19.5 4.9 13.5 15.3 19.5 25.1 19.1 25.1 13.1 15.3 19.1 4.9Z"/>' +
-    '<path class="archer-arrow" d="M13.8 14.7 22.4 14.5 22.4 15.5 13.8 15.9Z"/>' +
+    // The bow: a deep arc well clear of the body, so the silhouette has a hole
+    // in it. That hole is what says "archer" before any detail resolves.
+    '<path class="archer-bow" d="M21.6 3.4Q28.4 15 21.6 26.6L19.8 25.6'
+    + 'Q26 15 19.8 4.4Z"/>' +
+    // String and nocked shaft. Both are classed so the draw can bend one and
+    // carry the other; at full draw the shaft breaks the outline on both sides.
+    '<path class="archer-string" d="M20.7 4.1 14.4 15.3 20.7 26 20.2 26 13.9 15.3 20.2 4.1Z"/>' +
+    '<path class="archer-arrow" d="M11.6 14.6 24.2 14.4 24.2 15.6 11.6 16.1Z"/>' +
+    '<path class="archer-head" d="M23.4 14.2 26.6 15 23.4 15.9Z"/>' +
     '<circle cx="12.2" cy="5.4" r="3"/>' +
     '<path d="M9.2 9Q12.2 7.4 15.2 9L16.8 21.8Q12.2 23.6 7.6 21.8Z"/>' +
     '<path d="M10 22.2 8.8 30.6Q10.1 31.3 11.4 30.6L11.8 22.6Z"/>' +
     '<path d="M13 22.6 14.8 30.6Q16.1 31.3 17.3 30.6L15.2 22.2Z"/>' +
-    '<path d="M14.6 11.4Q17.4 12.6 18.6 14.2L17.2 15.4Q15.6 13.8 13.4 13.2Z"/>' +
+    // Bow arm, held out straight and still through the whole cycle.
+    '<path d="M14.6 11.4Q18.4 12.4 20.4 14.2L19 15.6Q16.8 13.8 13.4 13.2Z"/>' +
+    // Draw arm. This is the part that MOVES: back to the cheek on the draw,
+    // snapped open on release. Everything else stays put.
+    '<path class="archer-draw-arm" d="M14.2 11.8Q16.8 12.6 18 14.4'
+    + 'L16.6 15.8Q15.4 14.2 13.2 13.6Z"/>' +
     "</g></svg>"
   );
 }
@@ -387,13 +404,45 @@ function banditFigure() {
   );
 }
 
+/*
+ * Horse and rider as ONE brush mass.
+ *
+ * Three things carry the read at 26px and nothing else does: the arched neck
+ * rising out of the barrel, four legs that stay separable under the body, and
+ * the rider's blade leaving the outline at the top right. The two leg groups
+ * are drawn as alternating halves of a gallop -- CSS shows one at a time in
+ * steps(2), which is the whole cycle. Anything more becomes a smear.
+ */
 function cavalryFigure() {
   return (
-    '<path d="M3 22Q7 15 15 17L23 14Q28 15 29 19L25 20Q22 22 17 22L7 23Z"/>' +
-    '<path d="M7 22 5 31H7.2L10 23M20 21l2 10h2.2l-1-12"/>' +
-    '<path d="M13 17 12 8Q16 5 19 9L20 17Z"/>' +
-    '<circle cx="15.5" cy="5" r="2.8"/>' +
-    '<g class="fig-melee"><path d="M17 13 28 2 29.4 3.4 19 15Z"/></g>'
+    // Barrel and haunch: one sweep, deepest under the saddle.
+    '<path d="M2.6 21.4Q5.4 13.6 14 16.2L21.6 13Q28 14 30 19.6L25.6 20.8'
+    + 'Q22 23.4 16.4 23.2L6.4 24Q3.4 23.8 2.6 21.4Z"/>' +
+    // Arched neck and head, thrown forward into the run.
+    '<path d="M21.4 13.6Q23.4 7.2 27.4 4.2L30.6 6.4Q26.8 9.4 25.6 14.6Z"/>' +
+    '<path d="M27 3.6 31.6 5.2 30.4 8.2 26.2 6.4Z"/>' +
+    // Tail streaming back — the counterweight that stops the mass reading as a dog.
+    '<path d="M3.2 17.4Q-0.8 18.6 -1.6 23.4L1.4 22.6Q2 19.6 4.2 19Z"/>' +
+    // Gallop frame A: near foreleg reaching, off hind trailing.
+    '<g class="horse-legs horse-legs-a">' +
+    '<path d="M22.4 22.4 26.2 30.6 28.4 30.2 25.2 21.8Z"/>' +
+    '<path d="M7.4 23.2 3.6 30.4 5.8 31.2 10.2 23.6Z"/>' +
+    '<path d="M18.2 23 19.4 30.8 21.4 30.6 20.6 22.8Z"/>' +
+    '<path d="M10.6 23.4 9.4 30.2 11.4 30.6 12.8 23.4Z"/>' +
+    "</g>" +
+    // Gallop frame B: the pair swapped, so the alternation reads as legs.
+    '<g class="horse-legs horse-legs-b">' +
+    '<path d="M22.6 22.4 24 30.8 26.2 30.6 25.4 21.8Z"/>' +
+    '<path d="M7.2 23.2 6.6 30.6 8.8 30.8 10.4 23.6Z"/>' +
+    '<path d="M18 23 22.2 30 24 29 20.4 22.8Z"/>' +
+    '<path d="M10.8 23.4 6.8 29.8 8.6 30.8 13 23.4Z"/>' +
+    "</g>" +
+    // Rider: seated, leaning with the charge.
+    '<path d="M12.4 16.4 11.2 8.4Q15.4 5 18.8 9.2L19.4 16.8Z"/>' +
+    '<circle cx="14.6" cy="4.8" r="2.8"/>' +
+    '<path class="fig-accent" d="M11.8 11.6Q15 12.8 18.6 11.6L19 13.8Q15.2 15 11.4 13.8Z"/>' +
+    // Blade held high and clear of the horse — the overhang is the class cue.
+    '<g class="fig-melee"><path d="M16.6 12.4 27.8 -0.4 29.6 1.2 18.6 14.4Z"/></g>'
   );
 }
 
@@ -471,6 +520,10 @@ function officerWen() {
 
 function officerTan() {
   return (
+    // Every officer carries a personal banner; his is the shortest and hangs
+    // back off the shoulder, which is its own read next to 莽's and 稳's.
+    '<path d="M5.8 13.4 4.4 1.6 6 1.4 7.4 13.2Z"/>' +
+    '<path class="fig-accent" d="M5.2 2.2Q2.6 3.8 0.8 2.6Q2 5.8 5.6 4.8Z"/>' +
     '<circle cx="12.6" cy="5.8" r="3.4"/>' +
     '<path d="M9.4 3.6Q12.6 1 15.8 3.6 12.6 2.6 9.4 3.6Z"/>' +
     '<path d="M9.6 10.2Q12.6 8.2 15.6 10.2L16.8 21.8Q12.6 23.8 8.4 21.8Z"/>' +
@@ -552,6 +605,53 @@ export function createBattleStage(host, options = {}) {
   let pressFired = false;
   let pending = [];
   let roll = seededRandom(1);
+  // 1c: a battle is allowed exactly two shakes. Spending one is a decision.
+  let shakesSpent = 0;
+  let finalStrikeIndex = -1;
+  // 8a: every blot the field is carrying, so the layer can be repainted with an
+  // age ramp once it runs past its area budget instead of silting up.
+  let stains = [];
+  let stainArea = 0;
+  // 7: the orders actually given, in order. This array IS the replay record.
+  let commandLog = [];
+  let commandWindowsAt = [];
+  let commandGateAt = -1;
+  let commandTimer = 0;
+
+  /*
+   * ITEM 9 — the one clock.
+   *
+   * Every visual beat calls this, and everything that wants to react to a beat
+   * subscribes here: the shipped CrownAudio cues, the optional `audio` adapter
+   * a host may pass, and `onBeat` for anything later. There is deliberately no
+   * second path -- a cue that fires outside emitBeat is a bug, because it would
+   * be riding a different clock than the animation it belongs to.
+   *
+   * Payload: { type, tier, kill, side, dmgShown, at } -- `at` is the stage's
+   * own virtual time, so a listener can align to the performance and not to
+   * wall clock.
+   */
+  function emitBeat(payload) {
+    const beat = { tier: "light", kill: false, at: virtualTime, ...payload };
+    // The shipped sound. Kept exactly as it was; only its trigger moved here.
+    switch (beat.type) {
+      case "strike":
+        if (beat.tier === "heavy") crownAudio.cavalry();
+        else crownAudio.hit({ kill: Boolean(beat.kill), dmgShown: beat.dmgShown });
+        break;
+      case "arrow": crownAudio.arrow(); break;
+      case "charge": crownAudio.charge(); break;
+      case "rout": crownAudio.rout(); break;
+      default: break;
+    }
+    // Host adapter (main.js passes CrownAudio itself). Only cues the switch
+    // above does not already own, so nothing can double-fire.
+    if (audio && !["strike", "arrow", "charge", "rout"].includes(beat.type)) {
+      audio[beat.type]?.(beat);
+    }
+    options.onBeat?.(beat);
+    return beat;
+  }
 
   /* -- construction -------------------------------------------------------- */
 
@@ -611,6 +711,18 @@ export function createBattleStage(host, options = {}) {
     // a phone.
     const halfWidth = Math.max(120, worldNode.clientWidth * 0.42);
     const spacing = Math.max(21, Math.min(40, halfWidth / 7));
+    // 1b: the drawn figure is sized from the stage it stands on, so the two
+    // armies fill the same share of the sheet at 390px and at 1100px. Set on
+    // the world node once per side; both sides compute the same numbers.
+    const tokenH = tokenHeightPx(worldNode.clientHeight, spacing);
+    worldNode.style.setProperty("--token-h", `${tokenH}px`);
+    worldNode.style.setProperty("--token-w", `${Math.round(tokenH * P.TOKEN_ASPECT)}px`);
+    worldNode.style.setProperty(
+      "--officer-h", `${Math.round(tokenH * P.LIEUTENANT_SCALE)}px`
+    );
+    worldNode.style.setProperty(
+      "--officer-w", `${Math.round(tokenH * P.TOKEN_ASPECT * P.LIEUTENANT_SCALE)}px`
+    );
     const maxPerRow = Math.max(3, Math.floor(halfWidth / spacing));
     const rows = Math.min(3, Math.max(1, Math.ceil(shown / maxPerRow)));
     const perRow = Math.ceil(shown / rows) || 1;
@@ -627,7 +739,7 @@ export function createBattleStage(host, options = {}) {
       const layout = formation ? FORMATION_LAYOUTS[formation] : null;
       let depth = rows > 1 ? row / (rows - 1) : 0.42;
       if (layout) {
-        const placed = layout(index, shown, dir);
+        const placed = layout(index, shown, dir, halfWidth);
         formationX = placed.x;
         depth = placed.depth;
         row = placed.rank;
@@ -644,15 +756,31 @@ export function createBattleStage(host, options = {}) {
         && index < Math.max(1, officerIds.length);
       const officerId = isLieutenant ? officerIds[index] || null : null;
       const officerDraw = officerId ? officerFigureFor(officerId) : null;
+      token.isLieutenant = isLieutenant;
+      token.officerId = officerId;
+      // The tier is fixed once, at spawn, from what the engine already put on
+      // the token. It decides the rhythm of every blow this figure throws.
+      token.tier = weightTierFor(token);
       const node = document.createElement("i");
       node.className = isLieutenant
-        ? `stage-token unit-${token.troopType || "militia"} is-lieutenant${
+        ? `stage-token unit-${token.troopType || "militia"} tier-${token.tier} is-lieutenant${
           officerId ? ` officer-${officerId}` : ""}`
-        : `stage-token unit-${token.troopType || "militia"}${token.arm ? ` arm-${token.arm}` : ""}`;
+        : `stage-token unit-${token.troopType || "militia"} tier-${token.tier}${
+          token.arm ? ` arm-${token.arm}` : ""}`;
       node.innerHTML = officerDraw
         ? `<svg viewBox="0 0 32 34" aria-hidden="true" focusable="false">`
           + `<g class="fig-pose" fill="currentColor">${officerDraw()}</g></svg>`
         : figureSvg(isLieutenant ? "lieutenant" : token.troopType, token.arm);
+      // 6b: an officer is named on the field, always visible, so "that big one
+      // is somebody" needs no click to confirm.
+      if (isLieutenant) {
+        const plate = document.createElement("b");
+        plate.className = "stage-name";
+        plate.textContent = officerId
+          ? translate(`lieutenant.${officerId}Name`)
+          : translate("stage.officer");
+        node.appendChild(plate);
+      }
       const bar = document.createElement("b");
       bar.className = "stage-hp";
       bar.innerHTML = '<i></i>';
@@ -676,7 +804,14 @@ export function createBattleStage(host, options = {}) {
       node.style.zIndex = String(cam.z);
       node.style.setProperty("--sway", `${(1.6 + roll() * 1.2).toFixed(2)}s`);
       // Back ranks lag into the charge, so the advance has depth.
-      node.style.setProperty("--lag", `${row * P.CHARGE_BACK_RANK_LAG_MS - (token.arm === "cavalry" ? 300 : 0)}ms`);
+      // Back ranks set off later so the advance has depth -- but the whole
+      // march has to be IN by the end of deploy. A wedge is nine ranks deep, so
+      // an uncapped lag left most of an army invisible at first contact.
+      const lag = Math.min(
+        P.DEPLOY_LAG_MAX_MS,
+        row * P.CHARGE_BACK_RANK_LAG_MS + depth * P.DEPLOY_DEPTH_LAG_MS
+      ) - (token.arm === "cavalry" ? P.CAVALRY_LEAD_MS : 0);
+      node.style.setProperty("--lag", `${Math.round(lag)}ms`);
       rankHost.appendChild(node);
       token.node = node;
       token.tx = tx;
@@ -685,11 +820,11 @@ export function createBattleStage(host, options = {}) {
       token.jitterX = roll() - 0.5;
       // Parade position along the stage, derived rather than measured: the
       // rank anchors are left/right 7% of the world and the token box is
-      // TOKEN_WIDTH wide, so this holds before any animation has run.
+      // tokenH * TOKEN_ASPECT wide, so this holds before any animation ran.
       const anchor = sideKey === "player"
         ? worldNode.clientWidth * 0.07
         : worldNode.clientWidth * 0.93;
-      token.baseX = anchor + tx + TOKEN_WIDTH / 2;
+      token.baseX = anchor + tx + tokenH / 2 * P.TOKEN_ASPECT;
     });
   }
 
@@ -728,6 +863,16 @@ export function createBattleStage(host, options = {}) {
     PHASES.forEach((phase) => root.classList.toggle(`phase-${phase}`, phase === name));
     root.dataset.phase = name;
     worldNode.style.setProperty("--zoom", String(ZOOM_BY_PHASE[name] || 1));
+    // 5b: a horse gallops while it is covering ground and paws the ground while
+    // it is not. Driven off the phase, so the two can never be on at once.
+    const moving = name === "deploy" || name === "charge";
+    ["player", "enemy"].forEach((sideKey) => {
+      script?.sides[sideKey]?.tokens.forEach((token) => {
+        if (token.arm === "cavalry" && token.node) {
+          token.node.classList.toggle("is-moving", moving);
+        }
+      });
+    });
   }
 
   // Contact: one hard freeze, an ink band torn open along the centre line, and
@@ -741,7 +886,8 @@ export function createBattleStage(host, options = {}) {
     pending.push(window.setTimeout(
       () => root && root.classList.remove("is-hit-paused"), P.CONTACT_PAUSE_MS
     ));
-    shake(12);
+    // Shake #1 of 2. The other is spent on the final blow.
+    shake("contact");
     splashCentreBand();
     convergeTo(1);
   }
@@ -801,13 +947,18 @@ export function createBattleStage(host, options = {}) {
         const along = (token.baseX - low) / span;
         const leading = dir === 1 ? along : 1 - along;
         const target = centre + dir * (leading - P.MELEE_BIAS) * band;
-        let travel = (target - token.baseX) * ratio;
         const jitter = token.jitterX * P.MELEE_JITTER_PX * ratio;
-        // Cavalry cover far more ground and get there first: the charge has to
-        // be a real advance, not a wobble in place.
+        // 5c: cavalry cover ~2.2x the ground the infantry covers in the same
+        // phase, which is what gets them to the line first -- and then they
+        // HARD STOP on it. Multiplying the travel itself sent them straight
+        // through the enemy army and out the far side; multiplying the
+        // PROGRESS and clamping it at 1 arrives early and stops at contact.
         const mounted = token.arm === "cavalry";
+        const progress = mounted
+          ? Math.min(1, ratio * P.CAVALRY_ADVANCE_MULTIPLIER)
+          : ratio;
+        const travel = (target - token.baseX) * progress;
         if (mounted) {
-          travel *= P.CAVALRY_ADVANCE_MULTIPLIER;
           token.node.style.setProperty("--lag", `-${P.CAVALRY_LEAD_MS}ms`);
         }
         token.melee = Math.round(travel + jitter);
@@ -900,19 +1051,96 @@ export function createBattleStage(host, options = {}) {
 
   /* -- ink ------------------------------------------------------------------ */
 
-  function paintStain(x, y, big) {
-    if (!stainContext) return;
-    const blots = big ? 4 : 2;
+  /*
+   * ITEM 8a — the field must read as AFTERMATH, not as mud.
+   *
+   * Three rules, all of them about restraint: a blot is 40% smaller than the
+   * first pass; how many blots a death leaves scales with how many men that
+   * bucket stood for (one token can be twelve men); and the whole layer carries
+   * a total-area budget. When the budget is spent the layer is repainted with
+   * an age ramp -- the oldest marks drop to 30% -- rather than allowed to keep
+   * darkening until the paper is black.
+   */
+  function drawBlot(blot, alphaScale) {
+    stainContext.fillStyle = `rgba(43, 38, 32, ${(blot.alpha * alphaScale).toFixed(3)})`;
+    stainContext.beginPath();
+    stainContext.ellipse(blot.x, blot.y, blot.rx, blot.ry, blot.rotate, 0, Math.PI * 2);
+    stainContext.fill();
+  }
+
+  function repaintStains() {
+    if (!stainContext || !worldNode) return;
+    stainContext.clearRect(0, 0, worldNode.clientWidth, worldNode.clientHeight);
+    const oldest = stains.length - 1;
+    stains.forEach((blot, index) => {
+      // Newest at full strength, oldest at STAIN_OLDEST_ALPHA, linearly between.
+      const age = oldest > 0 ? 1 - index / oldest : 1;
+      drawBlot(blot, P.STAIN_OLDEST_ALPHA + (1 - P.STAIN_OLDEST_ALPHA) * (1 - age));
+    });
+  }
+
+  function paintStain(x, y, big, scale = 1, men = 1) {
+    if (!stainContext || !worldNode) return;
+    // A bucket standing for a dozen men leaves more than a bucket of one, but
+    // sub-linearly: a square root, or a big battle paints itself solid.
+    const bulk = Math.max(1, Math.sqrt(Math.max(1, men)));
+    const blots = Math.max(1, Math.round((big ? 4 : 2) * scale * Math.min(2, bulk)));
+    const cap = worldNode.clientWidth * worldNode.clientHeight * P.STAIN_AREA_CAP_RATIO;
     for (let index = 0; index < blots; index += 1) {
-      const radius = (big ? 5 : 3) + roll() * (big ? 7 : 4);
-      stainContext.fillStyle = `rgba(43, 38, 32, ${(0.14 + roll() * 0.2).toFixed(2)})`;
-      stainContext.beginPath();
-      stainContext.ellipse(
-        x + (roll() - 0.5) * 18, y + (roll() - 0.5) * 12,
-        radius, radius * (0.6 + roll() * 0.5), roll() * Math.PI, 0, Math.PI * 2
-      );
-      stainContext.fill();
+      const radius = ((big ? 5 : 3) + roll() * (big ? 7 : 4)) * P.STAIN_SCALE * scale;
+      const blot = {
+        x: x + (roll() - 0.5) * 18,
+        y: y + (roll() - 0.5) * 12,
+        rx: radius,
+        ry: radius * (0.6 + roll() * 0.5),
+        rotate: roll() * Math.PI,
+        alpha: 0.08 + roll() * 0.11
+      };
+      stains.push(blot);
+      stainArea += Math.PI * blot.rx * blot.ry;
+      drawBlot(blot, 1);
     }
+    if (stainArea <= cap) return;
+    // Over budget: drop the eldest marks until back under, then redraw what is
+    // left with the age ramp. Repainting only happens at the boundary, so this
+    // is not a per-frame cost.
+    while (stains.length > 1 && stainArea > cap) {
+      const gone = stains.shift();
+      stainArea -= Math.PI * gone.rx * gone.ry;
+    }
+    repaintStains();
+  }
+
+  /**
+   * ITEM 8b — splatter throws along the strike vector, not in a ring.
+   *
+   * `angle` is the direction the blow travelled, so the ink lands behind the
+   * man who took it. A ring reads as a decal; a throw reads as a hit.
+   */
+  function splatter(x, y, angle, tier) {
+    const spread = P.SPLATTER_SPREAD_PX * tier.splatterScale;
+    for (let index = 0; index < tier.blots; index += 1) {
+      const drift = (roll() - 0.35) * spread;
+      const lateral = (roll() - 0.5) * spread * 0.45;
+      paintStain(
+        x + Math.cos(angle) * drift - Math.sin(angle) * lateral,
+        y + Math.sin(angle) * drift + Math.cos(angle) * lateral,
+        false,
+        tier.splatterScale
+      );
+    }
+  }
+
+  // A 2px ink slash laid along the blow. One frame of confirmation, gone before
+  // it can become decoration.
+  function slash(x, y, angle, tier) {
+    const node = document.createElement("i");
+    node.className = "stage-slash";
+    node.style.left = `${x}px`;
+    node.style.top = `${y}px`;
+    node.style.setProperty("--slash-angle", `${(angle * 180 / Math.PI).toFixed(1)}deg`);
+    node.style.setProperty("--slash-len", `${Math.round(20 * tier.splatterScale)}px`);
+    ephemeral(node, P.SLASH_FLASH_MS + 60);
   }
 
   /*
@@ -925,23 +1153,27 @@ export function createBattleStage(host, options = {}) {
   // Too many silhouettes moving in one frame is a blur. Over the cap a token
   // still takes its damage on time; only its POSE is nudged into the next
   // beat, so data and display never disagree.
-  function actorSlot(run) {
-    if (activeActors < P.MAX_CONCURRENT_ACTORS) {
+  function actorSlot(run, { tier = "light", priority = false } = {}) {
+    const hold = strikeDurationMs(tier, priority);
+    // 6c: an officer's blow NEVER waits for a slot. His strikes are the ones the
+    // eye is meant to follow, so they cannot be pushed into a later wave.
+    if (priority || activeActors < P.MAX_CONCURRENT_ACTORS) {
       activeActors += 1;
       run();
-      pending.push(window.setTimeout(() => { activeActors = Math.max(0, activeActors - 1); },
-        P.POSE_WINDUP_MS + P.POSE_CONTACT_MS + P.POSE_FOLLOW_MS));
+      pending.push(window.setTimeout(
+        () => { activeActors = Math.max(0, activeActors - 1); }, hold
+      ));
       return;
     }
-    pending.push(window.setTimeout(() => actorSlot(run), P.POSE_WINDUP_MS));
+    pending.push(window.setTimeout(() => actorSlot(run, { tier, priority }), P.POSE_WINDUP_MS));
   }
 
   // A quadratic bezier from bow to chest, the shaft rotated to its own
   // velocity so it never flies sideways.
-  function flyArrow(from, to, delay = 0) {
+  function flyArrow(from, to, delay = 0, { miss = false } = {}) {
     if (!worldNode) return;
     const arrow = document.createElement("i");
-    arrow.className = "stage-shaft";
+    arrow.className = miss ? "stage-shaft is-miss" : "stage-shaft";
     worldNode.appendChild(arrow);
     const midX = (from.x + to.x) / 2;
     const midY = Math.min(from.y, to.y) - P.ARROW_ARC_PX;
@@ -958,13 +1190,41 @@ export function createBattleStage(host, options = {}) {
         offset: t,
         transform: `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) rotate(${
           (Math.atan2(dy, dx) * 180 / Math.PI).toFixed(1)}deg)`,
-        opacity: t > 0.92 ? 0 : 1
+        // A shaft that hits vanishes AT contact. A shaft that misses does not:
+        // it stays where it stuck, which is the whole point of drawing it.
+        opacity: miss ? 1 : (t > 0.92 ? 0 : 1)
       });
     }
     if (!reducedMotion.matches && arrow.animate) {
       arrow.animate(frames, { duration: P.ARROW_LEAD_MS, delay, easing: "linear", fill: "both" });
     }
-    ephemeral(arrow, delay + P.ARROW_LEAD_MS + 40);
+    if (!miss) {
+      ephemeral(arrow, delay + P.ARROW_LEAD_MS + 40);
+      return;
+    }
+    // 4c: overshoot, stand in the ground at an angle, fade after two seconds.
+    // Misses are what make a volley read as a volley rather than as a cue.
+    pending.push(window.setTimeout(() => {
+      if (!arrow.isConnected) return;
+      arrow.style.transform =
+        `translate(${to.x.toFixed(1)}px, ${to.y.toFixed(1)}px) rotate(64deg)`;
+      arrow.getAnimations?.().forEach((animation) => animation.cancel());
+      arrow.classList.add("is-stuck");
+    }, delay + P.ARROW_LEAD_MS));
+    ephemeral(arrow, delay + P.ARROW_LEAD_MS + P.ARROW_STUCK_MS + 400);
+  }
+
+  // The four-pose bow cycle. Started NOCK+DRAW before the shaft leaves, so the
+  // release snap and the launch are the same instant rather than two events.
+  function drawBow(node) {
+    if (!node) return;
+    node.classList.remove("is-loosing");
+    void node.offsetWidth;
+    node.classList.add("is-loosing");
+    pending.push(window.setTimeout(
+      () => node && node.classList.remove("is-loosing"),
+      P.BOW_NOCK_MS + P.BOW_DRAW_MS + P.BOW_RELEASE_MS + P.BOW_RECOVER_MS
+    ));
   }
 
   function stagePoint(node) {
@@ -980,11 +1240,12 @@ export function createBattleStage(host, options = {}) {
     pending.push(window.setTimeout(() => node.remove(), life));
   }
 
-  function burst(x, y) {
+  function burst(x, y, angle = 0, heavy = false) {
     const node = document.createElement("i");
-    node.className = "stage-burst";
+    node.className = heavy ? "stage-burst is-heavy" : "stage-burst";
     node.style.left = `${x}px`;
     node.style.top = `${y}px`;
+    node.style.setProperty("--burst-angle", `${(angle * 180 / Math.PI).toFixed(1)}deg`);
     ephemeral(node, 450);
   }
 
@@ -1008,11 +1269,40 @@ export function createBattleStage(host, options = {}) {
     worldNode.appendChild(node);
   }
 
-  function shake(pixels) {
-    root.style.setProperty("--shake", `${pixels}px`);
+  /*
+   * ITEM 1c — the stage shakes twice in a whole battle and never again.
+   *
+   * First contact and the final blow. That is the entire budget, and it is the
+   * reason both of them land: a camera that shakes on every kill is a camera
+   * that is never still, and nothing inside it can be read. How far it throws
+   * comes from the stage width, so a phone and a desktop feel the same.
+   *
+   * World layer only. The frame, the nameplates and the dispatch line are
+   * outside `.stage-world` precisely so they cannot move.
+   */
+  function shake(reason) {
+    if (!root || !worldNode) return false;
+    if (shakesSpent >= P.SHAKE_BUDGET) return false;
+    shakesSpent += 1;
+    root.style.setProperty("--shake", `${shakeOffsetPx(worldNode.clientWidth).toFixed(1)}px`);
     root.classList.remove("is-shaking");
     void root.offsetWidth;
     root.classList.add("is-shaking");
+    pending.push(window.setTimeout(
+      () => root && root.classList.remove("is-shaking"), 300
+    ));
+    emitBeat({ type: "shake", reason });
+    return true;
+  }
+
+  // The heavy tier's own jolt. Local to the man who was hit -- it is impact,
+  // not camera, so it does not spend from the two-shake budget.
+  function heavyJolt(node) {
+    if (!node) return;
+    node.classList.remove("is-jolted");
+    void node.offsetWidth;
+    node.classList.add("is-jolted");
+    pending.push(window.setTimeout(() => node.classList.remove("is-jolted"), 220));
   }
 
   function log(text) {
@@ -1021,26 +1311,55 @@ export function createBattleStage(host, options = {}) {
 
   /* -- event performances ---------------------------------------------------- */
 
+  /*
+   * ITEM 4d — a volley is 3 to 5 shafts, 60ms apart, fanned.
+   *
+   * The engine may say a dozen; a dozen simultaneous shafts is static, not a
+   * shower. Three to five staggered on a fixed beat with angle variance reads
+   * as a volley at any roster size, so the count is clamped here. The engine's
+   * number changes nothing but this drawing, which is why clamping it is free.
+   *
+   * These arrows carry NO damage -- `volley`/`archer_volley` are atmosphere and
+   * the contract gives them no target. That is exactly why the 10% miss rate
+   * lives here and not on the per-strike shafts: a miss must never contradict a
+   * hit the engine already resolved.
+   */
+  function volleyArrows(event, from, targets, fallback, baseDelay = 0) {
+    const count = Math.max(
+      P.VOLLEY_MIN_ARROWS, Math.min(P.VOLLEY_MAX_ARROWS, event.arrows || P.VOLLEY_MIN_ARROWS)
+    );
+    for (let index = 0; index < count; index += 1) {
+      // The shaft leaves on the release snap, never during the draw.
+      const delay = baseDelay + index * P.ARROW_SPREAD_MS;
+      const target = targets.length ? targets[Math.floor(roll() * targets.length)] : null;
+      const landing = target ? stagePoint(target.node) : fallback;
+      const missed = roll() < P.VOLLEY_MISS_RATE;
+      const fan = (roll() - 0.5) * P.VOLLEY_ANGLE_VARIANCE_PX;
+      const to = missed
+        // Overshoots past the rank and into the ground behind it.
+        ? { x: landing.x + fan + (from.x < landing.x ? 34 : -34), y: worldNode.clientHeight * 0.92 }
+        : { x: landing.x + fan, y: landing.y };
+      pending.push(window.setTimeout(() => emitBeat({ type: "arrow", volley: true }), delay));
+      flyArrow(from, to, delay, { miss: missed });
+      if (!missed) {
+        pending.push(window.setTimeout(
+          () => paintStain(to.x, to.y, false, 0.7), delay + P.ARROW_LEAD_MS
+        ));
+      }
+    }
+  }
+
   function performVolley(event) {
     // `defender` here is an environmental cue, not a key in sides (the engine's
     // own words), so the arrows belong to the town and arc from the wall side.
     log(translate("stage.volley"));
     const targets = script.sides.player.tokens.filter((token) => token.capacity > 0 && token.node);
-    const arrows = Math.max(1, Math.min(9, event.arrows || 3));
-    for (let index = 0; index < arrows; index += 1) {
-      const arrow = document.createElement("i");
-      arrow.className = "stage-arrow";
-      crownAudio.arrow();
-      const target = targets.length ? targets[Math.floor(roll() * targets.length)] : null;
-      const to = target ? stagePoint(target.node)
-        : { x: worldNode.clientWidth * 0.25, y: worldNode.clientHeight * 0.62 };
-      arrow.style.setProperty("--from-x", `${worldNode.clientWidth * (0.7 + roll() * 0.2)}px`);
-      arrow.style.setProperty("--to-x", `${to.x + (roll() - 0.5) * 26}px`);
-      arrow.style.setProperty("--to-y", `${to.y}px`);
-      arrow.style.setProperty("--delay", `${Math.round(roll() * 200)}ms`);
-      ephemeral(arrow, TIMING.ARROW_FLIGHT + 260);
-      pending.push(window.setTimeout(() => paintStain(to.x, to.y, false), TIMING.ARROW_FLIGHT));
-    }
+    volleyArrows(
+      event,
+      { x: worldNode.clientWidth * 0.78, y: worldNode.clientHeight * 0.34 },
+      targets,
+      { x: worldNode.clientWidth * 0.25, y: worldNode.clientHeight * 0.62 }
+    );
 
     // The wall's own archers loose the volley. No troop token is touched: the
     // contract's `defender` is terrain, not a side.
@@ -1060,21 +1379,25 @@ export function createBattleStage(host, options = {}) {
     log(translate("stage.volley"));
     const targetSide = event.side === "player" ? "enemy" : "player";
     const targets = script.sides[targetSide].tokens.filter((token) => token.capacity > 0 && token.node);
-    const arrows = Math.max(1, Math.min(12, event.arrows || 3));
-    for (let index = 0; index < arrows; index += 1) {
-      const arrow = document.createElement("i");
-      arrow.className = "stage-arrow";
-      crownAudio.arrow();
-      const target = targets.length ? targets[Math.floor(roll() * targets.length)] : null;
-      const to = target ? stagePoint(target.node)
-        : { x: worldNode.clientWidth * (targetSide === "enemy" ? 0.75 : 0.25), y: worldNode.clientHeight * 0.62 };
-      const fromRatio = event.side === "player" ? 0.22 : 0.78;
-      arrow.style.setProperty("--from-x", `${worldNode.clientWidth * fromRatio}px`);
-      arrow.style.setProperty("--to-x", `${to.x + (roll() - 0.5) * 26}px`);
-      arrow.style.setProperty("--to-y", `${to.y}px`);
-      arrow.style.setProperty("--delay", `${Math.round(roll() * 180)}ms`);
-      ephemeral(arrow, TIMING.ARROW_FLIGHT + 260);
-    }
+    // The shooters draw as one rank, so the volley has a visible source.
+    script.sides[event.side]?.tokens
+      .filter((token) => token.arm === "archer" && token.node)
+      .forEach((token, index) => {
+        pending.push(window.setTimeout(() => drawBow(token.node), index * P.ARROW_SPREAD_MS));
+      });
+    volleyArrows(
+      event,
+      {
+        x: worldNode.clientWidth * (event.side === "player" ? 0.22 : 0.78),
+        y: worldNode.clientHeight * 0.55
+      },
+      targets,
+      {
+        x: worldNode.clientWidth * (targetSide === "enemy" ? 0.75 : 0.25),
+        y: worldNode.clientHeight * 0.62
+      },
+      P.BOW_NOCK_MS + P.BOW_DRAW_MS
+    );
   }
 
   // The ONLY state this module mutates: inferred bucket capacities, which exist
@@ -1088,87 +1411,157 @@ export function createBattleStage(host, options = {}) {
 
   // Fired ARROW_LEAD_MS before the strike it belongs to, so the shaft is in
   // the air and lands exactly on the beat rather than after it.
+  // The draw begins NOCK+DRAW before the shaft leaves, so the release snap and
+  // the launch are one instant. Called from its own timeline cue.
+  function nockArrow(event) {
+    const from = tokenAt(event.from.side, event.from.idx);
+    drawBow(from?.node);
+  }
+
+  // Fired ARROW_LEAD_MS before the strike it belongs to, on the release snap,
+  // so the shaft is in the air and lands exactly on the beat rather than after.
+  // These shafts carry a resolved hit and therefore never miss.
   function launchArrow(event) {
     const from = tokenAt(event.from.side, event.from.idx);
     const to = tokenAt(event.to.side, event.to.idx);
     if (!from?.node || !to?.node) return;
-    // Draw, snap, recover -- the pose was static, which is why it read as
-    // posing rather than shooting. Retriggered per shot.
-    if (from.node) {
-      from.node.classList.remove("is-loosing");
-      void from.node.offsetWidth;
-      from.node.classList.add("is-loosing");
-      pending.push(window.setTimeout(
-        () => from.node && from.node.classList.remove("is-loosing"), 420
-      ));
-    }
     flyArrow(stagePoint(from.node), stagePoint(to.node), 0);
-    crownAudio.arrow();
+    emitBeat({ type: "arrow", side: event.from.side });
   }
 
-  function performStrike(event) {
-    audio?.hit?.(event);
+  /*
+   * ITEMS 2, 3, 5d, 8b — one blow, performed at its tier's rhythm.
+   *
+   * Everything that distinguishes a cavalry blow from a militia blow is set
+   * here from WEIGHT_TIERS: how long the man telegraphs, how long the contact
+   * is held, how far the victim goes, how wide the ink throws. None of it is
+   * read back by anything: the damage, the kill and the survivor count all came
+   * off the script and are applied unchanged.
+   */
+  function performStrike(event, index) {
     const source = tokenAt(event.from.side, event.from.idx);
     const target = tokenAt(event.to.side, event.to.idx);
-    // Cavalry lands heavier than a spear: longer freeze, wider splatter, and a
-    // bigger knock on whoever it hit. The difference has to be felt.
+    const tierName = source ? source.tier || weightTierFor(source) : "light";
+    const tier = WEIGHT_TIERS[tierName];
     const mounted = source?.arm === "cavalry";
-    // Cavalry lands with its own weight; a spear keeps the existing hit.
-    if (mounted) crownAudio.cavalry();
-    else crownAudio.hit({ kill: Boolean(event.kill), dmgShown: event.dmgShown });
-    const pause = mounted ? P.CAVALRY_HIT_PAUSE_MS : TIMING.HIT_PAUSE;
+    const officer = Boolean(source?.isLieutenant);
+    emitBeat({
+      type: "strike",
+      tier: tierName,
+      kill: Boolean(event.kill),
+      dmgShown: event.dmgShown,
+      side: event.from.side,
+      lieutenant: officer
+    });
+    // The hit-pause IS the contact hold: the whole stage stops for exactly as
+    // long as the silhouette is held in its contact pose.
+    const pause = tier.contactMs + (officer ? P.LIEUTENANT_EXTRA_HOLD_MS : 0);
     if (source?.node) {
       actorSlot(() => {
         source.node.classList.remove("is-striking");
         void source.node.offsetWidth;
         source.node.classList.toggle("is-charging", mounted);
         source.node.classList.add("is-striking");
-      });
+        // 5d: the horse ends FORWARD of the line it broke; the foot closes in
+        // behind it. Applied once per mount, so it reads as a breakthrough
+        // rather than as a mount slowly walking off the stage.
+        if (mounted && !source.brokeThrough) {
+          source.brokeThrough = true;
+          const dir = event.from.side === "player" ? 1 : -1;
+          source.melee = (source.melee || 0) + dir * P.CAVALRY_BREAKTHROUGH_PX;
+          source.node.style.setProperty("--mx", `${source.melee}px`);
+        }
+      }, { tier: tierName, priority: officer });
     }
     if (!target?.node) {
       if (event.kill) applyKill(event);
       syncCounts();
       return;
     }
-    target.node.style.setProperty(
-      "--knock", `${mounted ? P.CAVALRY_KNOCKBACK_PX : P.INFANTRY_KNOCKBACK_PX}px`
-    );
+    target.node.style.setProperty("--knock", `${tier.knockbackPx}px`);
 
     frozenUntilReal = performance.now() + pause;
     root.classList.add("is-hit-paused");
     pending.push(window.setTimeout(() => root && root.classList.remove("is-hit-paused"), pause));
 
     const point = stagePoint(target.node);
-    burst(point.x, point.y - 16);
+    // The blow travelled from the attacker to the target; the ink follows it.
+    const origin = source?.node ? stagePoint(source.node) : { x: point.x - 30, y: point.y };
+    const angle = Math.atan2(point.y - origin.y, point.x - origin.x);
+    burst(point.x, point.y - 16, angle, tier.inkBurst);
+    slash(point.x, point.y - 14, angle, tier);
+    splatter(point.x, point.y, angle, tier);
+    if (tier.jolt) heavyJolt(target.node);
     damageNumber(point.x, point.y, event.dmgShown, event.kill);
     target.damageTaken += Math.max(0, Number(event.dmgShown) || 0);
     if (Number.isFinite(event.hpAfter)) target.hpCurrent = Math.max(0, event.hpAfter);
+    // The bar appears the moment this man has something to report, and not
+    // before -- see .stage-hp in ui.css.
+    target.node.classList.add("is-hurt");
 
     if (event.kill) {
       const emptied = applyKill(event);
-      paintStain(point.x, point.y, true);
-      if (emptied) {
-        // The body hangs a beat before it melts, and the line closes over it.
-        syncHealthBar(target);
-        flashHealthBar(target);
-        pending.push(window.setTimeout(() => {
-          if (target.node) target.node.classList.add("is-dead");
-        }, P.KILL_FALL_MS));
-        closeRanks(event.to.side, target);
-        if (roll() < 0.15) fallenBanner(point.x, point.y);
-      } else {
-        target.node.classList.remove("is-reeling");
-        void target.node.offsetWidth;
-        target.node.classList.add("is-reeling");
-      }
-      shake(Math.min(10, 5 + script.sides[event.to.side].weight * 2));
+      paintStain(point.x, point.y, true, tier.splatterScale, script.sides[event.to.side].weight);
+      if (emptied) killBeat(event, source, target, point, tier);
+      else reel(target);
     } else {
-      target.node.classList.remove("is-reeling");
-      void target.node.offsetWidth;
-      target.node.classList.add("is-reeling");
+      reel(target);
     }
+    // Shake #2 of 2, spent on the blow that ends the battle and nothing else.
+    if (index === finalStrikeIndex) shake("final-blow");
     syncHealthBar(target);
     syncCounts();
+  }
+
+  function reel(target) {
+    target.node.classList.remove("is-reeling");
+    void target.node.offsetWidth;
+    target.node.classList.add("is-reeling");
+  }
+
+  /*
+   * ITEM 2c / 5e / 6d — a death is three held beats, never one fade.
+   *
+   *   killer holds his weapon up      140ms
+   *   body holds its death pose       160ms   (a horse rears first)
+   *   body dissolves into the stain
+   *
+   * An officer's token adds the banner drop and its own line, because his is
+   * the token the eye was already following.
+   */
+  function killBeat(event, source, target, point, tier) {
+    syncHealthBar(target);
+    flashHealthBar(target);
+    if (source?.node) {
+      source.node.classList.add("is-finishing");
+      pending.push(window.setTimeout(
+        () => source.node && source.node.classList.remove("is-finishing"), P.KILL_RAISE_MS
+      ));
+    }
+    const mounted = target.arm === "cavalry";
+    const posture = mounted ? P.CAVALRY_REAR_MS : P.DEATH_POSE_MS;
+    pending.push(window.setTimeout(() => {
+      if (!target.node) return;
+      target.node.classList.add(mounted ? "is-rearing" : "is-dying");
+    }, P.KILL_RAISE_MS));
+    pending.push(window.setTimeout(() => {
+      if (!target.node) return;
+      target.node.classList.remove("is-dying", "is-rearing");
+      target.node.classList.add("is-dead");
+      // Horse and man go down as ONE mass, so they leave one large mark.
+      if (mounted) paintStain(point.x, point.y, true, 2.1, script.sides[event.to.side].weight);
+    }, P.KILL_RAISE_MS + posture));
+    closeRanks(event.to.side, target);
+    emitBeat({
+      type: "kill", tier: target.tier || "light", kill: true,
+      side: event.to.side, lieutenant: Boolean(target.isLieutenant)
+    });
+    if (target.isLieutenant) {
+      fallenBanner(point.x, point.y);
+      log(translate("stage.bannerFalls"));
+    } else if (roll() < 0.12) {
+      fallenBanner(point.x, point.y);
+    }
   }
 
   function performMorale(event) {
@@ -1177,7 +1570,7 @@ export function createBattleStage(host, options = {}) {
   }
 
   function performRout(event) {
-    audio?.rout?.();
+    emitBeat({ type: "rout", side: event.side });
     log(translate("stage.rout"));
     // The breaking blow lands in slow motion with the camera pushing in.
     setPhase("rout");
@@ -1185,13 +1578,19 @@ export function createBattleStage(host, options = {}) {
     pending.push(window.setTimeout(() => {
       if (!root) return;
       root.classList.remove("is-slowmo");
-      script.sides[event.side].tokens.forEach((token) => {
+      script.sides[event.side].tokens.forEach((token, index) => {
         if (!token.node || token.capacity <= 0) return;
         token.node.style.setProperty(
           "--flee-dur", `${Math.round(P.FLEE_MIN_MS + roll() * P.FLEE_VAR_MS)}ms`
         );
         token.node.style.setProperty("--flee-drift", `${Math.round((roll() - 0.5) * 60)}px`);
         token.node.classList.add("is-fleeing");
+        // 8c: they turn, and they leave their colours on the ground. Every
+        // third man, so the field is littered rather than paved.
+        if (index % 3 === 0) {
+          const where = stagePoint(token.node);
+          fallenBanner(where.x, where.y);
+        }
       });
       // Both sides can rout; only cheer with troops that are not themselves
       // fleeing.
@@ -1204,12 +1603,174 @@ export function createBattleStage(host, options = {}) {
     }, TIMING.ROUT_SLOWMO));
   }
 
+  /* -- ITEM 7: orders, given on the field ------------------------------------ */
+
+  /*
+   * An order is something you give to an army that is already fighting, so it
+   * is asked for twice during the melee and never before it. There is no
+   * pre-battle order screen; the formation is the pre-battle commitment.
+   *
+   * PRESENTATION ONLY, and that boundary is the whole design. The engine
+   * resolved this battle before the first frame -- casualties, survivors and
+   * winner are already on the script. An order therefore CANNOT and DOES NOT
+   * re-resolve anything: it moves ranks, it writes a dispatch line, and it goes
+   * into telemetry. The balance-side command formula (CONFIG.F3_COMMANDS,
+   * applyF3BattleModifiers, chooseBattleCommand) is untouched and still owns
+   * the number side exactly as before.
+   *
+   * Replay: the two windows come from commandWindows(script), which reads only
+   * the script, so the same battle always asks at the same two beats. What was
+   * chosen is appended to `commandLog`, and that array is the replay record --
+   * feed it back through options.replayCommands and the performance repeats.
+   */
+  function commandOptionsAt() {
+    const alive = (sideKey) => script.sides[sideKey].tokens
+      .filter((token) => token.capacity > 0).length;
+    const own = alive("player");
+    const foe = alive("enemy");
+    const offered = [];
+    // Contextual: you press when you can afford to, you steady when you cannot,
+    // and you concentrate when there is a mass worth concentrating on.
+    if (own >= foe) offered.push("charge");
+    offered.push("hold");
+    if (foe >= P.COMMAND_FOCUS_TOKENS) offered.push("focus");
+    return offered;
+  }
+
+  function closeCommandGate() {
+    window.clearTimeout(commandTimer);
+    commandTimer = 0;
+    const wasOpen = commandGateAt >= 0;
+    commandGateAt = -1;
+    root?.querySelector(".stage-orders")?.remove();
+    root?.classList.remove("is-awaiting-order");
+    // The melee was held while the chips were up; let it run on again.
+    if (wasOpen) frozenUntilReal = performance.now();
+  }
+
+  function issueCommand(command, source = "player") {
+    if (!root || !script) return null;
+    const index = commandLog.length;
+    closeCommandGate();
+    const record = { n: index + 1, command, t: Math.round(virtualTime), source };
+    commandLog.push(record);
+    // The order lands on its own beat: 200ms of slow motion, then execution.
+    root.classList.add("is-slowmo");
+    pending.push(window.setTimeout(
+      () => root && root.classList.remove("is-slowmo"), P.COMMAND_SLOWMO_MS
+    ));
+    log(translate(`battleCommand.${command}`));
+    pending.push(window.setTimeout(() => executeCommand(command), P.COMMAND_SLOWMO_MS));
+    emitBeat({ type: "command", command, n: record.n });
+    options.onCommand?.(record);
+    return record;
+  }
+
+  /* The three orders, as three visibly different things happening to the line. */
+  function executeCommand(command) {
+    if (!root || !worldNode) return;
+    const own = script.sides.player.tokens.filter((token) => token.node && token.capacity > 0);
+    if (command === "charge") {
+      // 全线压上 — the whole rank steps in, one pace, together.
+      own.forEach((token) => {
+        token.melee = (token.melee || 0) + P.COMMAND_PRESS_STEP_PX;
+        token.node.style.setProperty("--mx", `${token.melee}px`);
+      });
+      root.classList.add("order-press");
+      pending.push(window.setTimeout(() => root && root.classList.remove("order-press"), 700));
+      return;
+    }
+    if (command === "hold") {
+      // 稳住阵线 — the spread closes toward its own centre. Nobody advances.
+      if (!own.length) return;
+      const centre = own.reduce((sum, token) => sum + token.melee, 0) / own.length;
+      own.forEach((token) => {
+        token.melee = Math.round(centre + (token.melee - centre) * P.COMMAND_HOLD_TIGHTEN);
+        token.node.style.setProperty("--mx", `${token.melee}px`);
+      });
+      root.classList.add("order-hold");
+      pending.push(window.setTimeout(() => root && root.classList.remove("order-hold"), 700));
+      return;
+    }
+    // 集火敌将 — one enemy is marked and three of ours converge on him.
+    const foes = script.sides.enemy.tokens.filter((token) => token.node && token.capacity > 0);
+    if (!foes.length) return;
+    // Deterministic pick: the enemy standing furthest forward, i.e. the one the
+    // line is already up against.
+    const mark = foes.reduce((best, token) => (token.melee < best.melee ? token : best), foes[0]);
+    mark.node.classList.add("is-marked");
+    const markX = mark.melee + mark.baseX;
+    own
+      .slice()
+      .sort((first, second) =>
+        Math.abs(first.baseX + first.melee - markX) - Math.abs(second.baseX + second.melee - markX))
+      .slice(0, P.COMMAND_FOCUS_TOKENS)
+      .forEach((token) => {
+        token.melee = Math.round(token.melee + (markX - (token.baseX + token.melee)) * 0.55);
+        token.node.style.setProperty("--mx", `${token.melee}px`);
+        token.node.classList.add("is-converging");
+        pending.push(window.setTimeout(
+          () => token.node && token.node.classList.remove("is-converging"), P.COMMAND_FOCUS_MS
+        ));
+      });
+    pending.push(window.setTimeout(
+      () => mark.node && mark.node.classList.remove("is-marked"), P.COMMAND_FOCUS_MS
+    ));
+  }
+
+  // The chips. Rendered inside the stage, over the melee, because that is where
+  // the decision is being made.
+  function openCommandGate(windowIndex) {
+    if (!root || commandLog.length >= P.COMMAND_WINDOWS) return;
+    const offered = commandOptionsAt();
+    const fallback = offered.includes(P.COMMAND_DEFAULT) ? P.COMMAND_DEFAULT : offered[0];
+    // Autoplay, reduced motion and a skipped battle never wait for a human.
+    if (options.autoCommand?.() || reducedMotion.matches) {
+      issueCommand(fallback, "auto");
+      return;
+    }
+    const replay = options.replayCommands?.()?.[windowIndex];
+    if (replay?.command && offered.includes(replay.command)) {
+      issueCommand(replay.command, "replay");
+      return;
+    }
+    commandGateAt = windowIndex;
+    root.classList.add("is-awaiting-order");
+    // Hold the melee where it is. The order is given INTO the fight, and the
+    // fight has to be legible while you decide.
+    frozenUntilReal = Number.POSITIVE_INFINITY;
+    const bar = document.createElement("div");
+    bar.className = "stage-orders";
+    bar.innerHTML =
+      `<small>${translate("battleCommand.kicker")}</small><div class="stage-order-chips">` +
+      offered.map((key) =>
+        `<button type="button" data-order="${key}">${translate(`battleCommand.${key}`)}</button>`
+      ).join("") + "</div>";
+    bar.addEventListener("click", (clicked) => {
+      const button = clicked.target.closest("[data-order]");
+      if (!button) return;
+      clicked.stopPropagation();
+      issueCommand(button.dataset.order, "player");
+    });
+    root.querySelector(".stage-paper").appendChild(bar);
+    // The field will not wait for ever: an unanswered window resolves itself so
+    // a battle can never stall on a chip nobody pressed.
+    commandTimer = window.setTimeout(() => {
+      if (commandGateAt === windowIndex) issueCommand(fallback, "timeout");
+    }, P.COMMAND_AUTO_MS);
+  }
+
   /* -- timeline -------------------------------------------------------------- */
 
   // The engine owns pacing: every event carries an absolute `t`, so the stage
   // walks the event array rather than inventing a schedule of its own.
   function buildTimeline() {
     const times = scheduleEvents(script.events);
+    // The last blow of the battle: the one moment the second shake is for.
+    finalStrikeIndex = -1;
+    script.events.forEach((event, index) => {
+      if (event.type === "strike") finalStrikeIndex = index;
+    });
     const scripted = script.events.map((event, index) => ({
       at: times[index],
       order: index * 2 + 1,
@@ -1233,12 +1794,15 @@ export function createBattleStage(host, options = {}) {
             break;
           case "volley": performVolley(event); break;
           case "archer_volley": performArcherVolley(event); break;
-          case "command": log(translate(`battleCommand.${event.command}`)); break;
+          // A `command` recorded by the engine is a pre-resolution artefact of
+          // the balance side; the stage no longer performs it, because the
+          // order the player actually gives now happens in the melee windows.
+          case "command": break;
           case "round_start":
             log(translate("stage.round").replace("{n}", String(event.n)));
             breatheRound();
             break;
-          case "strike": performStrike(event); break;
+          case "strike": performStrike(event, index); break;
           case "morale": performMorale(event); break;
           case "rout": performRout(event); break;
           case "battle_end": showSettlement(event, false); break;
@@ -1261,25 +1825,42 @@ export function createBattleStage(host, options = {}) {
     // shaft is already in the air when the hit lands on the beat. Offsetting
     // the LAUNCH keeps the impact in sync; delaying the hit would not.
     const arrowCues = [];
+    const drawLead = P.ARROW_LEAD_MS + P.BOW_NOCK_MS + P.BOW_DRAW_MS;
     script.events.forEach((event, index) => {
       if (event.type !== "strike") return;
       const shooter = script.sides[event.from.side]?.byIdx?.get(event.from.idx);
       if (shooter?.arm !== "archer") return;
+      // Two cues, not one: the draw starts a full nock+draw earlier so the
+      // release snap and the launch are the same instant.
+      arrowCues.push({ at: Math.max(0, times[index] - drawLead), run: () => nockArrow(event) });
       arrowCues.push({
         at: Math.max(0, times[index] - P.ARROW_LEAD_MS),
         run: () => launchArrow(event)
       });
     });
 
+    // ITEM 7: two order windows, derived from the script so a replay asks at
+    // the same two beats. They carry no data — dataRun is a no-op — so a
+    // skipped battle is unaffected by them in every way.
+    // `command` is emitted on the script only when the F3 army system is on,
+    // so it is the marker for "this build has battle orders at all". The demo
+    // build never carries it and therefore is never asked -- the demo boundary
+    // is not something the stage may widen.
+    commandWindowsAt = script.command ? commandWindows(script.events, times) : [];
+    const orderCues = commandWindowsAt.map((at, windowIndex) => ({
+      at, run: () => openCommandGate(windowIndex)
+    }));
+
     const cues = [
       ...arrowCues,
+      ...orderCues,
       { at: 0, run: () => setPhase("deploy") },
       { at: P.DEPLOY_MS, run: () => { setPhase("standoff"); log(translate("stage.standoff")); } },
       {
         at: P.DEPLOY_MS + P.STANDOFF_MS,
         run: () => {
           setPhase("charge");
-          audio?.charge?.();
+          emitBeat({ type: "charge" });
           log(translate("stage.charge"));
           // The charge is an actual advance: the lines travel most of the way
           // to the centre during this phase, back ranks following on --lag.
@@ -1425,6 +2006,9 @@ export function createBattleStage(host, options = {}) {
   function skip() {
     if (!playing) return;
     playing = false;
+    // A skipped battle is not asked for orders: the orders are performance, and
+    // there is no performance left to give them to.
+    closeCommandGate();
     cancelAnimationFrame(rafId);
     if (options.onSkip) options.onSkip();
     // Apply the DATA of everything unplayed — same script, no theatre — so a
@@ -1440,6 +2024,12 @@ export function createBattleStage(host, options = {}) {
     suspended = false;
     script = normalizeScript(rawScript);
     doneCallback = onDone || null;
+    shakesSpent = 0;
+    stains = [];
+    stainArea = 0;
+    commandLog = [];
+    commandWindowsAt = [];
+    commandGateAt = -1;
     roll = seededRandom(
       (script.sides.player.startTroops * 73856093) ^ (script.sides.enemy.startTroops * 19349663)
     );
@@ -1495,6 +2085,11 @@ export function createBattleStage(host, options = {}) {
     suspended = false;
     cancelAnimationFrame(rafId);
     window.clearTimeout(pressTimer);
+    window.clearTimeout(commandTimer);
+    commandTimer = 0;
+    commandGateAt = -1;
+    stains = [];
+    stainArea = 0;
     pending.forEach((id) => window.clearTimeout(id));
     pending = [];
     if (root) {
@@ -1531,6 +2126,15 @@ export function createBattleStage(host, options = {}) {
         : null;
     },
     get endEvent() { return endEvent; },
-    get speed() { return speed; }
+    get speed() { return speed; },
+    // ITEM 7's replay record: the orders given, in order, with the beat each
+    // was given on. Feed back through options.replayCommands to repeat a run.
+    get commands() { return commandLog.map((entry) => ({ ...entry })); },
+    // The two beats this script asks on. Derived, not stored, so it is the same
+    // answer every time the same script is played.
+    get commandWindows() { return commandWindowsAt.slice(); },
+    get shakesSpent() { return shakesSpent; },
+    // Test seam: drive an order without a pointer, exactly as a chip would.
+    issueCommand(command) { return issueCommand(command, "test"); }
   };
 }
