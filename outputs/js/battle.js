@@ -194,14 +194,11 @@ export function choosePlayerFormation(state, formation) {
   battle.formations.resolved = true;
   battle.formationModifiers = formationModifiers(battle.formations);
   if (state.demo?.modal === "formation") {
-    if (state.features?.f3 && !battle.commands?.resolved) {
-      state.demo.modal = "battleCommand";
-      state.demo.pauseReason = "battleCommand";
-    } else {
-      state.demo.modal = null;
-      state.demo.pauseReason = null;
-      state.paused = Boolean(battle.formations.resumePaused);
-    }
+    // The formation is the pre-battle commitment and ends here. The order is
+    // given once the armies are actually engaged, not stacked behind this.
+    state.demo.modal = null;
+    state.demo.pauseReason = null;
+    state.paused = Boolean(battle.formations.resumePaused);
   }
   addEvent(state, "log.formationChosen", {
     playerFormation: formation,
@@ -224,6 +221,11 @@ export function chooseBattleCommand(state, command) {
   if (!Object.hasOwn(CONFIG.F3_COMMANDS, command)) return { ok: false, reason: "command" };
   battle.commands.player = command;
   battle.commands.resolved = true;
+  if (state.demo?.modal === "battleCommand") {
+    state.demo.modal = null;
+    state.demo.pauseReason = null;
+    state.paused = Boolean(battle.commands.resumePaused);
+  }
   const enemy = getBattleEnemy(state, battle);
   battle.formationModifiers = applyF3BattleModifiers(
     state,
@@ -1308,7 +1310,16 @@ export function resolveBattleRound(state) {
   }
   ensureBattleCapture(state, battle, bandit);
   if (battle.formations?.eligible && !battle.formations.resolved) return null;
-  if (state.features?.f3 && battle.commands && !battle.commands.resolved) return null;
+  if (state.features?.f3 && battle.commands && !battle.commands.resolved) {
+    // First round: the lines have met, so now the order is asked for.
+    if (state.demo && state.demo.modal !== "battleCommand") {
+      battle.commands.resumePaused = Boolean(state.paused);
+      state.demo.modal = "battleCommand";
+      state.demo.pauseReason = "battleCommand";
+      state.paused = true;
+    }
+    return null;
+  }
 
   if (battle.round >= CONFIG.MAX_BATTLE_ROUNDS) {
     const winner = getPartyStrength(state.player) >= getPartyStrength(bandit) ? "player" : "bandit";
@@ -1500,11 +1511,9 @@ export function startBattle(state, bandit, options = {}) {
     state.demo.modal = "formation";
     state.demo.pauseReason = "formation";
     state.paused = true;
-  } else if (commands) {
-    state.demo.modal = "battleCommand";
-    state.demo.pauseReason = "battleCommand";
-    state.paused = true;
   }
+  // Deliberately NOT opened here: an order is something you give to an army
+  // that is already fighting. resolveBattleRound raises it on the first round.
   state.battleScript = null;
   state.battlePlayback ||= { speed: 1, skip: false };
   state.battlePlayback.speed = [1, 2, 4].includes(state.battlePlayback.speed)

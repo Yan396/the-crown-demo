@@ -131,7 +131,7 @@ export const STRINGS = Object.freeze({
       })
     }),
     battleCommand: Object.freeze({
-      kicker: "战前 · 军令",
+      kicker: "战中 · 军令",
       copy: "一令既出，全军照此而战。",
       charge: "全线压上",
       hold: "稳住阵线",

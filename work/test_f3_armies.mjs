@@ -6,7 +6,8 @@ import {
   resolveAiBattle,
   skipBattle,
   startBattle,
-  validateBattleScript
+  validateBattleScript,
+  resolveBattleRound
 } from "../outputs/js/battle.js";
 import { CONFIG } from "../outputs/js/data.js";
 import { selectOrigin } from "../outputs/js/kingdom.js";
@@ -89,10 +90,17 @@ test("formation then command resolves into a validated arm-aware script", () => 
   const enemy = state.bandits.find((bandit) => !bandit.elite) || state.bandits[0];
   enemy.troops = [{ type: "bandit", arm: "spear", count: 14, xp: 0 }];
   startBattle(state, enemy);
+  // The formation is the PRE-battle commitment; the order is given once the
+  // armies are engaged. Choosing a formation must therefore clear the modal,
+  // not chain straight into the order screen.
   assert.equal(state.demo.modal, "formation");
   assert.equal(choosePlayerFormation(state, "line").ok, true);
+  assert.equal(state.demo.modal, null, "formation must not chain into orders");
+  // The first round raises the order and holds the battle there.
+  assert.equal(resolveBattleRound(state), null);
   assert.equal(state.demo.modal, "battleCommand");
   assert.equal(chooseBattleCommand(state, "focus").ok, true);
+  assert.equal(state.demo.modal, null, "the order clears once given");
   const result = skipBattle(state);
   assert.ok(result?.battleScript);
   assert.equal(result.battleScript.command, "focus");
