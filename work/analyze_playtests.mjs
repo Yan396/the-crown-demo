@@ -48,6 +48,9 @@ if (!payloads.length) {
     median: median(promise(kind)),
     values: counts(promise(kind).map(String))
   });
+  const helpOpens = telemetry.flatMap((entry) => (
+    Array.isArray(entry.helpCardOpens) ? entry.helpCardOpens : []
+  ));
 
   console.log(JSON.stringify({
     sessions: payloads.length,
@@ -62,7 +65,15 @@ if (!payloads.length) {
     tooltipViewRate: {
       town: tooltipRate("town"),
       lowGold: tooltipRate("lowGold"),
-      act2: tooltipRate("act2")
+      act2: tooltipRate("act2"),
+      verdict: tooltipRate("verdict")
+    },
+    helpCard: {
+      sessionsOpenedRate: Number((
+        telemetry.filter((entry) => entry.helpCardOpens?.length > 0).length / telemetry.length
+      ).toFixed(3)),
+      opensPerSession: Number((helpOpens.length / telemetry.length).toFixed(3)),
+      sources: counts(helpOpens.map((entry) => entry.source || "unknown"))
     },
     promises: {
       troops: promiseSummary("troops"),
@@ -71,4 +82,3 @@ if (!payloads.length) {
     }
   }, null, 2));
 }
-

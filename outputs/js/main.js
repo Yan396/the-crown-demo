@@ -7,6 +7,7 @@ import {
   startBattle
 } from "./battle.js";
 import { createBattleStage } from "./battle-stage.js";
+import { crownAudio } from "./audio.js";
 import { CONFIG, SUPPORTED_LANGUAGES } from "./data.js";
 import {
   advanceActIfNeeded,
@@ -16,6 +17,8 @@ import {
   checkLowGoldTooltip,
   consumeTooltip,
   dismissFiefThreat,
+  recordRetreatDecision,
+  resetRetreatDecision,
   submitPromise,
   trackTownEntry,
   updateSessionPeaks
@@ -53,6 +56,7 @@ import {
   saveState
 } from "./state.js";
 import {
+  recordHelpCardOpen,
   recordQuitPoint,
   sharePlaytestResult,
   startTelemetrySession
@@ -122,6 +126,8 @@ if (!state) state = createInitialState(CONFIG.SEED, {
   f3: fullVersion,
   f4: fullVersion
 });
+crownAudio.setEnabled(state.settings.soundEnabled);
+crownAudio.bindFirstGesture(document);
 if (qaRecruitRecoveryEnabled) {
   state.player.gold = 164;
   state.player.troops = [{ type: "militia", count: 3, xp: 0 }];
@@ -216,6 +222,7 @@ let battlePresentationActive = false;
 function getBattleStage() {
   if (battleStage) return battleStage;
   battleStage = createBattleStage(document.body, {
+    audio: crownAudio,
     translate: (key, parameters) => ui.text(key, parameters),
     hintSeen: () => {
       try { return storage?.getItem(STAGE_HINT_KEY) === "1"; } catch (error) { return false; }
@@ -458,6 +465,35 @@ ui = createUi({
     persist(true);
     sync();
   },
+  onSoundChange(enabled) {
+    state.settings.soundEnabled = Boolean(enabled);
+    crownAudio.setEnabled(state.settings.soundEnabled);
+    if (state.settings.soundEnabled) {
+      crownAudio.unlock();
+      crownAudio.tap();
+    }
+    persist(true);
+    sync();
+  },
+  onHelpOpen(source) {
+    recordHelpCardOpen(state, source);
+    if (!state.demo.modal && !state.demo.ended && !state.paused) {
+      state.paused = true;
+      state.demo.pauseReason = "help";
+    }
+    battleStage?.setSuspended?.(true);
+    persist(true);
+  },
+  onHelpClose() {
+    if (state.demo.pauseReason === "help") {
+      state.paused = false;
+      state.demo.pauseReason = null;
+      logicAccumulator = 0;
+      lastFrameAt = performance.now();
+    }
+    battleStage?.setSuspended?.(false);
+    persist(true);
+  },
   onRecruit(arm = "spear") {
     const town = activeTown(state);
     const from = town ? renderer.worldToScreen(town.pos) : null;
@@ -592,6 +628,7 @@ ui = createUi({
       ui.showToast("toast.paused");
       return;
     }
+    resetRetreatDecision(state);
     const result = skipBattle(state);
     updateSessionPeaks(state);
     const transition = advanceActIfNeeded(state, undefined, { demoBuild: CONFIG.DEMO });
@@ -627,6 +664,12 @@ ui = createUi({
     if (!result.ok && result.reason === "paused") ui.showToast("toast.paused");
     if (result.ok && result.success) ui.showToast("toast.retreatSuccess");
     if (result.ok && !result.success) ui.showToast("toast.retreatFailed");
+    if (result.ok) {
+      const reminder = recordRetreatDecision(state);
+      if (reminder.showVerdictReminder) {
+        ui.showContextTooltip("verdictReminder");
+      }
+    }
     persist(true);
     sync();
   },
@@ -694,6 +737,7 @@ ui = createUi({
     }
     const next = createInitialState(nextWorldSeed(state), {
       language: state.settings.language,
+      soundEnabled: state.settings.soundEnabled,
       replayCount: state.telemetry.replayCount,
       startedAt: new Date().toISOString(),
       v11: v11Enabled,

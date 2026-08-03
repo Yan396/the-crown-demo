@@ -465,6 +465,7 @@ export function createBattleStage(host, options = {}) {
   const translate = options.translate || ((key) => key);
   const persistHint = options.persistHint || (() => {});
   const hintSeen = options.hintSeen || (() => false);
+  const audio = options.audio || null;
 
   let root = null;
   let stainContext = null;
@@ -479,6 +480,7 @@ export function createBattleStage(host, options = {}) {
   let timeline = [];
   let cursor = 0;
   let playing = false;
+  let suspended = false;
   let script = null;
   let endEvent = null;
   let doneCallback = null;
@@ -1019,6 +1021,7 @@ export function createBattleStage(host, options = {}) {
   }
 
   function performStrike(event) {
+    audio?.hit?.(event);
     const source = tokenAt(event.from.side, event.from.idx);
     const target = tokenAt(event.to.side, event.to.idx);
     // Cavalry lands heavier than a spear: longer freeze, wider splatter, and a
@@ -1085,6 +1088,7 @@ export function createBattleStage(host, options = {}) {
   }
 
   function performRout(event) {
+    audio?.rout?.();
     log(translate("stage.rout"));
     // The breaking blow lands in slow motion with the camera pushing in.
     setPhase("rout");
@@ -1186,6 +1190,7 @@ export function createBattleStage(host, options = {}) {
         at: P.DEPLOY_MS + P.STANDOFF_MS,
         run: () => {
           setPhase("charge");
+          audio?.charge?.();
           log(translate("stage.charge"));
           // The charge is an actual advance: the lines travel most of the way
           // to the centre during this phase, back ranks following on --lag.
@@ -1274,6 +1279,11 @@ export function createBattleStage(host, options = {}) {
 
   function tick(now) {
     if (!playing) return;
+    if (suspended) {
+      lastReal = now;
+      rafId = requestAnimationFrame(tick);
+      return;
+    }
     if (now > frozenUntilReal) virtualTime = advanceVirtualClock(virtualTime, now - lastReal, speed);
     lastReal = now;
     while (cursor < timeline.length && timeline[cursor].at <= virtualTime) {
@@ -1338,6 +1348,7 @@ export function createBattleStage(host, options = {}) {
 
   function play(rawScript, onDone) {
     dispose();
+    suspended = false;
     script = normalizeScript(rawScript);
     doneCallback = onDone || null;
     roll = seededRandom(
@@ -1392,6 +1403,7 @@ export function createBattleStage(host, options = {}) {
 
   function dispose() {
     playing = false;
+    suspended = false;
     cancelAnimationFrame(rafId);
     window.clearTimeout(pressTimer);
     pending.forEach((id) => window.clearTimeout(id));
@@ -1406,6 +1418,7 @@ export function createBattleStage(host, options = {}) {
     countNodes = {};
     timeline = [];
     cursor = 0;
+    audio?.disposeBattle?.();
     document.body.classList.remove("battle-stage-open");
   }
 
@@ -1413,6 +1426,11 @@ export function createBattleStage(host, options = {}) {
     play,
     skip,
     dispose,
+    setSuspended(value) {
+      suspended = Boolean(value);
+      lastReal = typeof performance !== "undefined" ? performance.now() : lastReal;
+      return suspended;
+    },
     get playing() { return playing; },
     // Survivors as the stage currently believes them — compared against
     // battle_end.survivors by the contract cases.

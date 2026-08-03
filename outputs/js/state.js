@@ -458,7 +458,7 @@ function createDemoState(options = {}) {
   const originPending = Boolean(options.f2) && !skipOnboarding;
   return {
     onboardingComplete: skipOnboarding,
-    onboardingStep: 0,
+    onboardingStep: -1,
     modal: skipOnboarding ? null : originPending ? "origin" : "onboarding",
     pauseReason: skipOnboarding ? null : originPending ? "origin" : "onboarding",
     ended: false,
@@ -471,6 +471,7 @@ function createDemoState(options = {}) {
     activeRoadEvent: null,
     fiefThreat: null,
     fiefThreatKey: null,
+    retreatStreak: 0,
     tooltipsSeen: {
       town: Boolean(options.tooltipsSeen?.town),
       lowGold: Boolean(options.tooltipsSeen?.lowGold),
@@ -545,7 +546,10 @@ export function createInitialState(seed = CONFIG.SEED, options = {}) {
     rng: createRng(normalizedSeed),
     tick: 0,
     paused: Boolean(demo.modal),
-    settings: { language: SUPPORTED_LANGUAGES.includes(options.language) ? options.language : "zh" },
+    settings: {
+      language: SUPPORTED_LANGUAGES.includes(options.language) ? options.language : "zh",
+      soundEnabled: options.soundEnabled !== false
+    },
     lastSavedTick: -1,
     player: {
       pos: startPosition,
@@ -829,7 +833,11 @@ export function isValidState(value) {
     typeof value.features.f3 !== "boolean" ||
     typeof value.features.f4 !== "boolean"
   ) return false;
-  if (!value.settings || !SUPPORTED_LANGUAGES.includes(value.settings.language)) return false;
+  if (
+    !value.settings ||
+    !SUPPORTED_LANGUAGES.includes(value.settings.language) ||
+    typeof value.settings.soundEnabled !== "boolean"
+  ) return false;
   if (!Number.isSafeInteger(value.lastSavedTick) || value.lastSavedTick < -1) return false;
   if (!isParty(value.player) || !Number.isFinite(value.player.gold) || value.player.gold < 0) return false;
   if (!Number.isFinite(value.player.renown) || value.player.renown < 0) return false;
@@ -923,6 +931,10 @@ function migrateState(state) {
     f3: state.features?.f3 === true,
     f4: state.features?.f4 === true
   };
+  state.settings = {
+    language: SUPPORTED_LANGUAGES.includes(state.settings?.language) ? state.settings.language : "zh",
+    soundEnabled: state.settings?.soundEnabled !== false
+  };
   state.player.act = state.player.act >= 4 ? 4 : state.player.act >= 3 ? 3 : state.player.act >= 2 ? 2 : 1;
   state.player.promises = (state.promises || state.player.promises || [])
     .map(normalizePromise)
@@ -1005,6 +1017,7 @@ function migrateState(state) {
     tooltipsSeen: { ...createDemoState().tooltipsSeen, ...(state.demo.tooltipsSeen || {}) },
     pendingTooltips: Array.isArray(state.demo.pendingTooltips) ? state.demo.pendingTooltips : []
   } : createDemoState({ fullVersion: state.features.full, f2: state.features.f2 });
+  state.demo.retreatStreak = Math.max(0, Math.floor(Number(state.demo.retreatStreak) || 0));
   state.kingdom = { ...createKingdomState(), ...(state.kingdom || {}) };
   state.kingdom.origin ||= state.player.origin || null;
   state.player.origin ||= state.kingdom.origin;
@@ -1147,6 +1160,7 @@ export function nextWorldSeed(state) {
 export function createReplayState(previousState, options = {}) {
   return createInitialState(nextWorldSeed(previousState), {
     language: previousState.settings.language,
+    soundEnabled: previousState.settings.soundEnabled,
     replayCount: (previousState.telemetry?.replayCount || 0) + 1,
     skipOnboarding: previousState.features?.full !== true,
     tooltipsSeen: previousState.demo?.tooltipsSeen,

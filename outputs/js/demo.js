@@ -164,6 +164,23 @@ export function checkLowGoldTooltip(state) {
   return false;
 }
 
+export function recordRetreatDecision(state) {
+  if (!state?.demo) return { showVerdictReminder: false, streak: 0 };
+  state.demo.retreatStreak = (state.demo.retreatStreak || 0) + 1;
+  if (state.demo.retreatStreak < 2) {
+    return { showVerdictReminder: false, streak: state.demo.retreatStreak };
+  }
+  state.demo.retreatStreak = 0;
+  state.telemetry.tooltipViews.verdict = (state.telemetry.tooltipViews.verdict || 0) + 1;
+  return { showVerdictReminder: true, streak: 0 };
+}
+
+export function resetRetreatDecision(state) {
+  if (!state?.demo) return false;
+  state.demo.retreatStreak = 0;
+  return true;
+}
+
 function eligibleGrantFaction(state) {
   return state.factions
     .filter((faction) => (

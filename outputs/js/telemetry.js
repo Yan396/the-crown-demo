@@ -47,7 +47,8 @@ export function createTelemetry(options = {}) {
     },
     actTimestamps: { act1: startedAt, act2: null, ending: null },
     quitPoint: null,
-    tooltipViews: { town: 0, lowGold: 0, act2: 0 },
+    tooltipViews: { town: 0, lowGold: 0, act2: 0, verdict: 0 },
+    helpCardOpens: [],
     replayCount: Math.max(0, Number(options.replayCount) || 0)
   };
 }
@@ -67,6 +68,11 @@ export function normalizeTelemetry(value, options = {}) {
     ...value,
     eventChoices: Array.isArray(value.eventChoices)
       ? value.eventChoices.slice(-CONFIG.ROAD_EVENT_HISTORY_LIMIT)
+      : [],
+    helpCardOpens: Array.isArray(value.helpCardOpens)
+      ? value.helpCardOpens
+        .filter((entry) => ["hud", "title"].includes(entry?.source))
+        .slice(-CONFIG.ROAD_EVENT_HISTORY_LIMIT)
       : [],
     chronicleEvents: Array.isArray(value.chronicleEvents)
       ? value.chronicleEvents.slice(-CONFIG.KINGDOM_CHRONICLE_EVENT_LIMIT)
@@ -223,6 +229,20 @@ export function recordActiveTime(state, elapsedMilliseconds) {
   if (!state?.telemetry || !Number.isFinite(elapsedMilliseconds) || elapsedMilliseconds <= 0) return;
   const next = state.telemetry.totalActiveSeconds + elapsedMilliseconds / 1000;
   state.telemetry.totalActiveSeconds = Number(next.toFixed(3));
+}
+
+export function recordHelpCardOpen(state, source) {
+  if (!state?.telemetry || !["hud", "title"].includes(source)) return null;
+  state.telemetry.helpCardOpens ||= [];
+  const entry = { ...telemetryMoment(state), source };
+  state.telemetry.helpCardOpens.push(entry);
+  if (state.telemetry.helpCardOpens.length > CONFIG.ROAD_EVENT_HISTORY_LIMIT) {
+    state.telemetry.helpCardOpens.splice(
+      0,
+      state.telemetry.helpCardOpens.length - CONFIG.ROAD_EVENT_HISTORY_LIMIT
+    );
+  }
+  return entry;
 }
 
 export function recordQuitPoint(state, screen = "world") {

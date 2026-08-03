@@ -13,7 +13,7 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='34' fill='%231C1916'/%3E%3Crect x='42' y='42' width='96' height='96' fill='%23B03A2E'/%3E%3Cpath d='M60 111V68l16 16 14-25 14 25 16-16v43z' fill='%23E8DCC3'/%3E%3C/svg%3E">
   <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='34' fill='%231C1916'/%3E%3Crect x='42' y='42' width='96' height='96' fill='%23B03A2E'/%3E%3Cpath d='M60 111V68l16 16 14-25 14 25 16-16v43z' fill='%23E8DCC3'/%3E%3C/svg%3E">
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./css/ui.css">
+  <link rel="stylesheet" href="./css/ui.css?v=post-launch-v11-1">
 </head>
 <body>
   <svg class="svg-sprite" aria-hidden="true" focusable="false">
@@ -106,6 +106,8 @@
       </div>
 
       <div class="hud-actions">
+        <button id="help-button" class="hud-button hud-text-button" type="button">?</button>
+        <button id="sound-button" class="hud-button hud-text-button" type="button"></button>
         <button id="pause-button" class="hud-button" type="button">
           <svg class="glyph glyph-pause" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
             <path d="M6 3.4v9.2M10 3.4v9.2"/>
@@ -229,11 +231,34 @@
         </div>
       </div>
       <div class="settings-row">
+        <span id="sound-label" class="settings-label"></span>
+        <button id="sound-toggle" class="settings-toggle" type="button"></button>
+      </div>
+      <div class="settings-row">
         <div class="save-copy">
           <span id="autosave-title" class="settings-label"></span>
           <small id="autosave-status"></small>
         </div>
       </div>
+    </section>
+
+    <section id="help-card" class="modal-layer help-layer" hidden>
+      <article class="help-card paper-sheet" role="dialog" aria-modal="true">
+        <div class="help-head">
+          <h2 id="help-title"></h2>
+          <button id="help-close" type="button" aria-label="">
+            <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path d="M4 4l8 8M12 4l-8 8"/>
+            </svg>
+          </button>
+        </div>
+        <dl class="help-lines">
+          <div><dt id="help-goal-label"></dt><dd id="help-goal"></dd></div>
+          <div><dt id="help-fight-label"></dt><dd id="help-fight"></dd></div>
+          <div><dt id="help-money-label"></dt><dd id="help-money"></dd></div>
+          <div><dt id="help-renown-label"></dt><dd id="help-renown"></dd></div>
+        </dl>
+      </article>
     </section>
 
     <section id="onboarding" class="full-screen-layer onboarding-layer" hidden>
@@ -248,6 +273,8 @@
         <span id="onboarding-tap"></span>
       </div>
       <div class="title-actions">
+        <button id="title-start" class="primary-button" type="button"></button>
+        <button id="title-rules" class="ghost-button" type="button"></button>
         <button id="title-new-seed" class="ghost-button" type="button"></button>
         <small id="title-diagnostics"></small>
       </div>
@@ -424,6 +451,6 @@
     <div id="toast" role="status" aria-live="polite"></div>
   </main>
 
-  <script type="module" src="./js/main.js?v=f4-final-3"></script>
+  <script type="module" src="./js/main.js?v=post-launch-v11-1"></script>
 </body>
 </html>

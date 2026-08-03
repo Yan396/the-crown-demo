@@ -26,6 +26,9 @@ export const STRINGS = Object.freeze({
       pause: "暂停世界",
       resume: "继续世界",
       openSettings: "打开设置",
+      openHelp: "打开玩法说明",
+      closeHelp: "关闭玩法说明",
+      toggleSound: "切换声音",
       newSeed: "使用新种子开始",
       share: "分享试玩结果",
       replay: "使用新种子再玩一局",
@@ -209,9 +212,25 @@ export const STRINGS = Object.freeze({
       language: "界面语言",
       chinese: "中文",
       english: "English",
+      sound: "声音",
+      soundOn: "开",
+      soundOff: "静音",
       autosave: "本地存档",
       autosaveOn: "每个游戏日自动保存 · 已保存至第 {day} 日",
       autosaveUnavailable: "浏览器不允许本地存档"
+    }),
+    help: Object.freeze({
+      title: "玩法",
+      goalLabel: "目标",
+      goalDemo: "把声望升到 100，完成试玩。",
+      goalFull: "从流浪佣兵一路受封、自立，在王座诏书上作最后选择。",
+      fightLabel: "怎么打",
+      fight: "拖动地图接近灰色匪队；先看“稳赢 / 势均力敌 / 打不过”，再进攻或撤退。",
+      moneyLabel: "钱怎么来怎么没",
+      money: "打赢和接合同会赚钱；招兵和第 3 天起军饷会花钱。",
+      renownLabel: "声望是什么",
+      renownDemo: "打赢战斗与完成合同会增加；50 解锁自由队长，100 到试玩终点。",
+      renownFull: "打赢战斗与完成合同会增加；声望越高，你能走得越远。"
     }),
     toast: Object.freeze({
       goldInsufficient: "金币不足",
@@ -334,6 +353,8 @@ export const STRINGS = Object.freeze({
       step2: "②灰点是匪队——打赢拿钱和声望",
       step3: "③金币每天在减少。去打猎吧",
       tap: "轻触继续",
+      start: "开始",
+      rules: "玩法",
       newSeed: "换一个世界种子"
     }),
     promise: Object.freeze({
@@ -360,7 +381,8 @@ export const STRINGS = Object.freeze({
     tooltip: Object.freeze({
       town: "在这里招兵",
       lowGold: "军饷快发不出了",
-      act2: "酒馆里有雇佣合同"
+      act2: "酒馆里有雇佣合同",
+      verdictReminder: "先看判断：稳赢 / 势均力敌 / 打不过；下方细条是双方兵力。"
     }),
     roadEvent: Object.freeze({
       kicker: "路上 · 一桩小事",
@@ -496,6 +518,9 @@ export const STRINGS = Object.freeze({
       pause: "Pause world",
       resume: "Resume world",
       openSettings: "Open settings",
+      openHelp: "Open rules reference",
+      closeHelp: "Close rules reference",
+      toggleSound: "Toggle sound",
       newSeed: "Start with a new seed",
       share: "Share demo result",
       replay: "Replay with a new seed",
@@ -679,9 +704,25 @@ export const STRINGS = Object.freeze({
       language: "Interface language",
       chinese: "中文",
       english: "English",
+      sound: "Sound",
+      soundOn: "On",
+      soundOff: "Muted",
       autosave: "Local save",
       autosaveOn: "Autosaves every game-day · Saved through Day {day}",
       autosaveUnavailable: "Local saves are unavailable in this browser"
+    }),
+    help: Object.freeze({
+      title: "How to Play",
+      goalLabel: "Goal",
+      goalDemo: "Raise renown to 100 and finish the demo.",
+      goalFull: "Rise from wandering mercenary to ruler, then make the final choice in your edict.",
+      fightLabel: "Fighting",
+      fight: "Drag the map toward gray bandits; read Easy win / Even match / Outmatched, then attack or retreat.",
+      moneyLabel: "Money in and out",
+      money: "Battles and contracts pay; recruiting and wages from Day 3 cost gold.",
+      renownLabel: "Renown",
+      renownDemo: "Battles and contracts raise it; 50 unlocks Free Captain, and 100 ends the demo.",
+      renownFull: "Battles and contracts raise it; greater renown opens the road to rule."
     }),
     toast: Object.freeze({
       goldInsufficient: "Not enough gold",
@@ -804,6 +845,8 @@ export const STRINGS = Object.freeze({
       step2: "②Gray dots are bandits—win gold and renown",
       step3: "③Your gold shrinks every day. Go hunting.",
       tap: "Tap to continue",
+      start: "Start",
+      rules: "How to Play",
       newSeed: "Choose another world seed"
     }),
     promise: Object.freeze({
@@ -830,7 +873,8 @@ export const STRINGS = Object.freeze({
     tooltip: Object.freeze({
       town: "Recruit troops here",
       lowGold: "Your troop wages are running out",
-      act2: "Mercenary contracts wait in taverns"
+      act2: "Mercenary contracts wait in taverns",
+      verdictReminder: "Read the verdict first: Easy win / Even match / Outmatched; the small bars show both strengths."
     }),
     roadEvent: Object.freeze({
       kicker: "On the road · A small matter",
