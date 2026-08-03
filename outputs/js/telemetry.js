@@ -33,6 +33,10 @@ export function createTelemetry(options = {}) {
       unpaidLeaves: 0
     },
     lieutenantEventChoices: [],
+    // ITEM 7: the orders given ON the stage, during the melee. Presentation
+    // only -- these never re-resolved a battle, so they are a record of what
+    // the player did, not of what the engine decided.
+    stageCommands: [],
     promiseValues: { troops: null, gold: null },
     promiseFinalActuals: { troops: null, gold: null },
     promiseCrossings: { troops: null, gold: null },
@@ -84,6 +88,9 @@ export function normalizeTelemetry(value, options = {}) {
     lieutenants: { ...fallback.lieutenants, ...(value.lieutenants || {}) },
     lieutenantEventChoices: Array.isArray(value.lieutenantEventChoices)
       ? value.lieutenantEventChoices.slice(-CONFIG.ROAD_EVENT_HISTORY_LIMIT)
+      : [],
+    stageCommands: Array.isArray(value.stageCommands)
+      ? value.stageCommands.slice(-CONFIG.ROAD_EVENT_HISTORY_LIMIT)
       : [],
     promiseValues: { ...fallback.promiseValues, ...(value.promiseValues || {}) },
     promiseFinalActuals: { ...fallback.promiseFinalActuals, ...(value.promiseFinalActuals || {}) },
@@ -240,6 +247,33 @@ export function recordHelpCardOpen(state, source) {
     state.telemetry.helpCardOpens.splice(
       0,
       state.telemetry.helpCardOpens.length - CONFIG.ROAD_EVENT_HISTORY_LIMIT
+    );
+  }
+  return entry;
+}
+
+/*
+ * An order given on the battle stage.
+ *
+ * `n` is which of the two windows it was, `command` the order, `t` the beat on
+ * the stage's own virtual clock, `source` how it was decided (player / auto /
+ * replay / timeout). Together they are enough to replay the performance.
+ */
+export function recordStageCommand(state, record) {
+  if (!state?.telemetry || !record?.command) return null;
+  state.telemetry.stageCommands ||= [];
+  const entry = {
+    ...telemetryMoment(state),
+    n: Math.max(1, Math.floor(Number(record.n) || 1)),
+    command: String(record.command),
+    t: Math.max(0, Math.round(Number(record.t) || 0)),
+    source: String(record.source || "player")
+  };
+  state.telemetry.stageCommands.push(entry);
+  if (state.telemetry.stageCommands.length > CONFIG.ROAD_EVENT_HISTORY_LIMIT) {
+    state.telemetry.stageCommands.splice(
+      0,
+      state.telemetry.stageCommands.length - CONFIG.ROAD_EVENT_HISTORY_LIMIT
     );
   }
   return entry;

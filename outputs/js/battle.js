@@ -194,14 +194,12 @@ export function choosePlayerFormation(state, formation) {
   battle.formations.resolved = true;
   battle.formationModifiers = formationModifiers(battle.formations);
   if (state.demo?.modal === "formation") {
-    if (state.features?.f3 && !battle.commands?.resolved) {
-      state.demo.modal = "battleCommand";
-      state.demo.pauseReason = "battleCommand";
-    } else {
-      state.demo.modal = null;
-      state.demo.pauseReason = null;
-      state.paused = Boolean(battle.formations.resumePaused);
-    }
+    // The formation is the whole pre-battle commitment and it ends here. It no
+    // longer chains into an order screen; the order is asked for on the stage,
+    // in the melee, where it means something.
+    state.demo.modal = null;
+    state.demo.pauseReason = null;
+    state.paused = Boolean(battle.formations.resumePaused);
   }
   addEvent(state, "log.formationChosen", {
     playerFormation: formation,
@@ -231,9 +229,13 @@ export function chooseBattleCommand(state, command) {
     enemy || { troops: [] },
     formationModifiers(battle.formations)
   );
-  state.demo.modal = null;
-  state.demo.pauseReason = null;
-  state.paused = Boolean(battle.commands.resumePaused);
+  // Defensive only: nothing opens a "battleCommand" modal any more, so this
+  // just guarantees a stale one from an older save cannot survive.
+  if (state.demo?.modal === "battleCommand") {
+    state.demo.modal = null;
+    state.demo.pauseReason = null;
+    state.paused = Boolean(battle.commands.resumePaused);
+  }
   addEvent(state, "log.battleCommand", { command }, "round");
   return { ok: true, command };
 }
@@ -1308,7 +1310,18 @@ export function resolveBattleRound(state) {
   }
   ensureBattleCapture(state, battle, bandit);
   if (battle.formations?.eligible && !battle.formations.resolved) return null;
-  if (state.features?.f3 && battle.commands && !battle.commands.resolved) return null;
+  // The formation is the ONLY thing resolution waits on. The battle order used
+  // to hold it here behind a pre-battle modal; that modal is gone, because an
+  // order is something you give to an army that is already fighting, and the
+  // stage now asks for it twice during the melee.
+  //
+  // The balance side is deliberately unchanged: F3_COMMANDS, chooseBattleCommand
+  // and applyF3BattleModifiers all still exist and still own the numbers. What
+  // changed is only that an unanswered order resolves to the same deterministic
+  // value it always resolved to under autoplay, instead of stalling.
+  if (state.features?.f3 && battle.commands && !battle.commands.resolved) {
+    chooseBattleCommand(state, CONFIG.F3_AUTOPLAY_COMMAND);
+  }
 
   if (battle.round >= CONFIG.MAX_BATTLE_ROUNDS) {
     const winner = getPartyStrength(state.player) >= getPartyStrength(bandit) ? "player" : "bandit";
@@ -1500,11 +1513,10 @@ export function startBattle(state, bandit, options = {}) {
     state.demo.modal = "formation";
     state.demo.pauseReason = "formation";
     state.paused = true;
-  } else if (commands) {
-    state.demo.modal = "battleCommand";
-    state.demo.pauseReason = "battleCommand";
-    state.paused = true;
   }
+  // Deliberately NOT opened here, and nowhere else either: the battle order is
+  // given on the stage during the melee. See battle-stage.js openCommandGate.
+  if (commands) commands.resumePaused = Boolean(state.paused);
   state.battleScript = null;
   state.battlePlayback ||= { speed: 1, skip: false };
   state.battlePlayback.speed = [1, 2, 4].includes(state.battlePlayback.speed)
@@ -1578,8 +1590,13 @@ export function skipBattle(state) {
   if (state.battle?.formations?.eligible && !state.battle.formations.resolved) {
     return { type: "blocked", reason: "formation" };
   }
+  // The battle order no longer blocks anything: it is asked for on the stage,
+  // during the melee, and it is presentation. Resolution takes the same
+  // deterministic value it has always taken under autoplay. resolveBattleRound
+  // would do this on its first pass anyway; doing it here keeps skipBattle's
+  // "no partially-set-up battle" precondition explicit.
   if (state.features?.f3 && state.battle?.commands && !state.battle.commands.resolved) {
-    return { type: "blocked", reason: "battleCommand" };
+    chooseBattleCommand(state, CONFIG.F3_AUTOPLAY_COMMAND);
   }
   let result = null;
   let safety = CONFIG.MAX_BATTLE_ROUNDS;

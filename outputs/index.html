@@ -368,17 +368,9 @@
       </article>
     </section>
 
-    <section id="battle-command-modal" class="modal-layer formation-layer" hidden>
-      <article class="formation-card paper-sheet" role="dialog" aria-modal="true">
-        <small id="battle-command-kicker"></small>
-        <p id="battle-command-copy"></p>
-        <div class="formation-choices">
-          <button class="formation-choice" data-battle-command="charge" type="button"></button>
-          <button class="formation-choice" data-battle-command="hold" type="button"></button>
-          <button class="formation-choice" data-battle-command="focus" type="button"></button>
-        </div>
-      </article>
-    </section>
+    <!-- The battle-order screen used to sit here. It is gone on purpose: an
+         order is given to an army that is already fighting, so the stage asks
+         for it twice during the melee instead. See battle-stage.js. -->
 
     <section id="contract-modal" class="modal-layer contract-layer" hidden>
       <article class="contract-card paper-sheet" role="dialog" aria-modal="true">

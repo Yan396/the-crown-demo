@@ -72,9 +72,16 @@ test("the reconciled cues live on CrownAudio, not a second audio system", () => 
 test("the real call paths fire their cue — not just the methods existing", () => {
   const stage = readFileSync("outputs/js/battle-stage.js", "utf8");
   const main = readFileSync("outputs/js/main.js", "utf8");
-  assert.match(stage, /crownAudio\.arrow\(\)/, "arrows must sound");
-  assert.match(stage, /if \(mounted\) crownAudio\.cavalry\(\)/, "cavalry needs its own impact");
-  assert.match(stage, /crownAudio\.hit\(\{/, "spear contact keeps the existing hit");
+  // The cues still fire on the real paths; what changed is that they all hang
+  // off the single beat hook instead of being sprinkled through the performers.
+  assert.match(stage, /case "arrow": crownAudio\.arrow\(\); break;/, "arrows must sound");
+  assert.match(
+    stage,
+    /if \(beat\.tier === "heavy"\) crownAudio\.cavalry\(\);/,
+    "the heavy tier -- cavalry and officers -- needs its own impact"
+  );
+  assert.match(stage, /crownAudio\.hit\(\{ kill: Boolean\(beat\.kill\)/, "lighter contact keeps the existing hit");
+  assert.match(stage, /emitBeat\(\{ type: "arrow"/, "arrow cues ride the shared clock");
   assert.match(main, /crownAudio\.recruit\(\)/, "a successful recruit must sound");
   assert.match(main, /crownAudio\.bindFirstGesture\(/, "audio arms on a real gesture");
 });

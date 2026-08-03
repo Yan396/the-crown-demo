@@ -143,10 +143,18 @@ test("Web Audio is lazy, synthesized, and battle voices are disposable", () => {
 test("battle audio follows the existing event callbacks and ships no audio assets", () => {
   const stage = readFileSync(new URL("../outputs/js/battle-stage.js", import.meta.url), "utf8");
   const audio = readFileSync(new URL("../outputs/js/audio.js", import.meta.url), "utf8");
-  assert.match(stage, /performStrike\(event\)[\s\S]{0,100}audio\?\.hit\?\.\(event\)/);
-  assert.match(stage, /performRout\(event\)[\s\S]{0,100}audio\?\.rout\?\.\(\)/);
-  assert.match(stage, /setPhase\("charge"\)[\s\S]{0,100}audio\?\.charge\?\.\(\)/);
+  // Every battle cue now goes through the single presentation beat hook, so a
+  // visual beat and the sound on it can never drift onto different clocks --
+  // and the host `audio` adapter can no longer double-fire alongside it, which
+  // it did when performStrike called both audio?.hit?.() and crownAudio.hit().
+  assert.match(stage, /function emitBeat\(payload\)/, "the one clock must exist");
+  assert.match(stage, /performStrike\(event, index\)[\s\S]{0,700}emitBeat\(\{\s*\n?\s*type: "strike"/);
+  assert.match(stage, /performRout\(event\)[\s\S]{0,100}emitBeat\(\{ type: "rout"/);
+  assert.match(stage, /setPhase\("charge"\)[\s\S]{0,100}emitBeat\(\{ type: "charge" \}\)/);
   assert.match(stage, /dispose\(\)[\s\S]*?audio\?\.disposeBattle\?\.\(\)/);
+  // The adapter is still called, but only for cues the hook does not already
+  // own. That exclusion list is what makes double-firing impossible.
+  assert.match(stage, /!\["strike", "arrow", "charge", "rout"\]\.includes\(beat\.type\)/);
   assert.doesNotMatch(audio, /Math\.random|fetch\s*\(|new\s+Audio\b/);
   const assets = listFiles(new URL("../outputs/", import.meta.url))
     .map((url) => url.pathname)

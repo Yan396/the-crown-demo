@@ -7,10 +7,10 @@
 <link rel="stylesheet" href="css/ui.css">
 <style>
   /* Dev harness only — never shipped into the game screens. */
-  body { background: var(--lacquer); margin: 0; font-family: var(--font-body); }
+  body { background: var(--lacquer); margin: 0; font-family: var(--font-body); color: var(--paper-on-lacquer); }
   .bench {
     position: fixed; z-index: 50; top: 10px; left: 50%; translate: -50%;
-    display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
+    display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; max-width: 96vw;
   }
   .bench button {
     min-height: 40px; padding: 8px 14px; border: 1px solid var(--rule-on-lacquer);
@@ -18,113 +18,246 @@
     font: 500 13px var(--font-body);
   }
   #verdict {
-    position: fixed; bottom: 10px; left: 50%; translate: -50%;
+    position: fixed; z-index: 50; bottom: 10px; left: 50%; translate: -50%;
     color: var(--paper-on-lacquer); font: 12px/1.6 ui-monospace, monospace;
-    white-space: pre; text-align: center;
+    white-space: pre; text-align: center; pointer-events: none;
   }
+  .clips { max-width: 1100px; margin: 78px auto 40px; padding: 0 16px 40px; }
+  .clips h1 { font: 600 20px var(--font-display); letter-spacing: .1em; }
+  .clips p { font-size: 13px; line-height: 1.7; opacity: .82; }
+  .clip-grid { display: grid; gap: 22px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  .clip figure { margin: 0; }
+  .clip video { width: 100%; background: #000; border: 1px solid var(--rule-on-lacquer); }
+  .clip figcaption { margin-top: 6px; font-size: 12px; line-height: 1.6; opacity: .8; }
+  .clip b { display: block; font: 600 13px var(--font-display); letter-spacing: .06em; opacity: 1; }
 </style>
 </head>
 <body>
 <div class="bench">
-  <button id="run-field">野战</button>
-  <button id="run-town">守城战(volley)</button>
-  <button id="run-defeat">败仗</button>
+  <button data-play="field">野战 · 15s 标准</button>
+  <button data-play="archers">弓箭 close</button>
+  <button data-play="cavalry">骑兵冲击</button>
+  <button data-play="town">守城齐射</button>
+  <button data-play="officers">部将</button>
   <button id="check-skip">跳过一致性校验</button>
 </div>
 <code id="verdict"></code>
 
+<section class="clips">
+  <h1>战斗表现 · 实机录像</h1>
+  <p>
+    以下三段均为 Chromium 实机录制（1× 播放，390×844），由
+    <code>work/record_stage.mjs</code> 驱动本页的确定性脚本产出，非静态截图拼接。
+    Recorded from this page's own deterministic fixtures at 1× speed.
+  </p>
+  <div class="clip-grid">
+    <figure class="clip">
+      <video src="clips/field-15s.webm" controls muted loop playsinline preload="metadata"></video>
+      <figcaption>
+        <b>(a) 15s 中型野战 · promo standard</b>
+        16 tokens、枪弓骑混编、两次军令窗口、两次镜头震动（接敌 + 最后一击）。
+      </figcaption>
+    </figure>
+    <figure class="clip">
+      <video src="clips/archer-volley.webm" controls muted loop playsinline preload="metadata"></video>
+      <figcaption>
+        <b>(b) 弓箭 close sequence</b>
+        搭箭 100ms → 满弓保持 200ms → 撒放 60ms → 复位；每箭为真实抛物线，10% 齐射箭矢落空插地。
+      </figcaption>
+    </figure>
+    <figure class="clip">
+      <video src="clips/cavalry-charge.webm" controls muted loop playsinline preload="metadata"></video>
+      <figcaption>
+        <b>(c) 骑兵冲击入接敌</b>
+        2.2× 推进距离、提前 300ms 接敌、HEAVY 档 200ms 预备 / 130ms 定格 / 16px 击退，冲阵后停在阵线之前。
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
 <script type="module">
-import { createBattleStage, normalizeScript } from "./js/battle-stage.js";
+import { createBattleStage } from "./js/battle-stage.js";
+import { CONFIG_PRESENTATION as P } from "./js/presentation.js";
+import { STRINGS } from "./js/strings.js";
 
 /*
- * MOCK battleScript — flat event-list form, using the event names from the
- * brief (battle_start / volley / round_start / strike / rout / battle_end).
- * The real producer's schema replaces normalizeScript()'s input mapping only.
+ * Deterministic fixtures in the CURRENT battleScript contract:
+ *   { battleId, terrain, sides: { player, enemy }, events: [{ t, type, ... }] }
+ * They are hand-written rather than engine-produced so the harness has no
+ * dependency on a save, but every field is one the engine really emits, and
+ * nothing here is read by the game.
  */
-function mockScript({ town = false, playerWins = true } = {}) {
-  const events = [{ type: "battle_start" }];
-  const rounds = 4;
-  for (let r = 0; r < rounds; r += 1) {
-    events.push({ type: "round_start", round: r + 1 });
-    if (town && r === 0) events.push({ type: "volley", arrows: 3 });
-    // Three beats; both sides trade blows, the loser bleeds harder.
-    events.push({ type: "strike", beat: 0, side: "attacker", hits: [
-      { damage: 3, kill: r > 0 }, { damage: 2, kill: r > 1 }
-    ]});
-    events.push({ type: "strike", beat: 1, side: "defender", hits: [
-      { damage: 2, kill: r === 2 }
-    ]});
-    events.push({ type: "strike", beat: 2, side: "attacker", hits: [
-      { damage: 4, kill: r > 0 }, { damage: 3, kill: r === 3 }, { damage: 2, kill: r === 3 }
-    ]});
-    if (r === 2) events.push({ type: "morale", side: "defender", level: "wavering" });
-  }
-  events.push({ type: "rout", side: playerWins ? "defender" : "attacker" });
-  events.push({ type: "battle_end" });
+function side(label, n, arms) {
   return {
-    meta: {
-      attacker: { name: playerWins ? "你的战团" : "溃败的战团", count: 14 },
-      defender: { name: town ? "金穗城守军" : "匪队", count: 11 },
-      terrain: town ? "town" : "field",
-      result: playerWins ? "attacker" : "defender",
-      loot: { gold: 46, renown: 3 }
-    },
-    events
+    label,
+    startTroops: n,
+    tokens: Array.from({ length: n }, (_, i) => ({
+      idx: i,
+      troopType: arms[i % arms.length].type,
+      arm: arms[i % arms.length].arm
+    }))
   };
 }
 
-const strings = {
-  "stage.march": "两军行进入场……",
-  "stage.standoff": "对峙。",
-  "stage.round": "第 {n} 轮",
-  "stage.volley": "城头齐射!",
-  "stage.rout": "阵线崩了——",
-  "stage.hint": "点按 = 2× 速度 · 长按 = 跳过",
-  "stage.tallyGold": "金币",
-  "stage.tallyRenown": "声望",
-  "stage.continue": "继 续",
-  "map.victorySeal": "大捷",
-  "map.defeatSeal": "败退"
+const SPEAR = { type: "militia", arm: "spear" };
+const VET = { type: "veteran", arm: "spear" };
+const BOW = { type: "militia", arm: "archer" };
+const HORSE = { type: "veteran", arm: "cavalry" };
+const FOE = { type: "bandit", arm: "spear" };
+
+function mockScript({
+  terrain = "field", playerArms = [SPEAR, VET, BOW, HORSE], enemyArms = [FOE],
+  n = 16, rounds = 4, officers = null, volley = 0
+} = {}) {
+  const events = [{ t: 0, type: "battle_start" }];
+  if (volley) {
+    events.push(terrain === "town"
+      ? { t: 40, type: "volley", side: "defender", arrows: volley }
+      : { t: 40, type: "archer_volley", side: "player", arrows: volley });
+  }
+  let t = 100;
+  let playerLeft = n;
+  let enemyLeft = n;
+  for (let r = 0; r < rounds; r += 1) {
+    events.push({ t, type: "round_start", n: r + 1 });
+    for (let beat = 0; beat < 3; beat += 1) {
+      t += 10;
+      const killEnemy = enemyLeft > 3;
+      const killPlayer = r > 1 && playerLeft > 6 && beat === 1;
+      events.push({
+        t, type: "strike", beat,
+        from: { side: "player", idx: (r * 3 + beat) % n },
+        to: { side: "enemy", idx: (r * 2 + beat) % n },
+        kill: killEnemy, dmgShown: 3 + beat, hpAfter: killEnemy ? 0 : 6 - beat
+      });
+      if (killEnemy) enemyLeft -= 1;
+      events.push({
+        t, type: "strike", beat,
+        from: { side: "enemy", idx: (r + beat) % n },
+        to: { side: "player", idx: (r * 3 + beat + 2) % n },
+        kill: killPlayer, dmgShown: 2 + beat, hpAfter: killPlayer ? 0 : 7 - beat
+      });
+      if (killPlayer) playerLeft -= 1;
+    }
+    if (r === rounds - 2) events.push({ t: t + 5, type: "morale", side: "enemy", level: "wavering" });
+    t += 30;
+  }
+  events.push({ t: t + 5, type: "rout", side: "enemy" });
+  events.push({
+    t: t + 40, type: "battle_end", winner: "player",
+    loot: { gold: 46, renown: 3 },
+    survivors: { player: playerLeft, enemy: enemyLeft }
+  });
+  const script = {
+    battleId: `sg-${terrain}-${n}-${rounds}`,
+    terrain,
+    sides: { player: side("我军", n, playerArms), enemy: side("匪队", n, enemyArms) },
+    events,
+    formations: { player: "line", enemy: "wedge" },
+    // The F3 marker. The stage only offers battle orders when the script
+    // carries one, so the harness has to be an F3 script to exercise them.
+    command: "hold"
+  };
+  if (officers) {
+    script.lieutenant = "player";
+    script.lieutenantIds = officers;
+  }
+  return script;
+}
+
+/* The three recorded fixtures, named so the recorder can ask for them by key. */
+const FIXTURES = {
+  field: () => mockScript({
+    n: 16, rounds: 3, volley: 4,
+    officers: ["chen_mang", "shen_wen"]
+  }),
+  archers: () => mockScript({
+    n: 8, rounds: 3, volley: 5,
+    playerArms: [BOW], enemyArms: [FOE]
+  }),
+  cavalry: () => mockScript({
+    n: 10, rounds: 3,
+    playerArms: [HORSE, HORSE, SPEAR], enemyArms: [FOE]
+  }),
+  town: () => mockScript({ terrain: "town", n: 12, rounds: 3, volley: 6 }),
+  officers: () => mockScript({
+    n: 9, rounds: 3, officers: ["chen_mang", "shen_wen", "jia_duojin"]
+  })
 };
 
-let hintShown = false;
-const stage = createBattleStage(document.body, {
-  translate: (key) => strings[key] || key,
-  hintSeen: () => hintShown,
-  persistHint: () => { hintShown = true; }
-});
+function lookup(key) {
+  return key.split(".").reduce((node, part) => (node ? node[part] : undefined), STRINGS.zh);
+}
 
 const verdict = document.getElementById("verdict");
-document.getElementById("run-field").onclick = () => stage.play(mockScript(), () => verdict.textContent = "done: field");
-document.getElementById("run-town").onclick = () => stage.play(mockScript({ town: true }), () => verdict.textContent = "done: town");
-document.getElementById("run-defeat").onclick = () => stage.play(mockScript({ playerWins: false }), () => verdict.textContent = "done: defeat");
+let hintShown = true;
+
+const stage = createBattleStage(document.body, {
+  translate: (key, params = {}) => {
+    const value = lookup(key);
+    if (typeof value !== "string") return key;
+    return value.replace(/\{(\w+)\}/g, (_, name) => params[name] ?? `{${name}}`);
+  },
+  hintSeen: () => hintShown,
+  persistHint: () => { hintShown = true; },
+  // The harness answers its own order windows, so a recording is repeatable:
+  // either a scripted pair (replayCommands) or the deterministic default.
+  autoCommand: () => Boolean(window.__SG_AUTO_ORDERS__) && !window.__SG_ORDERS__,
+  replayCommands: () => window.__SG_ORDERS__ || null,
+  onCommand: (record) => { window.__SG_COMMANDS__.push(record); },
+  onBeat: (beat) => { window.__SG_BEATS__.push(beat); }
+});
+
+window.__SG_BEATS__ = [];
+window.__SG_COMMANDS__ = [];
+window.__SG_STAGE__ = stage;
+window.__SG_P__ = P;
+
+// One entry point for both the buttons and the recorder.
+window.__SG_PLAY__ = (key, { autoOrders = false, orders = null } = {}) => {
+  window.__SG_AUTO_ORDERS__ = autoOrders;
+  window.__SG_ORDERS__ = orders ? orders.map((command) => ({ command })) : null;
+  window.__SG_BEATS__ = [];
+  window.__SG_COMMANDS__ = [];
+  const script = (FIXTURES[key] || FIXTURES.field)();
+  window.__SG_DONE__ = false;
+  stage.play(script, () => { window.__SG_DONE__ = true; });
+  return {
+    windows: stage.commandWindows,
+    tokens: {
+      player: script.sides.player.tokens.length,
+      enemy: script.sides.enemy.tokens.length
+    }
+  };
+};
+
+document.querySelectorAll("[data-play]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const info = window.__SG_PLAY__(button.dataset.play);
+    verdict.textContent = `playing ${button.dataset.play} · order windows @ ${
+      info.windows.map((ms) => `${Math.round(ms)}ms`).join(" / ")}`;
+  });
+});
 
 /*
- * Acceptance 2: a skipped battle must settle identically to a watched one.
- * Play the same script twice — once skipped instantly, once at max speed to
- * completion is too slow for a check, so instead compare the skip result to
- * the counts derived directly from the script. Same array, two projections.
+ * A skipped battle must settle identically to a watched one. Both projections
+ * read the same event array, so the check is: skip immediately, then compare
+ * the stage's survivors against battle_end.survivors.
  */
-document.getElementById("check-skip").onclick = async () => {
-  const raw = mockScript();
-  const script = normalizeScript(raw);
-  const expect = { attacker: script.attacker.count, defender: script.defender.count };
-  script.rounds.forEach((round) => round.strikes.forEach((strike) => {
-    const target = strike.side === "attacker" ? "defender" : "attacker";
-    strike.hits.forEach((hit) => { if (hit.kill) expect[target] -= 1; });
-  }));
-
-  stage.play(raw, () => {});
-  await new Promise((resolve) => setTimeout(resolve, 150));
+document.getElementById("check-skip").addEventListener("click", async () => {
+  const script = FIXTURES.field();
+  const expected = script.events.at(-1).survivors;
+  window.__SG_PLAY__("field", { autoOrders: true });
+  await new Promise((resolve) => setTimeout(resolve, 120));
   stage.skip();
-  await new Promise((resolve) => setTimeout(resolve, 100));
-  const got = stage.counts;
-  const same = got.attacker === expect.attacker && got.defender === expect.defender;
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  const got = stage.survivors;
+  const same = got.player === expected.player && got.enemy === expected.enemy;
   verdict.textContent =
-    `skip => attacker ${got.attacker} defender ${got.defender}\n` +
-    `script => attacker ${expect.attacker} defender ${expect.defender}\n` +
+    `skip   => player ${got.player} enemy ${got.enemy}\n` +
+    `script => player ${expected.player} enemy ${expected.enemy}\n` +
     (same ? "CONSISTENT" : "MISMATCH");
-};
+});
 </script>
 </body>
 </html>

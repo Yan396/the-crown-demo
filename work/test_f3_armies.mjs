@@ -89,9 +89,13 @@ test("formation then command resolves into a validated arm-aware script", () => 
   const enemy = state.bandits.find((bandit) => !bandit.elite) || state.bandits[0];
   enemy.troops = [{ type: "bandit", arm: "spear", count: 14, xp: 0 }];
   startBattle(state, enemy);
+  // The formation is the ONLY pre-battle commitment. It must not chain into a
+  // battle-order screen: the order is given on the stage, during the melee.
   assert.equal(state.demo.modal, "formation");
   assert.equal(choosePlayerFormation(state, "line").ok, true);
-  assert.equal(state.demo.modal, "battleCommand");
+  assert.equal(state.demo.modal, null, "no pre-battle order screen may open");
+  // The balance-side command API is untouched and still resolvable directly --
+  // it just has no pre-battle UI in front of it any more.
   assert.equal(chooseBattleCommand(state, "focus").ok, true);
   const result = skipBattle(state);
   assert.ok(result?.battleScript);

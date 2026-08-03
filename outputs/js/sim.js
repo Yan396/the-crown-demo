@@ -1894,7 +1894,12 @@ function resolveAutoplayModal(state) {
     choosePlayerFormation(state, counterFormation(report));
     return true;
   }
+  // No "battleCommand" modal exists any more -- the order is given on the
+  // battle stage, in the melee, and it is presentation. Kept as a no-op guard
+  // so an old save carrying that modal cannot wedge autoplay.
   if (state.demo.modal === "battleCommand") {
+    state.demo.modal = null;
+    state.demo.pauseReason = null;
     chooseBattleCommand(state, CONFIG.F3_AUTOPLAY_COMMAND);
     return true;
   }
