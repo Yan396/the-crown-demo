@@ -155,21 +155,6 @@ export const CONFIG_PRESENTATION = Object.freeze({
   MAX_CONCURRENT_ACTORS: 6,
   STAGE_TOKEN_CAP: 16,
 
-  /* -- battle orders, given on the stage ------------------------------------ */
-  // Two windows, both derived from the script, so a replay asks at the same
-  // two moments. See CONFIG.F3_COMMANDS for the (untouched) balance side.
-  COMMAND_WINDOWS: 2,
-  // The chip the field picks for itself when nobody answers. Mirrors the
-  // engine's own autoplay order by name only -- the balance value stays in
-  // CONFIG.F3_AUTOPLAY_COMMAND and is not read from here.
-  COMMAND_DEFAULT: "hold",
-  COMMAND_SLOWMO_MS: 200,     // the beat the order lands on
-  COMMAND_AUTO_MS: 6000,      // real time before the field decides for you
-  COMMAND_PRESS_STEP_PX: 18,  // 全线压上 — the ranks step in
-  COMMAND_HOLD_TIGHTEN: 0.72, // 稳住阵线 — the spread closes toward its centre
-  COMMAND_FOCUS_TOKENS: 3,    // 集火敌将 — three converge on one marked man
-  COMMAND_FOCUS_MS: 900,
-
   /* -- 1b: how big a figure is on this stage -------------------------------- */
   // A token is sized from the STAGE, not from a fixed pixel count, so the two
   // armies occupy the same share of the sheet on a 390px phone and on an
@@ -290,23 +275,6 @@ export function shakeOffsetPx(stageWidth) {
  *
  * Returns absolute virtual-clock times in the stage's own schedule.
  */
-export function commandWindows(events, times) {
-  const rounds = [];
-  events.forEach((event, index) => {
-    if (event.type === "round_start") rounds.push(times[index]);
-  });
-  const contactAt = CONFIG_PRESENTATION.DEPLOY_MS
-    + CONFIG_PRESENTATION.STANDOFF_MS + CONFIG_PRESENTATION.CHARGE_MS;
-  if (!rounds.length) return [contactAt, contactAt + CONFIG_PRESENTATION.ROUND_MS * 0.55];
-  const first = rounds[0];
-  // Never both on the same beat: with one round the second window sits inside
-  // it, and with several it sits on the round nearest the middle.
-  const second = rounds.length > 1
-    ? rounds[Math.floor(rounds.length / 2)]
-    : first + CONFIG_PRESENTATION.ROUND_MS * 0.55;
-  return [first, Math.max(second, first + CONFIG_PRESENTATION.ROUND_MS * 0.4)];
-}
-
 /*
  * v1.1 formation layouts.
  *

@@ -4,36 +4,28 @@
     "fixture": "field",
     "ms": 15000,
     "kbps": 230,
-    "orders": [
-      "charge",
-      "focus"
-    ],
     "what": "mid-size field battle at 1x -- the promo standard",
     "tokens": {
       "player": 16,
       "enemy": 16
     },
-    "windows": [
-      5000,
-      7800
-    ],
     "probe": {
-      "frames": 1845,
-      "medianMs": 8.1,
-      "p95Ms": 10.1,
-      "worstMs": 269.7,
-      "over16_7": 9,
-      "fps": 123.5
+      "frames": 1782,
+      "medianMs": 8.3,
+      "p95Ms": 11.4,
+      "worstMs": 286.8,
+      "over16_7": 12,
+      "fps": 120.5
     },
     "beats": {
       "total": 35,
       "byType": {
         "arrow": 4,
         "charge": 1,
-        "command": 2,
         "shake": 2,
         "strike": 18,
-        "kill": 8
+        "kill": 8,
+        "arrow_impact": 2
       },
       "tiers": [
         "light",
@@ -41,12 +33,9 @@
         "medium"
       ],
       "shakes": 2,
-      "commands": [
-        "1:charge",
-        "2:focus"
-      ]
+      "countMismatches": 0
     },
-    "bytes": 0
+    "bytes": 447470
   },
   {
     "name": "archer-volley",
@@ -58,25 +47,21 @@
       "player": 8,
       "enemy": 8
     },
-    "windows": [
-      5000,
-      7800
-    ],
     "probe": {
-      "frames": 1138,
-      "medianMs": 8,
-      "p95Ms": 9.8,
-      "worstMs": 16.9,
+      "frames": 1109,
+      "medianMs": 8.2,
+      "p95Ms": 10.9,
+      "worstMs": 21.3,
       "over16_7": 2,
-      "fps": 125
+      "fps": 122
     },
     "beats": {
-      "total": 20,
+      "total": 22,
       "byType": {
         "arrow": 5,
         "charge": 1,
-        "command": 2,
         "shake": 1,
+        "arrow_impact": 4,
         "strike": 8,
         "kill": 3
       },
@@ -85,12 +70,9 @@
         "medium"
       ],
       "shakes": 1,
-      "commands": [
-        "1:hold",
-        "2:hold"
-      ]
+      "countMismatches": 0
     },
-    "bytes": 0
+    "bytes": 200070
   },
   {
     "name": "cavalry-charge",
@@ -102,23 +84,18 @@
       "player": 10,
       "enemy": 10
     },
-    "windows": [
-      5000,
-      7800
-    ],
     "probe": {
-      "frames": 1133,
-      "medianMs": 8.1,
-      "p95Ms": 9.8,
-      "worstMs": 24.1,
-      "over16_7": 3,
-      "fps": 123.5
+      "frames": 1075,
+      "medianMs": 8.3,
+      "p95Ms": 12,
+      "worstMs": 23.2,
+      "over16_7": 7,
+      "fps": 120.5
     },
     "beats": {
-      "total": 14,
+      "total": 12,
       "byType": {
         "charge": 1,
-        "command": 2,
         "shake": 1,
         "strike": 7,
         "kill": 3
@@ -129,12 +106,46 @@
         "medium"
       ],
       "shakes": 1,
-      "commands": [
-        "1:hold",
-        "2:hold"
-      ]
+      "countMismatches": 0
     },
-    "bytes": 0
+    "bytes": 205211
+  },
+  {
+    "name": "archer-kill",
+    "fixture": "archerKill",
+    "ms": 9000,
+    "kbps": 170,
+    "what": "one resolved archer kill: draw, flight, impact, recoil, ink, number, death",
+    "tokens": {
+      "player": 4,
+      "enemy": 4
+    },
+    "probe": {
+      "frames": 1076,
+      "medianMs": 8.3,
+      "p95Ms": 12,
+      "worstMs": 20.6,
+      "over16_7": 9,
+      "fps": 120.5
+    },
+    "beats": {
+      "total": 7,
+      "byType": {
+        "charge": 1,
+        "shake": 2,
+        "arrow": 1,
+        "arrow_impact": 1,
+        "strike": 1,
+        "kill": 1
+      },
+      "tiers": [
+        "light",
+        "medium"
+      ],
+      "shakes": 2,
+      "countMismatches": 0
+    },
+    "bytes": 180001
   },
   {
     "name": "unit-behavior-midcharge",
@@ -145,10 +156,10 @@
       "height": 844
     },
     "groups": {
-      "cavalry": 240,
-      "militia": 155.5,
-      "veteran": 159.3,
-      "archer": 138.9
+      "cavalry": 240.2,
+      "militia": 157.6,
+      "veteran": 161.2,
+      "archer": 139
     },
     "staggered": true,
     "rangeVisible": true,

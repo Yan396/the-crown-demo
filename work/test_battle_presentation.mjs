@@ -27,7 +27,6 @@ import {
   TIER_ORDER,
   WEIGHT_TIERS,
   armyBandRatio,
-  commandWindows,
   movementDurationMs,
   movementSpeedFor,
   shakeOffsetPx,
@@ -37,6 +36,7 @@ import {
 } from "../outputs/js/presentation.js";
 import {
   archerLineCrossed,
+  liveCountsForScript,
   normalizeScript,
   officerFigureFor,
   scheduleEvents
@@ -296,6 +296,20 @@ test("4c: shafts that carry a resolved hit never miss; volley shafts do", () => 
   assert.match(css, /\.stage-shaft\.is-stuck/);
 });
 
+test("4c: a resolved arrow is removed on its strike beat and uses the full hit path", () => {
+  const launch = stage.slice(stage.indexOf("function launchArrow"), stage.indexOf("function performStrike"));
+  const strike = stage.slice(stage.indexOf("function performStrike"), stage.indexOf("function reel"));
+  assert.match(launch, /holdAtImpact: true/);
+  assert.match(launch, /inflightArrows\.set\(event, shaft\)/);
+  assert.match(strike, /inflightArrows\.get\(event\)/);
+  assert.match(strike, /shaft\?\.remove\(\)/);
+  assert.match(strike, /type: "arrow_impact"/);
+  assert.match(strike, /target\.node\.style\.setProperty\("--knock"/);
+  assert.match(strike, /splatter\(point\.x, point\.y, angle, tier\)/);
+  assert.match(strike, /damageNumber\(point\.x, point\.y, event\.dmgShown, event\.kill\)/);
+  assert.match(strike, /if \(emptied\) killBeat\(event, source, target, point, tier\)/);
+});
+
 test("4d: a volley is 3-5 shafts, 60ms apart, fanned", () => {
   assert.equal(P.VOLLEY_MIN_ARROWS, 3);
   assert.equal(P.VOLLEY_MAX_ARROWS, 5);
@@ -433,7 +447,7 @@ test("6c/6d: an officer never queues, holds longer, and his banner falls", () =>
   }
 });
 
-/* ---- 7. orders, given in the melee --------------------------------------- */
+/* ---- 7. formation stays; mid-battle orders are removed ------------------- */
 
 test("7: there is NO pre-battle order screen anywhere", () => {
   assert.doesNotMatch(html, /battle-command-modal|data-battle-command/,
@@ -454,86 +468,17 @@ test("7: there is NO pre-battle order screen anywhere", () => {
   assert.match(html, /id="formation-modal"/);
 });
 
-test("7: two deterministic order windows, derived from the script alone", () => {
-  assert.equal(P.COMMAND_WINDOWS, 2);
-  const times = [0, 5000, 7000, 9000, 11000, 13000];
-  const events = [
-    { type: "battle_start" }, { type: "round_start", n: 1 }, { type: "strike" },
-    { type: "round_start", n: 2 }, { type: "round_start", n: 3 }, { type: "battle_end" }
-  ];
-  const first = commandWindows(events, times);
-  const again = commandWindows(events, times);
-  assert.deepEqual(first, again, "the same script must ask at the same two beats");
-  assert.equal(first.length, 2);
-  assert.ok(first[1] > first[0], "the two windows must be distinct beats");
-  // A one-round battle still gets two windows.
-  const single = commandWindows(
-    [{ type: "round_start", n: 1 }, { type: "battle_end" }], [5000, 9000]
-  );
-  assert.equal(single.length, 2);
-  assert.ok(single[1] > single[0]);
-  // No windows at all still yields two, so the gate can never silently vanish.
-  assert.equal(commandWindows([{ type: "battle_end" }], [1000]).length, 2);
-});
-
-test("7: the demo build is never asked for an order", () => {
-  // `script.command` is emitted only under F3, so it is the build marker. The
-  // demo has no army system and the stage may not widen that boundary.
-  assert.match(stage, /commandWindowsAt = script\.command \? commandWindows\(script\.events, times\) : \[\];/);
-  assert.match(battle, /if \(state\.features\?\.f3\) script\.command =/);
-});
-
-test("7: an order is presentation -- it cannot re-resolve a battle", () => {
-  const gate = stage.slice(stage.indexOf("function issueCommand"), stage.indexOf("function openCommandGate"));
-  assert.doesNotMatch(gate, /\b(?:capacity|survivors|damageTaken|hpCurrent)\s*(?:=|[-+]=)/,
-    "an order must not write a resolved number");
-  assert.doesNotMatch(gate, /applyKill|winner|\bloot\b|syncCounts/,
-    "an order must not touch the settlement");
-  // It moves ranks, writes a dispatch line, and is recorded. That is all.
-  assert.match(gate, /log\(translate\(`battleCommand\.\$\{command\}`\)\)/);
-  assert.match(gate, /options\.onCommand\?\.\(record\)/);
-  assert.match(gate, /root\.classList\.add\("is-slowmo"\)/);
-  assert.equal(P.COMMAND_SLOWMO_MS, 200);
-  // The three orders are three visibly different things.
-  const exec = stage.slice(stage.indexOf("function executeCommand"));
-  assert.match(exec, /P\.COMMAND_PRESS_STEP_PX/, "压上 steps the ranks in");
-  assert.match(exec, /P\.COMMAND_HOLD_TIGHTEN/, "稳住 tightens the spread");
-  assert.match(exec, /classList\.add\("is-marked"\)/, "集火 marks a target");
-  assert.match(exec, /slice\(0, P\.COMMAND_FOCUS_TOKENS\)/, "集火 converges three tokens");
-  assert.match(exec, /const meleeOwn = own\.filter\(\(token\) => token\.arm !== "archer"\)/,
-    "压上和集火只能推进近战");
-  assert.match(exec, /setTokenDepth\(token, Math\.min\(1, token\.depth \+ P\.ARCHER_HOLD_BACK_DEPTH\)\)/,
-    "稳住阵线时弓兵必须后退一层");
-  assert.match(exec, /classList\.add\("is-aiming-focus"\)/,
-    "集火时弓兵必须转向标记目标");
-  assert.match(stage, /const targets = focus \? \[focus\] : liveTargets/,
-    "下一轮齐射必须飞向标记目标");
-  assert.match(exec, /performFocusedVolley\(archers, mark\)/,
-    "引擎没有后续齐射事件时，军令必须补一轮纯表现齐射");
-  const focusVolley = stage
-    .slice(stage.indexOf("function performFocusedVolley"), stage.indexOf("function applyKill"))
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|\s)\/\/[^\n]*/g, "$1");
-  assert.doesNotMatch(focusVolley, /applyKill|damageTaken|hpCurrent|survivors/,
-    "集火齐射不能改变任何已结算结果");
-  assert.match(focusVolley, /\[mark\]/, "集火齐射必须只瞄准标记目标");
-  assert.equal(P.COMMAND_FOCUS_TOKENS, 3);
-});
-
-test("7: the record replays, and never exceeds two", () => {
-  assert.match(stage, /if \(!root \|\| commandLog\.length >= P\.COMMAND_WINDOWS\) return;/);
-  assert.match(stage, /const replay = options\.replayCommands\?\.\(\)\?\.\[windowIndex\];/);
-  assert.match(stage, /commandLog\.push\(record\)/);
-  assert.match(stage, /\{ n: index \+ 1, command, t: Math\.round\(virtualTime\), source \}/);
-  // Autoplay and reduced motion answer instantly; a skipped battle is never asked.
-  assert.match(stage, /if \(options\.autoCommand\?\.\(\) \|\| reducedMotion\.matches\)/);
-  // The record is per battle. Carrying it over would replay the LAST battle's
-  // orders into this one instead of asking, and grow unbounded in the save.
-  assert.match(battle, /state\.battlePlayback\.commands = \[\];/);
-  assert.match(stage, /closeCommandGate\(\);\s*\n\s*cancelAnimationFrame/);
-});
-
-test("7: the balance-side command formula is untouched", () => {
+test("7: the mid-battle command layer is absent while its engine plumbing remains", () => {
+  const main = readFileSync(new URL("../outputs/js/main.js", import.meta.url), "utf8");
+  const sim = readFileSync(new URL("../outputs/js/sim.js", import.meta.url), "utf8");
+  assert.doesNotMatch(stage, /stage-orders|stage-order-chips|openCommandGate|issueCommand|commandWindows/);
+  assert.doesNotMatch(css, /stage-orders|stage-order-chips|is-awaiting-order|orders-in/);
+  assert.doesNotMatch(main, /autoCommand|replayCommands|onCommand|recordStageCommand/);
+  assert.doesNotMatch(sim, /chooseBattleCommand/, "the autoplay bot must not issue orders");
+  assert.doesNotMatch(guide, /autoOrders|__SG_COMMANDS__|order windows/);
+  assert.equal(P.COMMAND_WINDOWS, undefined);
+  // The compatibility seam is REMOVED-not-deleted: it may be revived later
+  // without changing the engine contract, but the stage does not read it.
   assert.deepEqual(Object.keys(CONFIG.F3_COMMANDS).sort(), ["charge", "focus", "hold"]);
   assert.deepEqual(CONFIG.F3_COMMANDS.charge, { attack: 1.1, defense: 0.9 });
   assert.deepEqual(CONFIG.F3_COMMANDS.hold, { attack: 1, defense: 1.1 });
@@ -541,9 +486,30 @@ test("7: the balance-side command formula is untouched", () => {
   assert.equal(CONFIG.F3_AUTOPLAY_COMMAND, "hold");
   assert.match(battle, /export function chooseBattleCommand\(state, command\)/);
   assert.match(battle, /applyF3BattleModifiers\(/);
-  // An unanswered order resolves to the value it always resolved to under
-  // autoplay, rather than stalling on a modal that no longer exists.
-  assert.match(battle, /chooseBattleCommand\(state, CONFIG\.F3_AUTOPLAY_COMMAND\)/);
+  assert.match(battle, /script\.command = battle\.commands\?\.player \|\| CONFIG\.F3_AUTOPLAY_COMMAND/);
+  assert.doesNotMatch(stage, /script\.command/);
+});
+
+test("7b: both headers use live token capacity and a new battle clears old settlement state", () => {
+  const raw = {
+    battleId: "count-audit",
+    terrain: "field",
+    sides: {
+      player: { label: "P", startTroops: 2, tokens: Array.from({ length: 4 }, (_, idx) => ({ idx, troopType: "militia" })) },
+      enemy: { label: "E", startTroops: 1, tokens: Array.from({ length: 5 }, (_, idx) => ({ idx, troopType: "bandit" })) }
+    },
+    events: [{ t: 0, type: "battle_start" }]
+  };
+  const normalized = normalizeScript(raw);
+  assert.deepEqual(liveCountsForScript(normalized), { player: 2, enemy: 1 });
+  assert.equal(normalized.sides.player.tokens.length, 2, "zero-capacity player ghosts are filtered");
+  assert.equal(normalized.sides.enemy.tokens.length, 1, "zero-capacity enemy ghosts are filtered");
+  assert.match(stage, /function syncCounts\(\)[\s\S]*?const counts = liveCountsForScript\(script\)/);
+  assert.match(stage, /countNodes\.player\.textContent = String\(counts\.player\)/);
+  assert.match(stage, /countNodes\.enemy\.textContent = String\(counts\.enemy\)/);
+  assert.match(stage, /options\.onCountSync\?\.\(/);
+  const play = stage.slice(stage.indexOf("function play"), stage.indexOf("function dispose"));
+  assert.match(play, /endEvent = null;/, "a previous battle result must not leak into the next header");
 });
 
 /* ---- 8. effects discipline ----------------------------------------------- */
@@ -582,15 +548,15 @@ test("9: every beat is emitted with its tier, type and kill", () => {
   assert.match(stage, /const beat = \{ tier: "light", kill: false, at: virtualTime, \.\.\.payload \};/);
   const strike = stage.slice(stage.indexOf("function performStrike"));
   assert.match(strike, /type: "strike",\s*\n\s*tier: tierName,\s*\n\s*kill: Boolean\(event\.kill\)/);
-  for (const type of ["arrow", "charge", "rout", "kill", "command", "shake"]) {
+  for (const type of ["arrow", "arrow_impact", "charge", "rout", "kill", "shake"]) {
     assert.match(stage, new RegExp(`type: "${type}"`), `no beat is emitted for ${type}`);
   }
 });
 
 /* ---- acceptance ---------------------------------------------------------- */
 
-test("acceptance: the styleguide carries the three recordings", () => {
-  for (const clip of ["field-15s", "archer-volley", "cavalry-charge"]) {
+test("acceptance: the styleguide carries all four recordings", () => {
+  for (const clip of ["field-15s", "archer-volley", "cavalry-charge", "archer-kill"]) {
     assert.match(guide, new RegExp(`clips/${clip}\\.webm`), `${clip} is not in the styleguide`);
     const file = new URL(`../outputs/clips/${clip}.webm`, import.meta.url);
     const bytes = readFileSync(file).length;
@@ -602,6 +568,22 @@ test("acceptance: the styleguide carries the three recordings", () => {
   // The harness must actually drive the shipped stage, not a mock of it.
   assert.match(guide, /import \{ createBattleStage \} from "\.\/js\/battle-stage\.js"/);
   assert.match(guide, /window\.__SG_PLAY__/);
+});
+
+test("acceptance: recordings prove two-sided count integrity and a complete archer kill", () => {
+  const report = JSON.parse(readFileSync(
+    new URL("./fixtures/stage-recording-report.json", import.meta.url), "utf8"
+  ));
+  const clips = report.filter((entry) => entry.beats);
+  assert.equal(clips.length, 4);
+  clips.forEach((entry) => {
+    assert.equal(entry.beats.countMismatches, 0, `${entry.name} header/live/DOM counts diverged`);
+  });
+  const archerKill = report.find((entry) => entry.name === "archer-kill");
+  assert.ok(archerKill, "dedicated archer-kill recording missing");
+  assert.ok(archerKill.beats.byType.arrow >= 1, "arrow never launched");
+  assert.ok(archerKill.beats.byType.arrow_impact >= 1, "arrow never reached its strike beat");
+  assert.ok(archerKill.beats.byType.kill >= 1, "arrow kill never reached the held death sequence");
 });
 
 test("acceptance: 390x844 mid-charge still proves front/middle/rear separation", () => {

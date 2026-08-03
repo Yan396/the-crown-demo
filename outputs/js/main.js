@@ -57,7 +57,6 @@ import {
 import {
   recordHelpCardOpen,
   recordQuitPoint,
-  recordStageCommand,
   sharePlaytestResult,
   startTelemetrySession
 } from "./telemetry.js";
@@ -237,19 +236,6 @@ function getBattleStage() {
     },
     onSkip: () => {
       if (state.battlePlayback) state.battlePlayback.skip = true;
-    },
-    // ITEM 7: autoplay never waits on a chip, and a replayed battle repeats the
-    // orders it was given rather than asking again.
-    autoCommand: () => autoplayEnabled,
-    replayCommands: () => state.battlePlayback?.commands || null,
-    // The order is PRESENTATION: it moves ranks, writes a dispatch line and is
-    // recorded. It never re-resolves the battle -- the battle was resolved
-    // before the first frame and its numbers are already on the script.
-    onCommand: (record) => {
-      recordStageCommand(state, record);
-      if (state.battlePlayback) {
-        state.battlePlayback.commands = (state.battlePlayback.commands || []).concat([record]);
-      }
     }
   });
   if (query.get("qa") === "1") window.__CROWN_STAGE__ = battleStage;

@@ -36,6 +36,7 @@
 <div class="bench">
   <button data-play="field">野战 · 15s 标准</button>
   <button data-play="archers">弓箭 close</button>
+  <button data-play="archerKill">弓箭命中</button>
   <button data-play="cavalry">骑兵冲击</button>
   <button data-play="town">守城齐射</button>
   <button data-play="officers">部将</button>
@@ -46,7 +47,7 @@
 <section class="clips">
   <h1>战斗表现 · 实机录像</h1>
   <p>
-    以下三段均为 Chromium 实机录制（1× 播放，390×844），由
+    以下四段均为 Chromium 实机录制（1× 播放，390×844），由
     <code>work/record_stage.mjs</code> 驱动本页的确定性脚本产出，非静态截图拼接。
     Recorded from this page's own deterministic fixtures at 1× speed.
   </p>
@@ -55,7 +56,7 @@
       <video src="clips/field-15s.webm" controls muted loop playsinline preload="metadata"></video>
       <figcaption>
         <b>(a) 15s 中型野战 · promo standard</b>
-        16 tokens、枪弓骑混编、两次军令窗口、两次镜头震动（接敌 + 最后一击）。
+        16 tokens、枪弓骑混编、战前阵型承诺、两次镜头震动（接敌 + 最后一击）。
       </figcaption>
     </figure>
     <figure class="clip">
@@ -70,6 +71,13 @@
       <figcaption>
         <b>(c) 骑兵冲击入接敌</b>
         2.2× 推进距离、提前 300ms 接敌、HEAVY 档 200ms 预备 / 130ms 定格 / 16px 击退，冲阵后停在阵线之前。
+      </figcaption>
+    </figure>
+    <figure class="clip">
+      <video src="clips/archer-kill.webm" controls muted loop playsinline preload="metadata"></video>
+      <figcaption>
+        <b>(d) 弓箭命中完整拍</b>
+        搭箭、飞行、命中拍移除箭矢、目标击退、方向墨溅、伤害数字与死亡定格连续完成。
       </figcaption>
     </figure>
   </div>
@@ -154,8 +162,8 @@ function mockScript({
     sides: { player: side("我军", n, playerArms), enemy: side("匪队", n, enemyArms) },
     events,
     formations: { player: "line", enemy: "wedge" },
-    // The F3 marker. The stage only offers battle orders when the script
-    // carries one, so the harness has to be an F3 script to exercise them.
+    // Kept as a dormant engine field for compatibility. The stage deliberately
+    // ignores it: formation is the only player decision around a battle.
     command: "hold"
   };
   if (officers) {
@@ -165,7 +173,7 @@ function mockScript({
   return script;
 }
 
-/* The three recorded fixtures, named so the recorder can ask for them by key. */
+/* The recorded fixtures, named so the recorder can ask for them by key. */
 const FIXTURES = {
   field: () => mockScript({
     n: 16, rounds: 3, volley: 4,
@@ -174,6 +182,29 @@ const FIXTURES = {
   archers: () => mockScript({
     n: 8, rounds: 3, volley: 5,
     playerArms: [BOW], enemyArms: [FOE]
+  }),
+  archerKill: () => ({
+    battleId: "sg-archer-kill",
+    terrain: "field",
+    // One rear-rank archer protected by a melee screen, so the recording shows
+    // a legal shot rather than an already-overrun bow line.
+    sides: { player: side("我军", 4, [SPEAR, SPEAR, BOW, SPEAR]), enemy: side("匪队", 4, [FOE]) },
+    events: [
+      { t: 0, type: "battle_start" },
+      { t: 100, type: "round_start", n: 1 },
+      {
+        t: 130, type: "strike", beat: 0,
+        from: { side: "player", idx: 2 }, to: { side: "enemy", idx: 0 },
+        kill: true, dmgShown: 7, hpAfter: 0
+      },
+      { t: 170, type: "rout", side: "enemy" },
+      {
+        t: 220, type: "battle_end", winner: "player",
+        loot: { gold: 12, renown: 1 }, survivors: { player: 4, enemy: 3 }
+      }
+    ],
+    formations: { player: "line", enemy: "line" },
+    command: "hold"
   }),
   cavalry: () => mockScript({
     n: 10, rounds: 3,
@@ -200,30 +231,23 @@ const stage = createBattleStage(document.body, {
   },
   hintSeen: () => hintShown,
   persistHint: () => { hintShown = true; },
-  // The harness answers its own order windows, so a recording is repeatable:
-  // either a scripted pair (replayCommands) or the deterministic default.
-  autoCommand: () => Boolean(window.__SG_AUTO_ORDERS__) && !window.__SG_ORDERS__,
-  replayCommands: () => window.__SG_ORDERS__ || null,
-  onCommand: (record) => { window.__SG_COMMANDS__.push(record); },
+  onCountSync: (entry) => { window.__SG_COUNTS__.push(entry); },
   onBeat: (beat) => { window.__SG_BEATS__.push(beat); }
 });
 
 window.__SG_BEATS__ = [];
-window.__SG_COMMANDS__ = [];
+window.__SG_COUNTS__ = [];
 window.__SG_STAGE__ = stage;
 window.__SG_P__ = P;
 
 // One entry point for both the buttons and the recorder.
-window.__SG_PLAY__ = (key, { autoOrders = false, orders = null } = {}) => {
-  window.__SG_AUTO_ORDERS__ = autoOrders;
-  window.__SG_ORDERS__ = orders ? orders.map((command) => ({ command })) : null;
+window.__SG_PLAY__ = (key) => {
   window.__SG_BEATS__ = [];
-  window.__SG_COMMANDS__ = [];
+  window.__SG_COUNTS__ = [];
   const script = (FIXTURES[key] || FIXTURES.field)();
   window.__SG_DONE__ = false;
   stage.play(script, () => { window.__SG_DONE__ = true; });
   return {
-    windows: stage.commandWindows,
     tokens: {
       player: script.sides.player.tokens.length,
       enemy: script.sides.enemy.tokens.length
@@ -233,9 +257,8 @@ window.__SG_PLAY__ = (key, { autoOrders = false, orders = null } = {}) => {
 
 document.querySelectorAll("[data-play]").forEach((button) => {
   button.addEventListener("click", () => {
-    const info = window.__SG_PLAY__(button.dataset.play);
-    verdict.textContent = `playing ${button.dataset.play} · order windows @ ${
-      info.windows.map((ms) => `${Math.round(ms)}ms`).join(" / ")}`;
+    window.__SG_PLAY__(button.dataset.play);
+    verdict.textContent = `playing ${button.dataset.play}`;
   });
 });
 
@@ -247,7 +270,7 @@ document.querySelectorAll("[data-play]").forEach((button) => {
 document.getElementById("check-skip").addEventListener("click", async () => {
   const script = FIXTURES.field();
   const expected = script.events.at(-1).survivors;
-  window.__SG_PLAY__("field", { autoOrders: true });
+  window.__SG_PLAY__("field");
   await new Promise((resolve) => setTimeout(resolve, 120));
   stage.skip();
   await new Promise((resolve) => setTimeout(resolve, 60));

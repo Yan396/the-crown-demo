@@ -195,8 +195,7 @@ export function choosePlayerFormation(state, formation) {
   battle.formationModifiers = formationModifiers(battle.formations);
   if (state.demo?.modal === "formation") {
     // The formation is the whole pre-battle commitment and it ends here. It no
-    // longer chains into an order screen; the order is asked for on the stage,
-    // in the melee, where it means something.
+    // longer chains into an order screen or any mid-battle interaction.
     state.demo.modal = null;
     state.demo.pauseReason = null;
     state.paused = Boolean(battle.formations.resumePaused);
@@ -1001,9 +1000,31 @@ export function validateBattleScript(script, expected = null) {
       ok: false,
       errors: [script ? "battleScript contract invalid" : "battleScript missing"],
       casualties: null,
-      survivors: null
+      survivors: null,
+      roundBoundaries: []
     };
   }
+  // Recount the same live soldiers the stage headers display. This is checked
+  // for every autoplay battle, on both sides, at every round boundary. It is
+  // deliberately independent of token aggregation: a drawn token may stand
+  // for several soldiers, while a kill event always removes exactly one.
+  const live = {
+    player: Math.max(0, Number(script.sides.player.startTroops) || 0),
+    enemy: Math.max(0, Number(script.sides.enemy.startTroops) || 0)
+  };
+  const roundBoundaries = [];
+  script.events.forEach((event) => {
+    if (event.type === "round_start") {
+      roundBoundaries.push({ phase: "start", round: event.n, ...live });
+    }
+    if (event.type === "strike" && event.kill === true && live[event.to?.side] !== undefined) {
+      live[event.to.side] -= 1;
+      if (live[event.to.side] < 0) errors.push(`${event.to.side} live count below zero`);
+    }
+    if (event.type === "battle_end") {
+      roundBoundaries.push({ phase: "end", round: null, ...live });
+    }
+  });
   const strikes = script.events.filter((event) => event.type === "strike" && event.kill === true);
   const casualties = {
     player: strikes.filter((event) => event.to?.side === "player").length,
@@ -1020,8 +1041,12 @@ export function validateBattleScript(script, expected = null) {
     if (survivors?.player !== expected.survivors.player) errors.push("player survivors mismatch");
     if (survivors?.enemy !== expected.survivors.enemy) errors.push("enemy survivors mismatch");
   }
+  if (survivors) {
+    if (live.player !== survivors.player) errors.push("player live-count replay mismatch");
+    if (live.enemy !== survivors.enemy) errors.push("enemy live-count replay mismatch");
+  }
   if (!ending) errors.push("battle_end missing");
-  return { ok: errors.length === 0, errors, casualties, survivors };
+  return { ok: errors.length === 0, errors, casualties, survivors, roundBoundaries };
 }
 
 function incrementTelemetry(state, key, amount = 1) {
@@ -1310,10 +1335,9 @@ export function resolveBattleRound(state) {
   }
   ensureBattleCapture(state, battle, bandit);
   if (battle.formations?.eligible && !battle.formations.resolved) return null;
-  // The formation is the ONLY thing resolution waits on. The battle order used
-  // to hold it here behind a pre-battle modal; that modal is gone, because an
-  // order is something you give to an army that is already fighting, and the
-  // stage now asks for it twice during the melee.
+  // Formation is the ONLY thing resolution waits on. The battle order used to
+  // hold it behind a pre-battle modal and later appeared twice during melee;
+  // both player-facing paths are gone after playtest.
   //
   // The balance side is deliberately unchanged: F3_COMMANDS, chooseBattleCommand
   // and applyF3BattleModifiers all still exist and still own the numbers. What
@@ -1518,19 +1542,15 @@ export function startBattle(state, bandit, options = {}) {
     state.demo.pauseReason = "formation";
     state.paused = true;
   }
-  // The battle order is deliberately NOT opened here, and nowhere else either:
-  // it is given on the stage during the melee. See battle-stage.js
-  // openCommandGate.
+  // Formation is the complete player commitment. The historical command
+  // modifier remains in the resolved script for compatibility, but no command
+  // screen or mid-battle order interaction is opened anywhere.
   state.battleScript = null;
   state.battlePlayback ||= { speed: 1, skip: false };
   state.battlePlayback.speed = [1, 2, 4].includes(state.battlePlayback.speed)
     ? state.battlePlayback.speed
     : 1;
   state.battlePlayback.skip = false;
-  // The orders given on the stage belong to THIS battle. Carrying them over
-  // would both replay the last battle's orders into this one instead of asking,
-  // and grow without bound inside the save.
-  state.battlePlayback.commands = [];
   recordBiggestBattle(state, {
     tick: state.tick,
     banditId: bandit.id,
@@ -1598,9 +1618,9 @@ export function skipBattle(state) {
   if (state.battle?.formations?.eligible && !state.battle.formations.resolved) {
     return { type: "blocked", reason: "formation" };
   }
-  // The battle order no longer blocks anything: it is asked for on the stage,
-  // during the melee, and it is presentation. Resolution takes the same
-  // deterministic value it has always taken under autoplay. resolveBattleRound
+  // The battle order no longer blocks anything or appears on the stage.
+  // Resolution takes the same deterministic compatibility value it has always
+  // taken under autoplay. resolveBattleRound
   // would do this on its first pass anyway; doing it here keeps skipBattle's
   // "no partially-set-up battle" precondition explicit.
   if (state.features?.f3 && state.battle?.commands && !state.battle.commands.resolved) {

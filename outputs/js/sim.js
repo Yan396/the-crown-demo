@@ -9,7 +9,6 @@ import {
 import {
   checkForEncounter,
   checkForHostileLordEncounter,
-  chooseBattleCommand,
   choosePlayerFormation,
   counterFormation,
   resolveAiBattle,
@@ -1418,6 +1417,9 @@ export function worldTick(state) {
     if (!battleScriptCheck.ok) {
       throw new Error(`Autoplay battleScript mismatch: ${battleScriptCheck.errors.join(", ")}`);
     }
+    if (!battleScriptCheck.roundBoundaries.length) {
+      throw new Error("Autoplay battleScript has no count boundary audit");
+    }
     const stageEnd = [...(state.battleScript?.events || [])]
       .reverse()
       .find((event) => event.type === "battle_end");
@@ -1894,13 +1896,12 @@ function resolveAutoplayModal(state) {
     choosePlayerFormation(state, counterFormation(report));
     return true;
   }
-  // No "battleCommand" modal exists any more -- the order is given on the
-  // battle stage, in the melee, and it is presentation. Kept as a no-op guard
-  // so an old save carrying that modal cannot wedge autoplay.
+  // No "battleCommand" modal exists any more. Clear the stale save marker but
+  // do not let the autoplay bot issue an order; resolution owns its unchanged
+  // deterministic compatibility fallback.
   if (state.demo.modal === "battleCommand") {
     state.demo.modal = null;
     state.demo.pauseReason = null;
-    chooseBattleCommand(state, CONFIG.F3_AUTOPLAY_COMMAND);
     return true;
   }
   return false;
@@ -1955,6 +1956,7 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
   const resolvedBattleRoundCounts = [];
   let act2BattleRoundCounts = null;
   let battleScriptsChecked = 0;
+  let battleRoundBoundariesChecked = 0;
 
   while (
     state.telemetry.totalActiveSeconds < maximumActiveSeconds &&
@@ -1980,7 +1982,10 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
         resolvedBattleRounds += roundCount;
         resolvedBattleRoundCounts.push(roundCount);
       }
-      if (result.battleScriptCheck?.ok) battleScriptsChecked += 1;
+      if (result.battleScriptCheck?.ok) {
+        battleScriptsChecked += 1;
+        battleRoundBoundariesChecked += result.battleScriptCheck.roundBoundaries.length;
+      }
       if (firstBattleSeconds === null && state.stats.battles > 0) firstBattleSeconds = activeSeconds;
       if (firstEventSeconds === null && result.roadEventResult?.triggered) {
         firstEventSeconds = activeSeconds;
@@ -2043,6 +2048,7 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
     act2BattleRoundCounts,
     endingBattleRoundCounts: state.demo.ended ? resolvedBattleRoundCounts.slice() : null,
     battleScriptsChecked,
+    battleRoundBoundariesChecked,
     roadEventChoicesChecked: roadEventEffectAudit.choicesChecked,
     activeSeconds: state.telemetry.totalActiveSeconds,
     targets: {
