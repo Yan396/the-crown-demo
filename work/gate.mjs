@@ -30,7 +30,8 @@ const ALL = [
   "test_phase25", "test_casual_pass", "test_decode_acceptance", "test_final_roads",
   "test_battle_script", "test_stage_contract", "test_prompt_a", "test_gameplay_depth",
   "test_v11", "test_v11_hp", "test_battle_integrity", "test_f1_act3",
-  "test_f2_act4", "test_f3_armies", "test_f4_final", "test_gate_hygiene"
+  "test_f2_act4", "test_f3_armies", "test_f4_final", "test_gate_hygiene",
+  "test_f3_motion"
 ];
 
 const variant = process.argv[2] === "demo" ? "demo" : "full";

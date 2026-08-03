@@ -2829,6 +2829,56 @@ body.battle-stage-open #town-sheet {
 .stage-speed:active { background: rgba(43, 38, 32, 0.1); }
 .stage-speed:focus-visible { outline: 2px solid var(--cinnabar); outline-offset: 2px; }
 
+/* -- F3 unit motion --------------------------------------------------------- */
+/* A loosed shaft. Positioned by the animation's transform, so the element
+   itself sits at the origin and never needs layout. */
+.stage-shaft {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 16px;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(43,38,32,0) 0%, var(--ink) 42%, var(--ink) 100%);
+  transform-origin: 50% 50%;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+/* Pose holds: the silhouette is STILL in each pose long enough to be read.
+   steps() is what makes it land as drawn frames rather than a smear. */
+.stage-token.is-striking .fig-pose {
+  animation: pose-strike 320ms steps(1, end) both;
+}
+
+@keyframes pose-strike {
+  0%,   36% { transform: rotate(-9deg); }   /* wind-up, held */
+  37%,  68% { transform: rotate(14deg); }   /* contact, held */
+  69%,  99% { transform: rotate(5deg); }    /* follow-through, held */
+  100%      { transform: rotate(0deg); }
+}
+
+/* Cavalry hits with weight: further lunge, and it stays forward afterwards. */
+.stage-token.is-charging .fig-pose {
+  animation: pose-charge 340ms steps(1, end) both;
+}
+
+@keyframes pose-charge {
+  0%,   30% { transform: rotate(-13deg) translateX(-4px); }
+  31%,  70% { transform: rotate(20deg) translateX(10px); }
+  71%, 100% { transform: rotate(6deg) translateX(4px); }
+}
+
+/* Knockback scales with what hit you -- cavalry moves you further than a spear. */
+.stage-token.is-reeling {
+  animation: token-knock 260ms ease-out both;
+}
+
+@keyframes token-knock {
+  0%   { translate: 0 0; }
+  45%  { translate: calc(-1 * var(--knock, 8px)) 0; }
+  100% { translate: 0 0; }
+}
+
 /* -- wall archers ----------------------------------------------------------- */
 /* Terrain scenery for a town fight, not a unit: they stand on the wall, belong
    to neither roster, and no troop token is ever swapped for a bow. */
