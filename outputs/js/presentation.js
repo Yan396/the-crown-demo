@@ -70,6 +70,25 @@ export const CONFIG_PRESENTATION = Object.freeze({
   /* -- playback speed ------------------------------------------------------ */
   SPEED_STEPS: Object.freeze([1, 2, 4]),
 
+  /* -- F3 unit motion ------------------------------------------------------ */
+  // Arrows launch this far BEFORE their strike so the impact stays on the beat.
+  ARROW_LEAD_MS: 320,
+  ARROW_ARC_PX: 46,           // bezier rise; the shot must read as an arc
+  ARROW_SPREAD_MS: 60,        // stagger inside one volley
+  // Cavalry cover far more ground than the infantry advance and land first.
+  CAVALRY_ADVANCE_MULTIPLIER: 2.2,
+  CAVALRY_LEAD_MS: 300,
+  CAVALRY_HIT_PAUSE_MS: 100,  // vs STRIKE_PAUSE_MS for spear
+  CAVALRY_KNOCKBACK_PX: 14,
+  INFANTRY_KNOCKBACK_PX: 8,
+  // Held keyframes: the silhouette must be STILL long enough to be read.
+  POSE_WINDUP_MS: 120,
+  POSE_CONTACT_MS: 100,
+  POSE_FOLLOW_MS: 100,
+  // Too many tokens moving in one frame is a blur, not a battle.
+  MAX_CONCURRENT_ACTORS: 6,
+  STAGE_TOKEN_CAP: 16,
+
   /* -- shared -------------------------------------------------------------- */
   ARROW_FLIGHT_MS: 620,
   LONG_PRESS_MS: 600,
