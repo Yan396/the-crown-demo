@@ -90,6 +90,36 @@ function seededRandom(seed) {
  *    empties. That is what makes watched and skipped survivors land exactly on
  *    battle_end.survivors.
  */
+/**
+ * Fold the engine's buckets down to at most STAGE_TOKEN_CAP drawn figures.
+ *
+ * PRESENTATION ONLY. Capacity is summed, never rounded, so survivorsOf() and
+ * therefore the end-of-battle count are bit-for-bit what they were; the engine
+ * keeps its own 24-bucket arithmetic untouched. A merged token simply stands
+ * for more men, exactly as a token already did above 24 troops.
+ */
+export function aggregateTokens(tokens) {
+  const cap = P.STAGE_TOKEN_CAP;
+  if (tokens.length <= cap) {
+    return tokens.map((token) => ({ ...token, covers: [token.idx] }));
+  }
+  const perVisual = Math.ceil(tokens.length / cap);
+  const merged = [];
+  for (let start = 0; start < tokens.length; start += perVisual) {
+    const group = tokens.slice(start, start + perVisual);
+    const head = group[0];
+    merged.push({
+      idx: head.idx,
+      troopType: head.troopType,
+      arm: head.arm || null,
+      capacity: group.reduce((sum, token) => sum + token.capacity, 0),
+      covers: group.map((token) => token.idx),
+      node: null
+    });
+  }
+  return merged;
+}
+
 export function normalizeScript(raw) {
   const sides = {};
   ["player", "enemy"].forEach((key) => {
@@ -100,14 +130,22 @@ export function normalizeScript(raw) {
       label: source.label,
       startTroops: total,
       weight,
-      tokens: (source.tokens || []).map((token) => ({
-        idx: token.idx,
-        troopType: token.troopType,
-        arm: token.arm || null,
-        capacity: Math.max(0, Math.min(weight, total - token.idx * weight)),
-        node: null
-      }))
+      tokens: aggregateTokens(
+        (source.tokens || []).map((token) => ({
+          idx: token.idx,
+          troopType: token.troopType,
+          arm: token.arm || null,
+          capacity: Math.max(0, Math.min(weight, total - token.idx * weight)),
+          node: null
+        }))
+      )
     };
+    // Engine idx -> the visual token that stands for it. Strike events name an
+    // engine idx, so this is what keeps them resolvable after aggregation.
+    sides[key].byIdx = new Map();
+    sides[key].tokens.forEach((token) => {
+      token.covers.forEach((idx) => sides[key].byIdx.set(idx, token));
+    });
   });
   const normalized = {
     battleId: raw.battleId,
@@ -690,8 +728,15 @@ export function createBattleStage(host, options = {}) {
         const along = (token.baseX - low) / span;
         const leading = dir === 1 ? along : 1 - along;
         const target = centre + dir * (leading - P.MELEE_BIAS) * band;
-        const travel = (target - token.baseX) * ratio;
+        let travel = (target - token.baseX) * ratio;
         const jitter = token.jitterX * P.MELEE_JITTER_PX * ratio;
+        // Cavalry cover far more ground and get there first: the charge has to
+        // be a real advance, not a wobble in place.
+        const mounted = token.arm === "cavalry";
+        if (mounted) {
+          travel *= P.CAVALRY_ADVANCE_MULTIPLIER;
+          token.node.style.setProperty("--lag", `-${P.CAVALRY_LEAD_MS}ms`);
+        }
         token.melee = Math.round(travel + jitter);
         token.node.style.setProperty("--mx", `${token.melee}px`);
         // No vertical component: closing on the centreline happens along the
@@ -774,7 +819,10 @@ export function createBattleStage(host, options = {}) {
   }
 
   function tokenAt(sideKey, idx) {
-    return script.sides[sideKey].tokens.find((token) => token.idx === idx) || null;
+    const side = script.sides[sideKey];
+    // Engine idx first: after aggregation several engine buckets share one
+    // drawn figure, and a strike still names the engine's idx.
+    return side.byIdx?.get(idx) || side.tokens.find((token) => token.idx === idx) || null;
   }
 
   /* -- ink ------------------------------------------------------------------ */
@@ -792,6 +840,58 @@ export function createBattleStage(host, options = {}) {
       );
       stainContext.fill();
     }
+  }
+
+  /*
+   * F3 unit motion. All of it is scripted along precomputed paths driven by
+   * events the engine already emitted -- no physics, no feedback, and nothing
+   * here reads or writes a battle result.
+   */
+  let activeActors = 0;
+
+  // Too many silhouettes moving in one frame is a blur. Over the cap a token
+  // still takes its damage on time; only its POSE is nudged into the next
+  // beat, so data and display never disagree.
+  function actorSlot(run) {
+    if (activeActors < P.MAX_CONCURRENT_ACTORS) {
+      activeActors += 1;
+      run();
+      pending.push(window.setTimeout(() => { activeActors = Math.max(0, activeActors - 1); },
+        P.POSE_WINDUP_MS + P.POSE_CONTACT_MS + P.POSE_FOLLOW_MS));
+      return;
+    }
+    pending.push(window.setTimeout(() => actorSlot(run), P.POSE_WINDUP_MS));
+  }
+
+  // A quadratic bezier from bow to chest, the shaft rotated to its own
+  // velocity so it never flies sideways.
+  function flyArrow(from, to, delay = 0) {
+    if (!worldNode) return;
+    const arrow = document.createElement("i");
+    arrow.className = "stage-shaft";
+    worldNode.appendChild(arrow);
+    const midX = (from.x + to.x) / 2;
+    const midY = Math.min(from.y, to.y) - P.ARROW_ARC_PX;
+    const frames = [];
+    const STEPS = 12;
+    for (let step = 0; step <= STEPS; step += 1) {
+      const t = step / STEPS;
+      const inv = 1 - t;
+      const x = inv * inv * from.x + 2 * inv * t * midX + t * t * to.x;
+      const y = inv * inv * from.y + 2 * inv * t * midY + t * t * to.y;
+      const dx = 2 * inv * (midX - from.x) + 2 * t * (to.x - midX);
+      const dy = 2 * inv * (midY - from.y) + 2 * t * (to.y - midY);
+      frames.push({
+        offset: t,
+        transform: `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) rotate(${
+          (Math.atan2(dy, dx) * 180 / Math.PI).toFixed(1)}deg)`,
+        opacity: t > 0.92 ? 0 : 1
+      });
+    }
+    if (!reducedMotion.matches && arrow.animate) {
+      arrow.animate(frames, { duration: P.ARROW_LEAD_MS, delay, easing: "linear", fill: "both" });
+    }
+    ephemeral(arrow, delay + P.ARROW_LEAD_MS + 40);
   }
 
   function stagePoint(node) {
@@ -911,25 +1011,43 @@ export function createBattleStage(host, options = {}) {
     return target.capacity === 0;
   }
 
+  // Fired ARROW_LEAD_MS before the strike it belongs to, so the shaft is in
+  // the air and lands exactly on the beat rather than after it.
+  function launchArrow(event) {
+    const from = tokenAt(event.from.side, event.from.idx);
+    const to = tokenAt(event.to.side, event.to.idx);
+    if (!from?.node || !to?.node) return;
+    flyArrow(stagePoint(from.node), stagePoint(to.node), 0);
+  }
+
   function performStrike(event) {
     audio?.hit?.(event);
     const source = tokenAt(event.from.side, event.from.idx);
     const target = tokenAt(event.to.side, event.to.idx);
+    // Cavalry lands heavier than a spear: longer freeze, wider splatter, and a
+    // bigger knock on whoever it hit. The difference has to be felt.
+    const mounted = source?.arm === "cavalry";
+    const pause = mounted ? P.CAVALRY_HIT_PAUSE_MS : TIMING.HIT_PAUSE;
     if (source?.node) {
-      source.node.classList.remove("is-striking");
-      void source.node.offsetWidth;
-      source.node.classList.add("is-striking");
+      actorSlot(() => {
+        source.node.classList.remove("is-striking");
+        void source.node.offsetWidth;
+        source.node.classList.toggle("is-charging", mounted);
+        source.node.classList.add("is-striking");
+      });
     }
     if (!target?.node) {
       if (event.kill) applyKill(event);
       syncCounts();
       return;
     }
+    target.node.style.setProperty(
+      "--knock", `${mounted ? P.CAVALRY_KNOCKBACK_PX : P.INFANTRY_KNOCKBACK_PX}px`
+    );
 
-    // 60ms hit-pause: the whole stage freezes on impact.
-    frozenUntilReal = performance.now() + TIMING.HIT_PAUSE;
+    frozenUntilReal = performance.now() + pause;
     root.classList.add("is-hit-paused");
-    pending.push(window.setTimeout(() => root && root.classList.remove("is-hit-paused"), TIMING.HIT_PAUSE));
+    pending.push(window.setTimeout(() => root && root.classList.remove("is-hit-paused"), pause));
 
     const point = stagePoint(target.node);
     burst(point.x, point.y - 16);
@@ -1050,7 +1168,22 @@ export function createBattleStage(host, options = {}) {
     // the phases instead of desynchronising them. They carry no data at all:
     // dataRun is a no-op, which is what keeps skip identical to watching.
     const contactAt = P.DEPLOY_MS + P.STANDOFF_MS + P.CHARGE_MS;
+    // One arrow cue per archer strike, launched ARROW_LEAD_MS early so the
+    // shaft is already in the air when the hit lands on the beat. Offsetting
+    // the LAUNCH keeps the impact in sync; delaying the hit would not.
+    const arrowCues = [];
+    script.events.forEach((event, index) => {
+      if (event.type !== "strike") return;
+      const shooter = script.sides[event.from.side]?.byIdx?.get(event.from.idx);
+      if (shooter?.arm !== "archer") return;
+      arrowCues.push({
+        at: Math.max(0, times[index] - P.ARROW_LEAD_MS),
+        run: () => launchArrow(event)
+      });
+    });
+
     const cues = [
+      ...arrowCues,
       { at: 0, run: () => setPhase("deploy") },
       { at: P.DEPLOY_MS, run: () => { setPhase("standoff"); log(translate("stage.standoff")); } },
       {
