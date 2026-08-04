@@ -1938,12 +1938,25 @@ export function createBattleStage(host, options = {}) {
 
     const tally = root.querySelector(".stage-tally");
     tally.hidden = false;
-    // Dock it to the paper's lower edge, measured rather than assumed, so it
-    // rises into the empty space under the sheet at any viewport height.
+    tally.innerHTML =
+      `<dl><div><dt>${translate("stage.tallyGold")}</dt><dd data-target="${event.loot.gold}">0</dd></div>` +
+      `<div><dt>${translate("stage.tallyRenown")}</dt><dd data-target="${event.loot.renown}">0</dd></div></dl>` +
+      `<button type="button" class="stage-continue">${translate("stage.continue")}</button>`;
+
+    /*
+     * Dock it to the paper's lower edge, clamped into the viewport.
+     *
+     * The content is written FIRST on purpose: offsetHeight was read while the
+     * panel was still empty, so the clamp was computed against a ~36px box and
+     * left the real 141px panel -- and the 继续 button with it -- hanging off
+     * the bottom of the screen. That was survivable only while the sheet was a
+     * short centred card, because `below` was then small enough that the clamp
+     * never won. On a full-bleed sheet `below` IS the viewport bottom, the
+     * clamp is the only thing positioning the panel, and a player who cannot
+     * reach 继续 cannot leave the battle at all.
+     */
     const paper = root.querySelector(".stage-paper");
     if (paper) {
-      // Clamp to the viewport: with a full-height battlefield the paper's lower
-      // edge can sit close enough to the bottom that the panel would slide off.
       const below = paper.getBoundingClientRect().bottom;
       const room = window.innerHeight - tally.offsetHeight - P.TALLY_VIEWPORT_MARGIN_PX;
       tally.style.top = `${Math.round(Math.max(0, Math.min(below, room)))}px`;
@@ -1957,10 +1970,6 @@ export function createBattleStage(host, options = {}) {
     } else {
       tally.classList.add("is-in");
     }
-    tally.innerHTML =
-      `<dl><div><dt>${translate("stage.tallyGold")}</dt><dd data-target="${event.loot.gold}">0</dd></div>` +
-      `<div><dt>${translate("stage.tallyRenown")}</dt><dd data-target="${event.loot.renown}">0</dd></div></dl>` +
-      `<button type="button" class="stage-continue">${translate("stage.continue")}</button>`;
 
     const numbers = [...tally.querySelectorAll("dd")];
     if (reducedMotion.matches || skipped) {

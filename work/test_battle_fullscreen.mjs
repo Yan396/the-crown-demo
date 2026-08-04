@@ -218,6 +218,33 @@ test("figures are not simply scaled up to fill the bigger stage", () => {
   assert.match(world, /transform:\s*scale\(var\(--zoom, 1\)\)/, "only the existing camera zoom");
 });
 
+/* ---- the way out ---------------------------------------------------------- */
+
+test("the tally is measured AFTER it has content, so 继续 stays on screen", () => {
+  // The regression this exists for: offsetHeight was read while the panel was
+  // still empty, so the clamp used a ~36px box and pushed the real ~141px
+  // panel -- and the only button out of a battle -- below the fold. It was
+  // survivable only while the sheet was a short centred card, because
+  // `paper.bottom` was then small enough that the clamp never won.
+  const at = stage.indexOf('const tally = root.querySelector(".stage-tally")');
+  assert.ok(at > 0, "the tally block moved");
+  const body = stage.slice(at, at + 2600);
+  const content = body.indexOf("tally.innerHeight") >= 0
+    ? body.indexOf("tally.innerHeight")
+    : body.indexOf("tally.innerHTML =");
+  const measure = body.indexOf("tally.offsetHeight");
+  assert.ok(content > 0 && measure > 0, "tally content or measurement missing");
+  assert.ok(
+    content < measure,
+    "the tally is measured before it has content -- the clamp will be wrong"
+  );
+  // ...and it is still clamped into the viewport at all.
+  assert.match(body, /window\.innerHeight - tally\.offsetHeight - P\.TALLY_VIEWPORT_MARGIN_PX/);
+  assert.match(body, /Math\.max\(0, Math\.min\(below, room\)\)/);
+  // The button that leaves the battle must still be wired to dispose.
+  assert.match(stage, /\.stage-continue"\)\.addEventListener\("click", \(\) => \{[\s\S]{0,120}dispose\(\);/);
+});
+
 /* ---- teardown ----------------------------------------------------------- */
 
 test("dispose removes the layer and every trace of the takeover", () => {
