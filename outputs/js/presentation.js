@@ -130,6 +130,9 @@ export const CONFIG_PRESENTATION = Object.freeze({
   // melee line. Rear is expressed both in camera depth and away from centre.
   ARCHER_REAR_DEPTH: 0.92,
   ARCHER_REAR_OFFSET_PX: 22,
+  // Must match `.stage-ranks-player { left }` / `-enemy { right }` in ui.css:
+  // it is the only room the rear offset has before a figure leaves the page.
+  RANK_INSET_RATIO: 0.07,
   ARCHER_HOLD_BACK_DEPTH: 0.08,
   ARCHER_RANGE_ARC_MS: 900,
   ARCHER_OVERRUN_MARGIN_PX: 12,
@@ -166,6 +169,20 @@ export const CONFIG_PRESENTATION = Object.freeze({
   TOKEN_MAX_HEIGHT_PX: 104,
   TOKEN_ASPECT: 0.8,            // width / height
   LIEUTENANT_SCALE: 1.3,        // 6a: an officer is 30% larger, exactly
+
+  /* -- 1c: placing the field on a full-bleed page ---------------------------- */
+  // The army band is a FIXED height -- CAMERA.DEPTH_RISE_PX plus one figure --
+  // because depth is drawn in real pixels, not as a share of the sheet. That
+  // was invisible while the sheet was a 400px card. On a stage that fills the
+  // viewport the band has to be PLACED, or a tall phone shows a correct battle
+  // pinned to the bottom under an acre of blank paper.
+  //
+  // Measured UP FROM THE BOTTOM of the world, so a value under 0.5 leaves more
+  // sky above the heads than ground below the feet -- which is how the band
+  // already read on the old sheet, and how a ground plane is drawn.
+  STAGE_BAND_CENTRE_FROM_BOTTOM: 0.46,
+  STAGE_GROUND_MIN_PX: 12,   // the front rank's feet never touch the dispatch line
+  WALL_LIFT_RATIO: 0.5,      // crenellations stand this far up the band
 
   /* -- ink discipline ------------------------------------------------------- */
   // The field has to read as aftermath, not as mud. Blots scale with how many
@@ -303,7 +320,13 @@ export function shakeOffsetPx(stageWidth) {
  * vertical pixels, so the three cues can never disagree.
  */
 export const CAMERA = Object.freeze({
-  DEPTH_RISE_PX: 140,  // how far the far rank sits up the sheet
+  DEPTH_RISE_PX: 140,  // how far the far rank sits up the sheet -- the FLOOR
+  // 1c: on a full-bleed stage a fixed rise is what leaves the page empty. The
+  // formation's DEPTH grows with the sheet; the men do not (TOKEN_MAX_HEIGHT_PX
+  // still binds). A deeper field with normal-sized men is how you would draw
+  // it; scaling the figures up instead would just be a magnified small stage.
+  DEPTH_RISE_RATIO: 0.5,     // of the world height
+  DEPTH_RISE_MAX_PX: 480,    // ...but a desktop is not a vertical scatter
   NEAR_SCALE: 1.18,    // front of the field
   FAR_SCALE: 0.74,     // back of the field
   // Haze, not disappearance. The far rank has to stay INK -- at 0.42 a raked
@@ -350,10 +373,22 @@ export function armyBandRatio({ worldHeight, tokenHeight, depthSpread = 1, nearD
   return (lowest - highest) / worldHeight;
 }
 
-export function depthPlacement(depth) {
+/*
+ * How far the far rank rises on a stage of this height. Clamped at both ends:
+ * the shipped 140px is the floor, so a short landscape stage is unchanged.
+ */
+export function depthRiseFor(worldHeight) {
+  const target = (Number(worldHeight) || 0) * CAMERA.DEPTH_RISE_RATIO;
+  return Math.round(Math.max(
+    CAMERA.DEPTH_RISE_PX,
+    Math.min(CAMERA.DEPTH_RISE_MAX_PX, target)
+  ));
+}
+
+export function depthPlacement(depth, rise = CAMERA.DEPTH_RISE_PX) {
   const d = Math.max(0, Math.min(1, depth));
   return {
-    ty: -d * CAMERA.DEPTH_RISE_PX,
+    ty: -d * rise,
     scale: CAMERA.NEAR_SCALE - d * (CAMERA.NEAR_SCALE - CAMERA.FAR_SCALE),
     fade: 1 - d * (1 - CAMERA.FAR_FADE),
     // Nearer figures occlude further ones, or the cross-section falls apart.

@@ -6,6 +6,7 @@ import {
   FORMATION_SHAPE,
   WEIGHT_TIERS,
   depthPlacement,
+  depthRiseFor,
   movementDurationMs,
   movementSpeedFor,
   shakeOffsetPx,
@@ -719,6 +720,67 @@ export function createBattleStage(host, options = {}) {
     root.querySelector(".stage-speed").addEventListener("click", cycleSpeed);
   }
 
+  /*
+   * Where the ground line sits on the page.
+   *
+   * The band the two armies occupy is depthRiseFor(world) + one figure tall.
+   * It is drawn in real pixels, so it does not centre itself. A fixed
+   * `bottom` percentage was fine on a 400px card and wrong on a full-bleed
+   * stage: it pinned the battle low and left the rest of the page empty. This
+   * places the band's middle instead, so the melee line reads as centred at
+   * every viewport. Nothing about how a figure is drawn changes.
+   */
+  function layoutGround(tokenHeight) {
+    if (!worldNode) return null;
+    const worldHeight = worldNode.clientHeight;
+    const band = depthRiseFor(worldHeight) + tokenHeight;
+    const centre = worldHeight * P.STAGE_BAND_CENTRE_FROM_BOTTOM;
+    const ground = Math.round(Math.max(
+      P.STAGE_GROUND_MIN_PX,
+      Math.min(Math.max(P.STAGE_GROUND_MIN_PX, worldHeight - band), centre - band / 2)
+    ));
+    worldNode.style.setProperty("--ground-bottom", `${ground}px`);
+    worldNode.style.setProperty("--band-h", `${Math.round(band)}px`);
+    worldNode.style.setProperty(
+      "--wall-bottom", `${Math.round(ground + band * P.WALL_LIFT_RATIO)}px`
+    );
+    return ground;
+  }
+
+  /*
+   * How far a figure may still be pushed AWAY from the centre line before it
+   * leaves the page. The rank anchor's inset is all the room there is, and a
+   * 390px stage carrying a 64px figure has almost none of it -- which is how
+   * the rear archers ended up half off the right edge. Both outward pushes,
+   * the parade rear offset and the overrun backstep, go through this.
+   */
+  function outwardRoom(tokenHeight) {
+    if (!worldNode) return 0;
+    return Math.max(
+      0,
+      worldNode.clientWidth * P.RANK_INSET_RATIO - tokenHeight * P.TOKEN_ASPECT * 0.5
+    );
+  }
+
+  /*
+   * Keep a melee offset on the page. `baseX` is already the figure's centre in
+   * world coordinates, so this is exact: the drift and the jitter keep their
+   * character everywhere they fit, and only the outermost figure on a narrow
+   * stage is held back from walking off the edge.
+   */
+  function clampMeleeOffset(token, value) {
+    if (!worldNode) return value;
+    const width = worldNode.clientWidth;
+    const tokenHeight = Number.parseFloat(
+      getComputedStyle(worldNode).getPropertyValue("--token-h")
+    ) || 0;
+    const half = tokenHeight * P.TOKEN_ASPECT * 0.5;
+    if (!width || width < half * 2) return value;
+    const centre = (token.baseX || 0) + value;
+    const held = Math.max(half, Math.min(width - half, centre));
+    return Math.round(value + (held - centre));
+  }
+
   function spawnSide(sideKey) {
     const side = script.sides[sideKey];
     const budgets = damageBudgets(script.events);
@@ -742,6 +804,7 @@ export function createBattleStage(host, options = {}) {
     worldNode.style.setProperty(
       "--officer-w", `${Math.round(tokenH * P.TOKEN_ASPECT * P.LIEUTENANT_SCALE)}px`
     );
+    layoutGround(tokenH);
     const maxPerRow = Math.max(3, Math.floor(halfWidth / spacing));
     const rows = Math.min(3, Math.max(1, Math.ceil(shown / maxPerRow)));
     const perRow = Math.ceil(shown / rows) || 1;
@@ -818,10 +881,15 @@ export function createBattleStage(host, options = {}) {
       // ground line for no reason the camera can justify.
       const scatter = layout ? FORMATION_SHAPE.JITTER_SCALE : 1;
       const jx = (roll() - 0.5) * 14 * scatter;
-      const cam = depthPlacement(depth);
+      const cam = depthPlacement(depth, depthRiseFor(worldNode.clientHeight));
       let tx = (formationX ?? ((column * spacing + row * spacing * 0.4) * dir)) + jx;
-      // Along the battle axis, rear is away from the centre line.
-      if (token.arm === "archer") tx -= dir * P.ARCHER_REAR_OFFSET_PX;
+      // Along the battle axis, rear is away from the centre line -- but never
+      // further out than the rank anchor's own inset leaves room for, or on a
+      // phone the rear archer is pushed clean off the edge of the page. Wide
+      // stages have room to spare and keep the full offset unchanged.
+      if (token.arm === "archer") {
+        tx -= dir * Math.min(P.ARCHER_REAR_OFFSET_PX, outwardRoom(tokenH));
+      }
       node.style.setProperty("--tx", `${tx}px`);
       node.style.setProperty("--ty", `${cam.ty.toFixed(1)}px`);
       node.style.setProperty("--tscale", cam.scale.toFixed(3));
@@ -995,7 +1063,7 @@ export function createBattleStage(host, options = {}) {
         if (mounted) {
           token.node.style.setProperty("--lag", `-${P.CAVALRY_LEAD_MS}ms`);
         }
-        token.melee = Math.round(travel + jitter);
+        token.melee = clampMeleeOffset(token, Math.round(travel + jitter));
         token.node.style.setProperty("--mx", `${token.melee}px`);
         // No vertical component: closing on the centreline happens along the
         // ground, so depth (and therefore height and scale) is unchanged.
@@ -1027,11 +1095,18 @@ export function createBattleStage(host, options = {}) {
         foes.map(tokenAxisX)
       );
       if (!crossed) return;
-      const retreat = sideKey === "player" ? -P.ARCHER_OVERRUN_BACKSTEP_PX
-        : P.ARCHER_OVERRUN_BACKSTEP_PX;
+      // Same containment as the parade offset: a backstep that would carry the
+      // archer off the page is taken as far as the page allows and no further.
+      // He still stops shooting and plants his bow -- that is the rule; only
+      // the distance is bounded.
+      const tokenHeight = Number.parseFloat(
+        getComputedStyle(worldNode).getPropertyValue("--token-h")
+      ) || 0;
+      const backstep = Math.min(P.ARCHER_OVERRUN_BACKSTEP_PX, outwardRoom(tokenHeight));
+      const retreat = sideKey === "player" ? -backstep : backstep;
       archers.forEach((token) => {
         token.overrun = true;
-        token.melee = (token.melee || 0) + retreat;
+        token.melee = clampMeleeOffset(token, (token.melee || 0) + retreat);
         token.node.style.setProperty("--mx", `${token.melee}px`);
         token.node.classList.add("is-overrun");
         token.node.classList.remove("is-loosing");

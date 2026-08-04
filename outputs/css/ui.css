@@ -2662,14 +2662,24 @@ body.contract-open #town-sheet {
 }
 
 /* ==== battle stage ======================================================== */
-/* Full-screen takeover. Sits BELOW the HUD (z-index 5) so the pause button is
-   never blocked; everything else the stage would collide with is hidden via
-   body.battle-stage-open. Hidden/absent state costs nothing: the node is
-   created on play() and removed on dispose(). */
+/* Full-screen takeover. It paints over #app-overlay (z-index 2, a stacking
+   context) and therefore over the whole HUD -- so the one control that must
+   survive a battle, the sound switch, is lifted explicitly further down rather
+   than relying on its own z-index. Everything else the stage would collide
+   with is hidden via body.battle-stage-open. Hidden/absent state costs
+   nothing: the node is created on play() and removed on dispose(). */
 .battle-stage {
   position: fixed;
   z-index: 4;
   inset: 0;
+  /* Belt and braces on the viewport box: `inset: 0` alone leaves the layer at
+     the mercy of a containing block, and 100vh on a phone is the LARGE
+     viewport -- taller than what is actually visible. The dvh pair wins where
+     it is supported and the vh pair is the fallback where it is not. */
+  width: 100vw;
+  height: 100vh;
+  width: 100dvw;
+  height: 100dvh;
   display: grid;
   /* An explicit minmax(0, 1fr) track, NOT an auto one. With an auto track the
      sheet's own `width: min(1100px, 100%)` is a cyclic percentage: the track is
@@ -2679,9 +2689,16 @@ body.contract-open #town-sheet {
      an 88x0 stage and silently fell back to its floors. */
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
-  place-items: center;
-  padding: max(74px, calc(env(safe-area-inset-top) + 64px)) 12px max(16px, env(safe-area-inset-bottom));
-  background: rgba(28, 25, 22, 0.9);
+  /* The sheet IS the stage now, so it stretches instead of being centred, and
+     the layer carries no padding -- padding here is what letterboxed the card
+     and let the darkened map show around all four edges. Safe-area insets move
+     onto the chrome inside the paper, so the paper itself still bleeds. */
+  place-items: stretch;
+  padding: 0;
+  /* Opaque. The old 0.9 scrim was the "map showing through" in the report: at
+     90% the world behind it is dimmed, not hidden. */
+  overflow: hidden;
+  background: var(--paper);
   animation: stage-fade 400ms ease both;
   pointer-events: auto;
   touch-action: manipulation;
@@ -2693,11 +2710,13 @@ body.contract-open #town-sheet {
   pointer-events: none !important;
 }
 
+/* Both battle controls sit in opposite top corners, inside the safe area, and
+   above the stage so they are always reachable while it plays. */
 .stage-speed {
   position: fixed;
   z-index: 6;
-  top: max(82px, calc(env(safe-area-inset-top) + 72px));
-  right: 18px;
+  top: calc(env(safe-area-inset-top, 0px) + 10px);
+  right: calc(env(safe-area-inset-right, 0px) + 10px);
   min-width: 58px;
   min-height: 34px;
   border: 1px solid var(--rule-on-paper);
@@ -2727,23 +2746,85 @@ body.battle-stage-open #town-sheet {
   display: none !important;
 }
 
-/* ITEM 1b: the sheet is capped at ~1100px and centred, letterboxed against the
-   lacquer field around it. Wider than this and 16 tokens are lost in a plain;
-   narrower and a desktop battle is a postage stamp. */
+/* Nothing scrolls behind a full-bleed stage. Removed with the class on
+   dispose, so the map's own scroll behaviour comes straight back. */
+body.battle-stage-open {
+  overflow: hidden;
+}
+
+/* #app-overlay is `position: fixed; z-index: 2`, which makes it a STACKING
+   CONTEXT: every z-index inside it -- the HUD's 5, and anything the stage
+   might ask for -- is scoped to that 2, and the stage at 4 therefore paints
+   over the whole overlay. (The old comment on .battle-stage claimed the HUD
+   sat above it. It never did.) Lifting the overlay itself is the only way to
+   put a control from inside it on top of the stage, and it is safe precisely
+   because everything else in there is hidden for the duration. */
+body.battle-stage-open #app-overlay {
+  z-index: 6;
+}
+
+/* The map HUD -- stats, pause, settings, help -- has no business on a
+   battlefield, but the ONE sound switch has to stay reachable. So the HUD bar
+   itself becomes the left-hand corner slot and everything in it except that
+   button is hidden. It is still the same single #sound-button: no second
+   control is created for the stage. */
+body.battle-stage-open #hud {
+  position: fixed;
+  z-index: 6;
+  top: calc(env(safe-area-inset-top, 0px) + 10px);
+  right: auto;
+  left: calc(env(safe-area-inset-left, 0px) + 10px);
+  max-width: none;
+  margin: 0;
+  pointer-events: none;
+}
+
+body.battle-stage-open #hud > *:not(.hud-actions),
+body.battle-stage-open .hud-actions > *:not(#sound-button) {
+  display: none !important;
+}
+
+body.battle-stage-open #sound-button {
+  pointer-events: auto;
+}
+
+/* ITEM 1c: the sheet is FULL-BLEED. It used to be a min(1100px) x min(44vh,
+   400px) card centred on a translucent scrim, which is what real players read
+   as "only seeing half of it": a battle in a letterbox with the dimmed map
+   around it. There is no card any more -- no max width, no capped height, no
+   drop shadow, no margin. The paper is the page.
+
+   Space inside it is distributed by the grid: plates take an auto row at the
+   top, the world takes everything left over, the dispatch line takes an auto
+   row at the bottom. The figures are NOT scaled up to fill it -- token height
+   keeps its own cap; what fills the page is the battlefield. */
 .stage-paper {
   position: relative;
   display: grid;
-  justify-self: center;
-  align-self: center;
   overflow: hidden;
-  width: min(1100px, 100%);
-  /* The battlefield is the main visual of a battle, so it takes the majority of
-     the viewport instead of a letterboxed strip. The cap keeps desktop sane. */
-  height: min(44vh, 400px);
-  grid-template-rows: auto 1fr auto;
+  width: 100%;
+  height: 100%;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   background: var(--paper);
   color: var(--ink);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  /* The SURFACE is full-bleed; the FIELD on it is not unbounded. Rank spacing
+     is a frozen formation rule (40px at the cap), so on a 2048px stage the two
+     armies would keep their designed width and rattle around in it with the
+     archers stranded against the edges -- which is what the old capped sheet
+     was really protecting. That cap comes back here, on the CONTENT
+     only: there is no card, because the paper either side of it is the same
+     paper. Widening the formation instead would be a battle-composition
+     change, which this is not. */
+  --field-w: min(100%, 1280px);
+}
+
+/* Plates, field and dispatch line share one column, so the army names sit over
+   the armies rather than in the far corners of a wide desktop. */
+.stage-plates,
+.stage-world,
+.stage-log {
+  width: var(--field-w);
+  margin-inline: auto;
 }
 
 .stage-world {
@@ -2765,7 +2846,7 @@ body.battle-stage-open #town-sheet {
 .stage-wall {
   position: absolute;
   right: 4%;
-  bottom: 30%;
+  bottom: var(--wall-bottom, 30%);
   width: 30%;
   max-width: 200px;
   color: var(--ink);
@@ -2776,9 +2857,12 @@ body.battle-stage-open #town-sheet {
 /* 1b: the ground line sits low and the far rank is thrown well up the sheet, so
    the two armies together fill at least 40% of the stage height. Anything
    shallower and the battle is a thin strip in the middle of a lot of paper. */
+/* --ground-bottom is measured in battle-stage.js from the world's real height
+   and the drawn band height, because depth rise is a fixed pixel count. The
+   15% fallback is the old card's value, kept for a world that never measured. */
 .stage-ranks {
   position: absolute;
-  bottom: 15%;
+  bottom: var(--ground-bottom, 15%);
   display: grid;
 }
 
@@ -3321,7 +3405,7 @@ body.battle-stage-open #town-sheet {
 .stage-archers {
   position: absolute;
   right: 4%;
-  bottom: 30%;
+  bottom: var(--wall-bottom, 30%);
   width: 30%;
   max-width: 200px;
   height: 0;
@@ -3646,10 +3730,18 @@ body.battle-stage-open #town-sheet {
 }
 
 /* -- stage chrome ----------------------------------------------------------- */
+/* The paper bleeds to the edges, so the SAFE AREA lives on the chrome instead:
+   the plates clear the notch and both corner controls (sound left, speed
+   right) rather than the whole layer being inset. */
 .stage-plates {
   display: flex;
   justify-content: space-between;
-  padding: 12px 72px 0 16px;
+  gap: 12px;
+  padding:
+    calc(env(safe-area-inset-top, 0px) + 12px)
+    calc(env(safe-area-inset-right, 0px) + 74px)
+    6px
+    calc(env(safe-area-inset-left, 0px) + 74px);
 }
 
 .stage-plate b {
@@ -3669,7 +3761,11 @@ body.battle-stage-open #town-sheet {
 .stage-log {
   min-height: 1.5em;
   margin: 0;
-  padding: 6px 14px 10px;
+  padding:
+    6px
+    calc(env(safe-area-inset-right, 0px) + 14px)
+    calc(env(safe-area-inset-bottom, 0px) + 10px)
+    calc(env(safe-area-inset-left, 0px) + 14px);
   border-top: 1px solid var(--rule-on-paper);
   color: var(--ink);
   font: 11px/1.5 var(--font-body);
@@ -3681,7 +3777,7 @@ body.battle-stage-open #town-sheet {
 
 .stage-hint {
   position: absolute;
-  bottom: 46px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 46px);
   left: 50%;
   margin: 0;
   padding: 5px 12px;
@@ -3749,6 +3845,9 @@ body.battle-stage-open #town-sheet {
   transform: translateX(-50%);
   translate: 0 110%;
   transition: translate 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* The page behind it is paper now rather than a dark scrim, so the panel
+     needs its own edge to stay legible. Same ink rule used everywhere else. */
+  border-top: 1px solid var(--rule-on-paper);
   box-shadow: 0 -4px 18px rgba(28, 25, 22, 0.3);
 }
 
