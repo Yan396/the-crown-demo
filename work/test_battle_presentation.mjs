@@ -110,8 +110,18 @@ test("1a: never more than 16 drawn figures a side", () => {
   }
 });
 
-test("1b: the sheet is capped at ~1100px and letterboxed", () => {
-  assert.match(css, /\.stage-paper\s*\{[^}]*width:\s*min\(1100px,\s*100%\)/);
+test("1c: the sheet is full-bleed, not a centred card", () => {
+  // Superseded 1b, which capped the sheet at min(1100px) x min(44vh, 400px)
+  // and centred it on a 0.9 scrim. Real players read that as "only seeing half
+  // the battle": a letterboxed card with the dimmed map around all four edges.
+  const paper = css.slice(css.indexOf(".stage-paper {"));
+  const block = paper.slice(0, paper.indexOf("}"));
+  assert.match(block, /width:\s*100%/);
+  assert.match(block, /height:\s*100%/);
+  assert.doesNotMatch(block, /min\(1100px/, "the width cap is what letterboxed it");
+  assert.doesNotMatch(block, /44vh/, "the height cap is what made it a strip");
+  assert.doesNotMatch(block, /box-shadow/, "a drop shadow is what made it read as a card");
+  assert.doesNotMatch(block, /justify-self|align-self|margin/, "no centring, no margin");
   // A cyclic percentage in an auto grid track measured the stage at 88x0 during
   // play(), which silently shrank the stain canvas and every derived size.
   assert.match(css, /\.battle-stage\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
@@ -395,7 +405,7 @@ test("unit motion: speed never shifts a resolved strike beat", () => {
 test("archers: rear rank, hold the charge, show range once, and stop when overrun", () => {
   assert.equal(P.ARCHER_REAR_DEPTH, 0.92);
   assert.match(stage, /if \(token\.arm === "archer"\) depth = Math\.max\(depth, P\.ARCHER_REAR_DEPTH\)/);
-  assert.match(stage, /if \(token\.arm === "archer"\) tx -= dir \* P\.ARCHER_REAR_OFFSET_PX/);
+  assert.match(stage, /tx -= dir \* Math\.min\(P\.ARCHER_REAR_OFFSET_PX, outwardRoom\(tokenH\)\)/);
   assert.match(stage, /const progress = token\.arm === "archer" \? 0 : ratio/);
   assert.match(stage, /function showArcherRange\(sideKey, shooters, targets\)/);
   assert.match(stage, /archerRangeShown\.has\(sideKey\)/);
