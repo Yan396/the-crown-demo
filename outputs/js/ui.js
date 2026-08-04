@@ -287,6 +287,18 @@ export function createUi(callbacks) {
   let reportExpanded = false;
   let diagnosticsVisible = false;
   let titleTapCount = 0;
+  let runtimeSoundEnabled = null;
+
+  /*
+   * What the chip shows -- and what a tap on it toggles -- is what is actually
+   * audible: main.js passes the audio engine's own flag, and the stored
+   * preference is only the fallback before the first sync.
+   */
+  function soundIsOn() {
+    return typeof runtimeSoundEnabled === "boolean"
+      ? runtimeSoundEnabled
+      : currentState?.settings.soundEnabled !== false;
+  }
   let lastTitleTapAt = 0;
   let lastRenown = null;
   let progressGlowTimer = null;
@@ -1057,6 +1069,7 @@ export function createUi(callbacks) {
   function sync(state, runtime = {}) {
     currentState = state;
     if (typeof runtime.saveAvailable === "boolean") saveAvailable = runtime.saveAvailable;
+    if (typeof runtime.soundEnabled === "boolean") runtimeSoundEnabled = runtime.soundEnabled;
     syncStaticStrings();
 
     setCounter(refs.gold, state.player.gold);
@@ -1229,7 +1242,7 @@ export function createUi(callbacks) {
     document.body.classList.toggle("demo-modal-open", Boolean(state.demo.modal) && !state.demo.ended);
     refs.languageZh.setAttribute("aria-pressed", String(language() === "zh"));
     refs.languageEn.setAttribute("aria-pressed", String(language() === "en"));
-    const soundEnabled = state.settings.soundEnabled !== false;
+    const soundEnabled = soundIsOn();
     refs.soundButton.textContent = soundEnabled ? "声" : "静";
     refs.soundButton.setAttribute("aria-pressed", String(soundEnabled));
     refs.soundToggle.textContent = t(soundEnabled ? "settings.soundOn" : "settings.soundOff");
@@ -1436,7 +1449,7 @@ export function createUi(callbacks) {
   }
 
   refs.helpButton.addEventListener("click", () => setHelpOpen(true, "hud"));
-  refs.soundButton.addEventListener("click", () => callbacks.onSoundChange(currentState?.settings.soundEnabled === false));
+  refs.soundButton.addEventListener("click", () => callbacks.onSoundChange(!soundIsOn()));
   refs.pause.addEventListener("click", () => callbacks.onTogglePause());
   refs.settingsButton.addEventListener("click", () => setSettingsOpen(true));
   refs.settingsClose.addEventListener("click", () => setSettingsOpen(false));
@@ -1452,7 +1465,7 @@ export function createUi(callbacks) {
   });
   refs.languageZh.addEventListener("click", () => callbacks.onLanguageChange("zh"));
   refs.languageEn.addEventListener("click", () => callbacks.onLanguageChange("en"));
-  refs.soundToggle.addEventListener("click", () => callbacks.onSoundChange(currentState?.settings.soundEnabled === false));
+  refs.soundToggle.addEventListener("click", () => callbacks.onSoundChange(!soundIsOn()));
   refs.helpClose.addEventListener("click", () => setHelpOpen(false));
   refs.recruit.addEventListener("click", () => callbacks.onRecruit("spear"));
   refs.recruitArcher.addEventListener("click", () => callbacks.onRecruit("archer"));

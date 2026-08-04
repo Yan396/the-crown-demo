@@ -941,6 +941,9 @@ function migrateState(state) {
   };
   state.settings = {
     language: SUPPORTED_LANGUAGES.includes(state.settings?.language) ? state.settings.language : "zh",
+    // A real player preference again: a mute survives a refresh. Absent means
+    // enabled, which is what keeps saves written before the field existed --
+    // and saves written while it briefly did not -- loading with sound on.
     soundEnabled: state.settings?.soundEnabled !== false
   };
   state.player.act = state.player.act >= 4 ? 4 : state.player.act >= 3 ? 3 : state.player.act >= 2 ? 2 : 1;

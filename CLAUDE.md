@@ -4,7 +4,7 @@
 
 ## 当前架构
 
-`outputs/` 是可直接静态托管的无依赖 Vanilla JavaScript ES Modules 游戏：`main.js` 负责固定 500ms 逻辑步进、RAF 渲染与输入，`state/sim/battle/ai/kingdom` 管状态、合同、关系后果、建国与诏书规则，Canvas 绘制地图与战场、HTML/CSS overlay 承载界面，战斗表现层由 `presentation.js` 单独定调（重量档、兵种移动速度、弓兵纵深、墨渍预算、图形尺寸皆在此，绝不进 CONFIG），`audio.js` 仅在首次用户手势后用 Web Audio 运行时合成短音效；默认 URL 是 `DEMO=false` 的完整版并无条件启用 v1.1 阵型/陈莽，沿用版本 2 的 v1.1 隔离存档。`node work/build_variant.mjs demo` 可生成仍受支持的 Act 1–2 免费 demo，`full` 可切回默认构建；网页无框架、无后端、无音频文件，`desktop/src-tauri` 仅以文件存档适配器包裹同一份 `outputs/`。
+`outputs/` 是可直接静态托管的无依赖 Vanilla JavaScript ES Modules 游戏：`main.js` 负责固定 500ms 逻辑步进、RAF 渲染与输入，`state/sim/battle/ai/kingdom` 管状态、合同、关系后果、建国与诏书规则，Canvas 绘制地图与战场、HTML/CSS overlay 承载界面，战斗表现层由 `presentation.js` 单独定调（重量档、兵种移动速度、弓兵纵深、墨渍预算、图形尺寸皆在此，绝不进 CONFIG），`audio.js` 仅在首次用户手势后用 Web Audio 运行时合成短音效与五状态自适应配乐（music/SFX 双总线经 master 限幅器，音色时长只在 `audio.js` 的 `CONFIG_MUSIC`，绝不进 CONFIG）；默认 URL 是 `DEMO=false` 的完整版并无条件启用 v1.1 阵型/陈莽，沿用版本 2 的 v1.1 隔离存档。`node work/build_variant.mjs demo` 可生成仍受支持的 Act 1–2 免费 demo，`full` 可切回默认构建；网页无框架、无后端、无音频文件，`desktop/src-tauri` 仅以文件存档适配器包裹同一份 `outputs/`。
 
 ## 已实现
 
@@ -15,7 +15,9 @@
 - 朋友测试短弧仍可构建：demo 变体只开放 Act 1–2；声望 50 成为自由队长，声望 100 进入试玩结局，Act 3–4 保持关闭。
 - 零说明引导：三屏开场故事/操作提示、首城/低军饷/Act 2 一次性提示、三词强弱判断、默认折叠事件 ticker；Act 1 只呈现战斗与招募。
 - 首位真实玩家反馈补丁：标题页在明确「开始」旁提供「玩法」，HUD 常驻 `?` 可反复打开同一张四行规则卡；三条引导必须逐次点击，连续两次撤退会重现强弱判断说明。每次规则卡开启均记录 `title/hud` 来源，分析脚本输出开启率、每局次数与来源分布。
-- 稀疏合成音效：默认开启，HUD 与原设置容器可静音并随现有存档保存；首次用户手势前绝不创建 AudioContext。梆子点击、冲阵低鼓、逐 `strike` 命中噪声、朱印铃音与溃逃鼓滚全部运行时合成，战斗音效绑定现有虚拟事件时钟并随舞台释放；无音乐、无音频资产、无网络请求。
+- 稀疏合成音效：音乐与音效默认开启，玩家用**唯一**的声/静按键（HUD `sound-button` 与设置 `sound-toggle`，full/demo 皆有，无音量滑杆）一键控制整个 CrownAudio；按钮文案与 aria 读的是引擎实时 `isEnabled()` 而非存档偏好。静音写入 `settings.soundEnabled` 并跨刷新保持，缺字段的旧存档默认启用，`SAVE_VERSION` 不变；静音状态下首次手势也绝不创建 AudioContext，系统/设备静音同样生效。梆子点击、冲阵低鼓、逐 `strike` 命中噪声、朱印铃音与溃逃鼓滚全部运行时合成，战斗音效绑定现有虚拟事件时钟并随舞台释放；无音频资产、无网络请求。
+- 自适应配乐（零资产、零文件、零网络）：`title/map-road/town/battle/ending` 五状态由 `main.js` 的 `musicSceneFor()` 从既有生命周期推导，`sync()` 与 `visibilitychange` 是仅有的两处接线。首次手势解锁后五个场景全程有声：每个乐句**无条件**先铺 `BEDS` 的低持续音 + 古琴泛音（战斗另加低五度），密度可呼吸但 music bus 稳态永不归零；离线渲染实测各场景峰值 −27～−31 dBFS、稳态无缝隙（唯一 438/479ms 低电平在 t=0 的淡入内）。古风配器全部运行时合成并分 `guqin/xiao/drum` 三声部子总线：古琴有指甲噪声瞬态、绰（起音前 5.5% 上滑）、吟猱延迟颤音与 3.01× 失谐三分音；琵琶更亮更短并可轮指；箫/笛以跟随包络的气息噪声层立身（不是泛东方 pad）；战鼓带弯音鼓身、梆子为窄带木击。四音「王冠」主题在题名平铺陈述、行路以附点变体（第三音升八度）走一遍、结局完整回收并解决到八度；战斗只有唯一半音色（降六度）每四乐句一次。转场为 1.5–3 秒等功率交叉淡入淡出，落在旧场景的拍点上、旧场景唱完自己的淡出、回到仍在淡出的场景是把它拉回而不是叠第二份（同时最多 3 个实例）。音乐走独立确定性 `musicRandom` 流与自有噪声种子，不消费 `state.rng`、不改模拟/结算/battleScript；music bus 只有 SFX bus 的 15% 并在重击/冲阵/朱印/溃逃时短暂 duck，master 末端接 `DynamicsCompressor` 限幅器（SFX 全量叠加实测封顶 −1 dBFS，不削波）。点击静音 0.18 秒淡出并停调度（音乐与 SFX 一起），再次启用从下一乐句进入且不叠实例；页面隐藏停摆、回来自动从下一乐句续接不补播，`dispose()` 不留 oscillator/timer；autoplay 全程不创建 AudioContext。
+- 开发者专用 `?audioStyleguide=1`：UI 无入口，`main.js` 只在该 flag 下动态 import `audio-styleguide.js`，可逐个试听五状态、跑 98 秒连续转场巡览（题名 20s→行路 22s→城中 14s→接战 14s→行路 8s→收束 20s，足以听出主题的陈述/变体/回收）、单独 solo 古琴/箫/鼓三声部、切内部开关与隐藏并在音乐上叠既有 SFX 听 ducking；普通 URL 零下载零影响。
 - 镜子系统：兵力与金币两次「多少才够」承诺、HUD 墨线标记与永久朱砂超额对照、首次越线时刻/实值遥测、结局镜子表和统计。
 - 玩家地图身份随幕更新为「流浪佣兵 / 自由队长」；试玩结局从首胜、首次合同、两次承诺越线、最大战役与幕节点中确定性选出 3–5 条真实事件，生成中英双语「编年史」。
 - Act 2 玩法深度：城镇同屏提供招民兵、以两倍基础价补老兵（保留现有 XP）、购买下一战攻击 +20% 的一次性酒食三种互斥花钱方向；酒馆同时给出护送三日、1.3× 风险剿匪、阵营战争 2–3 份合同，只能履行一份。
@@ -44,9 +46,9 @@
 - 兵种行为差异化只作用于表现层：骑兵/民兵/老兵/弓兵移动速度为 2.2×/1.0×/0.85×/0.6×，通过 token 自身过渡时长错开抵达，绝不移动脚本中的 strike beat。弓兵固定在各阵型最后纵深，冲锋留守，首轮齐射显示一次虚线墨弧；敌方战线越过弓兵线后弓兵退步并以弓作杖停止射击。
 - 战斗表现修复的三处“写了但没生效”：`.is-striking .fig-pose`、`@keyframes archer-loose`、`.stage-token.is-reeling` 各有一份更靠后的重复定义，按层叠顺序覆盖了定格姿势、满弓保持与按档击退；`.battle-stage` 的自动网格轨道让 `width: min(1100px,100%)` 成为循环百分比，`play()` 期间把舞台量成 88×0，墨渍画布长期只有 1px 高。三者均已合并为单一定义并进永久门禁。
 - 阵中军令已按完整试玩结论移除：不再显示「阵中·传令」栏、按钮、两次预算或发令慢镜，自动演出也不代答；战前阵型选择保留为唯一战术决策。`CONFIG.F3_COMMANDS`、`chooseBattleCommand()`、`applyF3BattleModifiers()` 与 `battleScript.command` 兼容字段保留为 dormant plumbing，当前舞台完全不读取；原因与恢复条件记于 `docs/full-version-spec.md`。
-- 统一表现节拍钩子 `emitBeat({type, tier, kill, side, at})`：既有 CrownAudio 音效全部改挂在同一时钟上（顺带修掉 `audio?.hit?.()` 与 `crownAudio.hit()` 同时触发的双响），`options.onBeat` 供后续音频扩展，禁止出现第二套音频管线。
+- 统一表现节拍钩子 `emitBeat({type, tier, kill, side, at})`：既有 CrownAudio 音效全部改挂在同一时钟上（顺带修掉 `audio?.hit?.()` 与 `crownAudio.hit()` 同时触发的双响），`options.onBeat` 供后续音频扩展，禁止出现第二套音频管线。配乐的 duck 只在 `CrownAudio` 内部由既有音效方法触发，不新增任何 `crownAudio.*` 调用点，`battle-stage.js` 的单时钟断言因此不变。
 - 战斗表现验收物：`work/record_stage.mjs` 以真实 Chromium（关闭后台节流）驱动 `outputs/styleguide.html` 的确定性脚本，产出 `outputs/clips/` 四段实机录像（15s 中型野战 / 弓箭 close / 骑兵冲击 / 弓箭击杀全链路，共约 1MB）并输出帧预算与双侧计数报告；弓箭击杀实录包含 `arrow → arrow_impact → strike → kill`，四段 `header/live/DOM` 计数错位均为 0。
-- 当前验收基线：demo 17/17 套件、full 16/16 套件，post-launch 规则/音频专项 7/7，战斗表现专项 `test_battle_presentation` 39/39（连同完整性专项合计 45/45）。默认分享 demo 为首战 6.5 秒、Act 2 11.11 分钟、声望 100 结局 27.85 分钟，18/18 战斗脚本对账；390×844 冲锋中盘实测骑兵 x=240.2、民兵 157.6、老兵 161.2、弓兵 139.0。
+- 当前验收基线：demo 18/18 套件、full 17/17 套件（新增 `test_audio_music` 29/29：FakeAudioContext 覆盖五状态、乐句必有铺底与声音时间轴无缝、密度呼吸、主题陈述/变体/回收、古风音色与三声部、等功率交叉淡与不叠实例、声/静按键唯一且标签随引擎实时状态、静音后音乐与 SFX 同归零并持久化、静音启动不开 AudioContext、缺字段旧存档默认启用、隐藏/回来、ducking、dispose 与零资产/零网络/零随机/包体 ≤2MB），post-launch 规则/音频专项 7/7，战斗表现专项 `test_battle_presentation` 39/39（连同完整性专项合计 45/45）。默认分享 demo 为首战 6.5 秒、Act 2 11.11 分钟、声望 100 结局 27.85 分钟，18/18 战斗脚本对账；390×844 冲锋中盘实测骑兵 x=240.2、民兵 157.6、老兵 161.2、弓兵 139.0。
 
 ## 完整版路线（F1–F4）
 
@@ -83,7 +85,7 @@
 - **表现与规则隔离。** `battlefield.js` 只读取既有战斗状态；不得让视觉动画消费 `state.rng`、改写 CONFIG、战斗结果或存档。战斗表现常量只走 `outputs/js/presentation.js` 的 `CONFIG_PRESENTATION`/`WEIGHT_TIERS`/`CAMERA`/`FORMATION_*`，不得搬进 `CONFIG`，也不得在 `battle-stage.js` 里硬编码毫秒或像素。
 - **战斗表现规范已冻结。** 唯一权威规范落地后只修 bug，不接新需求。以下不可回退：16 token 上限、每场两次震动且只动 world 层、三档重量的定格节奏、弓手四段满弓、2.2/1.0/0.85/0.6 兵种视觉速度、弓兵后排留守/射程弧/近身停射、骑兵 2.2× 冲锋后硬停、部将放大 30% 且不排队、墨渍面积上限与渐隐、`emitBeat` 单一时钟。**同一选择器/keyframes 不得出现第二份更靠后的定义**——定格姿势、满弓与按档击退都曾因此静默失效，`test_battle_presentation` 现在按层叠顺序断言。
 - **阵中军令为 REMOVED-not-deleted。** 战前阵型选择保留；舞台不得恢复军令栏、发令按钮、两次预算、慢镜或自动代答。数值侧 `CONFIG.F3_COMMANDS`、`chooseBattleCommand()`、`applyF3BattleModifiers()` 与脚本兼容字段保持 dormant，不得借本条删除或改动公式；任何恢复都必须先有新的试玩结论。
-- **Demo 边界不扩张。** 通过 `node work/build_variant.mjs demo` 生成的 `DEMO=true` 变体中 Act 3–4 不开放；不加账号、后端、分析 SDK、难度设置、新任务或新兵种。声音只允许当前零资产 Web Audio 短音效：禁止音乐、音频文件、网络音源或影响玩法 RNG/结算。
+- **Demo 边界不扩张。** 通过 `node work/build_variant.mjs demo` 生成的 `DEMO=true` 变体中 Act 3–4 不开放；不加账号、后端、分析 SDK、难度设置、新任务或新兵种。声音只允许当前零资产 Web Audio 运行时合成：短音效与五状态程序化配乐都不得引入音频文件、网络音源，也不得影响玩法 RNG/结算；玩家侧只保留既有的单一声/静按键，不得新增音量设置或第二个开关。
 - **交付门槛不降。** 重大改动后运行 Phase 2.5、Casual Pass、decoder 测试，并复核 390×844 数字负担与完整 autoplay 节奏。
 
 每完成一个大块，只更新与之有关的三处：架构一句话、已实现清单和不可动项。未来 Phase 3–5 prompt 开头加：
