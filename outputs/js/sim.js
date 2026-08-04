@@ -1158,7 +1158,20 @@ function nearestBandit(state, includeElite = false) {
     (includeElite || !bandit.elite) && getPartyStrength(bandit) <= beatableStrength
   ));
   const cautious = beatable.filter((bandit) => getPartyStrength(bandit) <= sureWinStrength);
-  const candidates = cautious.length ? cautious : beatable;
+  // With one militia left, even the minimum one-bandit pack has nominal
+  // strength 3 vs 2. An empty beatable set used to make autoplay stand still
+  // forever, hiding the same recovery deadlock a player experiences. Let the
+  // bot take the weakest available non-elite duel; the battle resolver now
+  // guarantees that a 1v1 settles instead of looping as a clamped draw.
+  const recoveryCandidates = getTroopCount(state.player) <= 1
+    ? state.bandits
+      .filter((bandit) => includeElite || !bandit.elite)
+      .sort((first, second) => (
+        getPartyStrength(first) - getPartyStrength(second) || first.id.localeCompare(second.id)
+      ))
+      .slice(0, 1)
+    : [];
+  const candidates = cautious.length ? cautious : beatable.length ? beatable : recoveryCandidates;
   return candidates.reduce((nearest, bandit) => {
     if (!nearest) return bandit;
     if (!cautious.length) {
@@ -1176,7 +1189,13 @@ function autoplayDecision(state) {
   if (!state.autoplay?.enabled || state.battle || state.demo?.ended) return;
   const catchupActive = (
     state.player.act >= 2 &&
-    state.telemetry.totalActiveSeconds >= CONFIG.AUTOPLAY_CATCHUP_START_SECONDS
+    state.telemetry.totalActiveSeconds >= (
+      state.features?.f4
+        ? CONFIG.AUTOPLAY_FULL_CATCHUP_START_SECONDS
+        : state.features?.f2
+          ? CONFIG.AUTOPLAY_F2_CATCHUP_START_SECONDS
+          : CONFIG.AUTOPLAY_CATCHUP_START_SECONDS
+    )
   );
   if (catchupActive) {
     state.autoplay.nextHuntTick = Math.min(
@@ -1447,7 +1466,13 @@ export function worldTick(state) {
   if (battleResult && state.autoplay?.enabled) {
     const catchupActive = (
       state.player.act >= 2 &&
-      state.telemetry.totalActiveSeconds >= CONFIG.AUTOPLAY_CATCHUP_START_SECONDS
+      state.telemetry.totalActiveSeconds >= (
+        state.features?.f4
+          ? CONFIG.AUTOPLAY_FULL_CATCHUP_START_SECONDS
+          : state.features?.f2
+            ? CONFIG.AUTOPLAY_F2_CATCHUP_START_SECONDS
+            : CONFIG.AUTOPLAY_CATCHUP_START_SECONDS
+      )
     );
     const recoveryTicks = catchupActive
       ? CONFIG.AUTOPLAY_CATCHUP_RECOVERY_TICKS
@@ -1961,7 +1986,7 @@ export function simulateAutoplay(seed = CONFIG.SEED, options = {}) {
   while (
     state.telemetry.totalActiveSeconds < maximumActiveSeconds &&
     !state.demo.ended &&
-    (!fullVersion || options.phase2 === true || fiefThreatSeconds === null) &&
+    (!fullVersion || options.phase2 === true || fiefThreatSeconds === null || state.battle) &&
     !(
       fullVersion &&
       state.autoplay.endingChoice === "continue" &&

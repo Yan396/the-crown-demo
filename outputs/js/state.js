@@ -136,7 +136,19 @@ export function incrementTroop(party, type, amount = 1, arm = null) {
     stack = { type, count: 0, xp: 0, ...(arm === null ? {} : { arm }) };
     party.troops.push(stack);
   }
+  const before = stack.count;
   stack.count = Math.max(0, stack.count + Math.floor(amount));
+  const added = stack.count - before;
+  // Emergency rebuilding from a lone initialized v1.1 survivor must give the
+  // new bodies real HP. Preserve the survivor's damage while ensuring recovery
+  // recruits do not arrive already dead.
+  if (
+    added > 0 && before <= 1 &&
+    Number.isFinite(stack.hpPerSoldier) && stack.hpPerSoldier > 0 &&
+    Number.isFinite(stack.hpCurrent)
+  ) {
+    stack.hpCurrent += added * stack.hpPerSoldier;
+  }
   return stack.count;
 }
 
@@ -664,10 +676,20 @@ function isScriptReference(value, sides) {
 
 export function isBattleScript(value) {
   const baseKeys = ["battleId", "terrain", "sides", "events"];
-  const allowedKeys = [...baseKeys, "formations", "lieutenant", "lieutenantIds", "command"];
+  const allowedKeys = [
+    ...baseKeys,
+    "formations",
+    "lieutenant",
+    "lieutenantIds",
+    "command",
+    "eliteEnemy"
+  ];
   if (!value || !baseKeys.every((key) => Object.hasOwn(value, key))) return false;
   if (Object.keys(value).some((key) => !allowedKeys.includes(key))) return false;
   if (Object.hasOwn(value, "lieutenant") && value.lieutenant !== "player") return false;
+  // Spawn-frozen enemy identity, carried only so the stage can distinguish an
+  // elite pack. It never participates in damage, targeting or survivor math.
+  if (Object.hasOwn(value, "eliteEnemy") && value.eliteEnemy !== true) return false;
   // Presentation metadata only: which named officers ride with that side, so
   // the stage can draw them apart. Optional -- an older script without it still
   // validates and still falls back to the generic officer figure.

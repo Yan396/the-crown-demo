@@ -289,7 +289,12 @@ function resolveHpRound(state, bandit, ctx) {
   let enemyDamageApplied = 0;
   let playerDamageApplied = 0;
   let lieutenantAbsorbed = 0;
-  const forced = { player: false, enemy: false };
+  const forced = {
+    player: false,
+    enemy: false,
+    playerRatio: null,
+    enemyRatio: null
+  };
   let outcome = null;
 
   for (let index = 0; index < BATTLE_STRIKE_WAVES; index += 1) {
@@ -310,6 +315,12 @@ function resolveHpRound(state, bandit, ctx) {
     playerDamageApplied += absorbedThisWave + playerHit.damage;
     forced.enemy ||= enemyHit.forcedRout;
     forced.player ||= playerHit.forcedRout;
+    if (enemyHit.forcedRout) {
+      forced.enemyRatio = enemyHit.remainingAfterImpact / Math.max(1, battle.enemyStartHp);
+    }
+    if (playerHit.forcedRout) {
+      forced.playerRatio = playerHit.remainingAfterImpact / Math.max(1, battle.playerStartHp);
+    }
     outcome = roundOutcome(state, bandit, battle, forced);
     if (outcome) break;
   }
@@ -355,8 +366,17 @@ function determineWinner(first, second, firstStart, secondStart, options = {}) {
   if (firstRouted && secondRouted) {
     const firstStartStrength = Math.max(1, Number(options.firstStartStrength) || firstStart);
     const secondStartStrength = Math.max(1, Number(options.secondStartStrength) || secondStart);
-    const firstRatio = getPartyStrength(first) / firstStartStrength;
-    const secondRatio = getPartyStrength(second) / secondStartStrength;
+    // The last-soldier rout clamp deliberately keeps both rosters at one.
+    // Comparing roster strength here therefore turns most 1v1s into an
+    // endless-looking draw. v1.1 supplies the post-impact HP ratios (including
+    // overkill pressure) so simultaneous routs still have a meaningful victor;
+    // a genuinely equal impact remains a draw.
+    const firstRatio = Number.isFinite(options.firstRemainingRatio)
+      ? options.firstRemainingRatio
+      : getPartyStrength(first) / firstStartStrength;
+    const secondRatio = Number.isFinite(options.secondRemainingRatio)
+      ? options.secondRemainingRatio
+      : getPartyStrength(second) / secondStartStrength;
     if (Math.abs(firstRatio - secondRatio) > Number.EPSILON) {
       return firstRatio > secondRatio ? "first" : "second";
     }
@@ -398,16 +418,30 @@ function applyRoutClampedHpDamage(party, requested) {
   const hp = partyHp(party);
   const wanted = Math.max(0, Number(requested) || 0);
   if (available <= 0 || wanted <= 0) {
-    return { deaths: 0, damage: 0, forcedRout: available <= 0 && wanted > 0 };
+    return {
+      deaths: 0,
+      damage: 0,
+      forcedRout: available <= 0 && wanted > 0,
+      remainingAfterImpact: hp - wanted
+    };
   }
   const forcedRout = wanted >= hp;
   // A routed last soldier keeps a fractional positive pool. This is the clamp
   // that prevents a strike wave from erasing a side before rout is checked.
   const damage = Math.min(wanted, Math.max(0, hp - 0.5));
-  return { deaths: applyHpDamage(party, damage), damage, forcedRout };
+  return {
+    deaths: applyHpDamage(party, damage),
+    damage,
+    forcedRout,
+    remainingAfterImpact: hp - wanted
+  };
 }
 
 function roundOutcome(state, bandit, battle, forced = {}) {
+  // Preserve the established multi-unit simultaneous-rout semantics. The
+  // post-impact tiebreaker exists specifically for the degenerate 1v1 case,
+  // where the safety clamp makes both sides indistinguishable at one head.
+  const loneDuel = battle.playerStart === 1 && battle.banditStart === 1;
   return determineWinner(
     state.player,
     bandit,
@@ -417,6 +451,8 @@ function roundOutcome(state, bandit, battle, forced = {}) {
       allowDraw: true,
       firstForcedRout: forced.player,
       secondForcedRout: forced.enemy,
+      firstRemainingRatio: loneDuel ? forced.playerRatio : null,
+      secondRemainingRatio: loneDuel ? forced.enemyRatio : null,
       firstStartStrength: battle.playerStartStrength,
       secondStartStrength: battle.enemyStartStrength
     }
@@ -470,6 +506,12 @@ function cloneRoster(party) {
 
 function rosterCount(roster) {
   return (roster || []).reduce((sum, stack) => sum + Math.max(0, Math.floor(stack.count || 0)), 0);
+}
+
+function rosterFullHp(roster) {
+  return (roster || []).reduce((sum, stack) => (
+    sum + Math.max(0, Math.floor(stack.count || 0)) * hpPerSoldierFor(stack.type)
+  ), 0);
 }
 
 function reconstructRoster(party, startTroops, defaultType) {
@@ -606,6 +648,7 @@ function buildTokenBuckets(roster, startTroops, fallbackType) {
       idx,
       capacity,
       remaining: capacity,
+      arm: troopArmAt(roster, offset),
       hpPerSoldier: hpPerSoldierFor(troopType)
     });
   }
@@ -627,6 +670,16 @@ function chooseWeightedBucket(rng, buckets, consume = false) {
   }
   if (consume) selected.remaining = Math.max(0, selected.remaining - 1);
   return selected;
+}
+
+// Archers are a rear line, not a random body in the casualty lottery. The
+// resolved casualty COUNT remains untouched; this only decides which visual
+// bucket carries each already-resolved hit. As long as any melee bucket still
+// stands, the rear line cannot be selected.
+function chooseProtectedTargetBucket(rng, buckets, consume = false) {
+  const available = buckets.filter((bucket) => bucket.remaining > 0);
+  const screen = available.filter((bucket) => bucket.arm !== "archer");
+  return chooseWeightedBucket(rng, screen.length ? screen : available, consume);
 }
 
 function damageShares(totalDamage, count, rng) {
@@ -659,6 +712,16 @@ function ensureBattleCapture(state, battle, bandit) {
     0,
     Number(battle.enemyStartStrength) || getPartyStrength({ troops: battle.enemyStartRoster })
   );
+  if (isV11State(state)) {
+    battle.playerStartHp = Math.max(
+      0.5,
+      Number(battle.playerStartHp) || rosterFullHp(battle.playerStartRoster)
+    );
+    battle.enemyStartHp = Math.max(
+      0.5,
+      Number(battle.enemyStartHp) || rosterFullHp(battle.enemyStartRoster)
+    );
+  }
   if (!Array.isArray(battle.rounds)) battle.rounds = [];
   if (
     battle.rounds.length === 0 &&
@@ -689,7 +752,11 @@ function sideLabels(state, battle = null) {
   const stage = (STRINGS[state.settings?.language] || STRINGS.zh).stage;
   return {
     player: stage.sidePlayer,
-    enemy: battle?.enemyKind === "lord" ? stage.sideLord : stage.sideEnemy
+    enemy: battle?.enemyKind === "lord"
+      ? stage.sideLord
+      : battle?.elite
+        ? stage.sideElite
+        : stage.sideEnemy
   };
 }
 
@@ -707,7 +774,7 @@ function buildStrikeDrafts(rng, round, playerBuckets, enemyBuckets) {
   // presentation must not remove an aggregated token on its first hit.
   for (let index = 0; index < round.enemyLoss; index += 1) {
     const from = chooseWeightedBucket(rng, playerAttackBuckets, false);
-    const to = chooseWeightedBucket(rng, enemyBuckets, true);
+    const to = chooseProtectedTargetBucket(rng, enemyBuckets, true);
     if (!from || !to) break;
     drafts.push({
       from: { side: "player", idx: from.idx },
@@ -718,7 +785,7 @@ function buildStrikeDrafts(rng, round, playerBuckets, enemyBuckets) {
   }
   for (let index = 0; index < round.playerLoss; index += 1) {
     const from = chooseWeightedBucket(rng, enemyAttackBuckets, false);
-    const to = chooseWeightedBucket(rng, playerBuckets, true);
+    const to = chooseProtectedTargetBucket(rng, playerBuckets, true);
     if (!from || !to) break;
     drafts.push({
       from: { side: "enemy", idx: from.idx },
@@ -750,7 +817,11 @@ function addGlancingBlows(rng, round, playerBuckets, enemyBuckets, drafts) {
       hpDealt: round.playerHpDealt || 0 }
   ];
   sides.forEach((side) => {
-    const live = side.buckets.filter((bucket) => bucket.hpPerSoldier > 0);
+    const available = side.buckets.filter(
+      (bucket) => bucket.hpPerSoldier > 0 && bucket.remaining > 0
+    );
+    const screen = available.filter((bucket) => bucket.arm !== "archer");
+    const live = screen.length ? screen : available;
     if (!live.length || side.hpDealt <= 0) return;
     const perSoldier = live[0].hpPerSoldier;
     const blowSize = Math.max(1, perSoldier * CONFIG_V11.HP_GLANCING_BLOW_FRACTION);
@@ -768,6 +839,21 @@ function addGlancingBlows(rng, round, playerBuckets, enemyBuckets, drafts) {
     }
   });
   return drafts;
+}
+
+function targetArmForDraft(draft, playerBuckets, enemyBuckets) {
+  const buckets = draft.to.side === "player" ? playerBuckets : enemyBuckets;
+  return buckets.find((bucket) => bucket.idx === draft.to.idx)?.arm || "spear";
+}
+
+function deferArcherTargets(drafts, playerBuckets, enemyBuckets) {
+  const front = [];
+  const rear = [];
+  drafts.forEach((draft) => {
+    const targetArm = targetArmForDraft(draft, playerBuckets, enemyBuckets);
+    (targetArm === "archer" ? rear : front).push(draft);
+  });
+  return front.concat(rear);
 }
 
 // Walk the emitted order and stamp each strike with the target's remaining
@@ -879,9 +965,23 @@ export function buildBattleScript(state, battle, result, winner) {
         rng, scriptedRound, playerSide.buckets, enemySide.buckets, drafts
       ));
     }
+    drafts = deferArcherTargets(drafts, playerSide.buckets, enemySide.buckets);
+    const frontCount = drafts.filter(
+      (draft) => targetArmForDraft(draft, playerSide.buckets, enemySide.buckets) !== "archer"
+    ).length;
+    const hasRearTargets = frontCount < drafts.length;
     const waveCount = drafts.length >= 3 ? 3 : drafts.length >= 2 ? 2 : 1;
+    const frontWaveCount = frontCount >= 2 ? 2 : 1;
     drafts.forEach((draft, index) => {
-      const beat = waveCount === 1 ? 0 : index % waveCount;
+      const rearTarget = targetArmForDraft(
+        draft, playerSide.buckets, enemySide.buckets
+      ) === "archer";
+      // When a round finally exhausts the screen and reaches a bow line, every
+      // front-line hit lands in the first two waves; the rear pursuit owns the
+      // third. Sorting by t can no longer put an archer hit before the screen.
+      const beat = hasRearTargets && frontCount > 0
+        ? rearTarget ? 2 : index % frontWaveCount
+        : waveCount === 1 ? 0 : index % waveCount;
       events.push({
         t: roundTime + SCRIPT_TIMING.strikeLead + beat * SCRIPT_TIMING.beatGap
           + Math.floor(nextFloat(rng) * SCRIPT_TIMING.beatJitter),
@@ -988,6 +1088,9 @@ export function buildBattleScript(state, battle, result, winner) {
         .map((entry) => (typeof entry === "string" ? entry : entry?.id))
         .filter((id) => typeof id === "string" && id.length);
     }
+  }
+  if (battle.elite && (battle.enemyKind || "bandit") === "bandit") {
+    script.eliteEnemy = true;
   }
   if (state.features?.f3) script.command = battle.commands?.player || CONFIG.F3_AUTOPLAY_COMMAND;
   return script;
@@ -1474,6 +1577,10 @@ export function startBattle(state, bandit, options = {}) {
     ? 1 + CONFIG_V11.LIEUTENANT_ATTACK_BONUS
     : 1;
   const playerAttackMultiplier = consumePlayerAttackMultiplier(state) * lieutenantAttackMultiplier;
+  if (isV11State(state)) {
+    ensurePartyHp(state.player);
+    ensurePartyHp(bandit);
+  }
   const playerStart = getTroopCount(state.player);
   const banditStart = getTroopCount(bandit);
   const elite = Boolean(bandit.elite || bandit.isElite);
@@ -1509,6 +1616,8 @@ export function startBattle(state, bandit, options = {}) {
     enemyStartRoster: cloneRoster(bandit),
     playerStartStrength: getPartyStrength(state.player),
     enemyStartStrength: getPartyStrength(bandit),
+    playerStartHp: isV11State(state) ? partyHp(state.player) : null,
+    enemyStartHp: isV11State(state) ? partyHp(bandit) : null,
     lieutenantHp: isV11State(state) && hasLieutenant(state, "chen_mang")
       ? CONFIG_V11.LIEUTENANT_HP
       : null,

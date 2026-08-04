@@ -2869,11 +2869,32 @@ body.battle-stage-open #sound-button {
 .stage-ranks-player { left: 7%; }
 .stage-ranks-enemy { right: 7%; }
 
-/* The defender faces the attacker. Flipping the glyph rather than the token
-   keeps position and facing in separate properties, so neither can clobber
-   the other. */
-.stage-ranks-enemy .stage-token svg {
-  transform: scaleX(-1);
+/* Formation sets the initial --facing, then each token owns it. The glyph
+   flips independently of the positioned token so turning never disturbs its
+   feet, health bar or nameplate. */
+.stage-token > svg {
+  transform: scaleX(var(--facing, 1));
+  transform-origin: 50% 100%;
+}
+
+.stage-token.is-turning > svg {
+  animation: token-facing-pivot 180ms ease-in-out both;
+}
+
+.stage-token.is-turning {
+  animation: token-foot-shuffle 180ms ease-in-out both;
+}
+
+@keyframes token-facing-pivot {
+  0% { transform: scaleX(var(--turn-from, var(--facing, 1))); }
+  46% { transform: scaleX(var(--turn-from-narrow, 0.12)); }
+  54% { transform: scaleX(var(--turn-to-narrow, -0.12)); }
+  100% { transform: scaleX(var(--turn-to, var(--facing, 1))); }
+}
+
+@keyframes token-foot-shuffle {
+  0%, 100% { translate: 0 0; }
+  50% { translate: var(--turn-shuffle, 4px) 2px; }
 }
 
 /* --mx/--my are the melee-band offsets: from contact onward each token drifts
@@ -2900,6 +2921,33 @@ body.battle-stage-open #sound-button {
   transition: transform var(--reposition-ms, 620ms) cubic-bezier(0.3, 0.7, 0.2, 1);
   will-change: transform, opacity;
   animation: token-idle var(--sway, 2s) ease-in-out infinite alternate;
+}
+
+/* Elite packs are still bandits mechanically. On stage their heavier pelted
+   mass and the lead wolf-tail standard distinguish them without adding a troop
+   type or using the player's cinnabar accent. */
+.stage-token.is-elite-bandit {
+  width: calc(var(--token-w, 60px) * 1.1);
+  height: calc(var(--token-h, 76px) * 1.1);
+}
+
+.stage-token.is-elite-leader {
+  width: calc(var(--token-w, 60px) * 1.2);
+  height: calc(var(--token-h, 76px) * 1.2);
+}
+
+/* A bandit crossing the last gap to the bow line owns a measured transition.
+   This rule sits after the generic melee reposition rule so it cannot collapse
+   back to the 420ms shuffle and appear to hit the archer from midfield. */
+.battle-stage.phase-melee .stage-token.is-pursuing {
+  transition-duration: var(--pursuit-ms, 720ms);
+  transition-timing-function: cubic-bezier(0.36, 0.02, 0.22, 1);
+  animation: token-pursuit-step 180ms steps(2, end) infinite;
+}
+
+@keyframes token-pursuit-step {
+  0% { translate: 0 0; }
+  100% { translate: 0 -2px; }
 }
 
 /* -- phase choreography ----------------------------------------------------- */
@@ -3398,6 +3446,35 @@ body.battle-stage-open #sound-button {
   100% { translate: 0 0; rotate: 0deg; }
 }
 
+/* A blow from behind throws the victim FORWARD along his old facing before he
+   pivots toward the attacker. This is intentionally the opposite sign from
+   the normal knockback above. */
+.stage-token.is-reeling-behind {
+  animation: token-knock-behind 280ms ease-out both;
+}
+
+@keyframes token-knock-behind {
+  0%   { translate: 0 0; rotate: 0deg; }
+  48%  {
+    translate: calc(var(--knock, 8px) * var(--facing, 1)) 1px;
+    rotate: calc(10deg * var(--facing, 1));
+  }
+  100% { translate: 0 0; rotate: 0deg; }
+}
+
+.stage-token.is-reeling-behind.is-jolted {
+  animation-name: token-knock-behind-heavy;
+}
+
+@keyframes token-knock-behind-heavy {
+  0%   { translate: 0 0; rotate: 0deg; }
+  42%  {
+    translate: calc(var(--knock, 16px) * var(--facing, 1)) -3px;
+    rotate: calc(14deg * var(--facing, 1));
+  }
+  100% { translate: 0 0; rotate: 0deg; }
+}
+
 /* -- wall archers ----------------------------------------------------------- */
 /* Terrain scenery for a town fight, not a unit: they stand on the wall, belong
    to neither roster, and no troop token is ever swapped for a bow. */
@@ -3484,6 +3561,16 @@ body.battle-stage-open #sound-button {
   animation: fig-recoil 260ms steps(2, end) both;
 }
 
+.stage-token.is-reeling-behind .fig-pose {
+  animation: fig-stagger-forward 280ms steps(2, end) both;
+}
+
+@keyframes fig-stagger-forward {
+  0% { transform: rotate(0deg); }
+  45% { transform: rotate(13deg) translateY(2px); }
+  100% { transform: rotate(0deg); }
+}
+
 @keyframes fig-recoil {
   0% { transform: rotate(0deg); }
   40% { transform: rotate(-15deg) translateY(1px); }
@@ -3543,13 +3630,6 @@ body.battle-stage-open #sound-button {
   0% { translate: 0 0; }
   55% { translate: calc(20px * var(--facing, 1)) 0; }
   100% { translate: 0 0; }
-}
-
-/* The enemy faces the other way, so both its lunge and the knock it takes run
-   along the opposite axis. Set on the RANK, not on one state class, or a
-   knocked enemy is thrown into the blow that just landed on it. */
-.stage-ranks-enemy .stage-token {
-  --facing: -1;
 }
 
 /* The knockback rule lives with the other impact keyframes above, and there is
@@ -3891,6 +3971,7 @@ body.battle-stage-open #sound-button {
 @media (prefers-reduced-motion: reduce) {
   .battle-stage,
   .stage-token,
+  .stage-token > svg,
   .stage-ranks,
   .stage-tally,
   .stage-hp,

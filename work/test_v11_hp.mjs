@@ -11,6 +11,7 @@ import {
   ensurePartyHp,
   getTroopCount,
   hpPerSoldierFor,
+  incrementTroop,
   partyHp
 } from "../outputs/js/state.js";
 import { worldTick, setAutoplay, chooseRoadEvent } from "../outputs/js/sim.js";
@@ -76,6 +77,18 @@ test("a soldier dies only once his own pool is spent", () => {
   // Overkill cannot take more than are standing.
   assert.equal(applyHpDamage(party, per * 99), 2);
   assert.equal(getTroopCount(party), 0);
+});
+
+test("recruits add HP to a wounded survivor's initialized stack", () => {
+  const party = { troops: [{ type: "militia", count: 1, xp: 0 }] };
+  ensurePartyHp(party);
+  const per = hpPerSoldierFor("militia");
+  applyHpDamage(party, per - 0.5);
+  assert.equal(partyHp(party), 0.5);
+
+  incrementTroop(party, "militia", 2);
+  assert.equal(getTroopCount(party), 3);
+  assert.equal(partyHp(party), 0.5 + per * 2);
 });
 
 test("veterans outlast militia, and militia outlast bandits", () => {

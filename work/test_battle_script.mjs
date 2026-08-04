@@ -234,6 +234,71 @@ test("token buckets cap at 24 while every real casualty remains a kill event", (
   assertExactContract(script);
 });
 
+test("elite metadata is visual-only and melee screens absorb hits before archers", () => {
+  const state = createInitialState(91, {
+    skipOnboarding: true,
+    v11: true,
+    fullVersion: true,
+    f2: true,
+    f3: true
+  });
+  const beforeRng = structuredClone(state.rng);
+  const battle = {
+    battleId: "battle:91:elite-rear-line",
+    enemyKind: "bandit",
+    elite: true,
+    terrain: "field",
+    playerStart: 4,
+    banditStart: 4,
+    playerStartRoster: [
+      { type: "militia", count: 2, arm: "spear" },
+      { type: "militia", count: 2, arm: "archer" }
+    ],
+    enemyStartRoster: [{ type: "bandit", count: 4, arm: "spear" }],
+    playerStartStrength: 8,
+    enemyStartStrength: 8,
+    playerCasualties: 3,
+    banditCasualties: 0,
+    rounds: [{
+      n: 1,
+      playerLoss: 3,
+      enemyLoss: 0,
+      playerDamage: 0,
+      enemyDamage: 18,
+      playerHpDealt: 18,
+      enemyHpDealt: 0,
+      playerRemaining: 1,
+      enemyRemaining: 4,
+      playerStrengthRemaining: 2,
+      enemyStrengthRemaining: 8
+    }],
+    formations: { player: "line", enemy: "wedge" }
+  };
+  const script = buildBattleScript(state, battle, {
+    type: "defeat",
+    loot: 0,
+    renown: 0,
+    resolvedCasualties: { player: 3, enemy: 0 },
+    resolvedSurvivors: { player: 1, enemy: 4 }
+  }, "enemy");
+  assert.deepEqual(state.rng, beforeRng, "rear-line shaping consumed gameplay RNG");
+  assert.equal(script.eliteEnemy, true);
+  assert.equal(script.sides.enemy.label, "精锐匪队");
+  assert.equal(validateBattleScript(script, {
+    casualties: { player: 3, enemy: 0 },
+    survivors: { player: 1, enemy: 4 }
+  }).ok, true);
+  const incoming = script.events.filter(
+    (event) => event.type === "strike" && event.to.side === "player"
+  );
+  const targetArms = incoming.map(
+    (event) => script.sides.player.tokens[event.to.idx].arm
+  );
+  const firstArcher = targetArms.indexOf("archer");
+  assert.ok(firstArcher >= 2, `archer was exposed before the two-man screen: ${targetArms}`);
+  assert.ok(targetArms.slice(0, firstArcher).every((arm) => arm !== "archer"));
+});
+
 test("each round preserves its own casualties, damage shares, and hit waves", () => {
   const state = createInitialState(78, { skipOnboarding: true });
   const battle = {

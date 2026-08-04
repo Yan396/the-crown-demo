@@ -20,7 +20,7 @@ import {
   ensureLivingState,
   removeBanditAndMaintainElite
 } from "../outputs/js/living.js";
-import { simulateAutoplay } from "../outputs/js/sim.js";
+import { simulateAutoplay, worldTick } from "../outputs/js/sim.js";
 import {
   createInitialState,
   getPartyStrength,
@@ -105,6 +105,27 @@ test("no seeded player battle can produce a 0v0 victory", () => {
     const bothZero = result.resolvedSurvivors.player === 0 && result.resolvedSurvivors.enemy === 0;
     assert.ok(!(bothZero && result.type === "victory"), `seed ${seed} produced 0v0 victory`);
   }
+});
+
+test("a lone survivor resolves combat and can move after settlement", () => {
+  const outcomes = new Set();
+  for (let seed = 1; seed <= 80; seed += 1) {
+    const { state } = configuredBattle(seed, 1, 1);
+    const result = skipBattle(state);
+    outcomes.add(result.type);
+    assert.notEqual(result.type, "draw", `seed ${seed} trapped the last soldiers in a draw`);
+    assert.equal(state.battle, null, `seed ${seed} left battle active after settlement`);
+  }
+  assert.deepEqual(outcomes, new Set(["victory", "defeat"]));
+
+  const { state } = configuredBattle(3, 1, 1);
+  const result = skipBattle(state);
+  assert.equal(result.type, "defeat");
+  const before = { ...state.player.pos };
+  state.player.moveTarget = { x: before.x + 100, y: before.y };
+  const tick = worldTick(state);
+  assert.equal(tick.advanced, true);
+  assert.ok(state.player.pos.x > before.x, "the last survivor cannot leave the refuge");
 });
 
 test("autoplay audits both side counts at every round boundary", () => {
