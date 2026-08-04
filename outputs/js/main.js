@@ -129,11 +129,11 @@ if (!state) state = createInitialState(CONFIG.SEED, {
   f3: fullVersion,
   f4: fullVersion
 });
-// There is no player-facing mute: the score is simply on once a real gesture
-// has unlocked it. The bot is the one exception -- without this the victory
-// seal alone opens an AudioContext in a headless 20x run, with nobody
-// listening. The device's own volume and silent switch still rule everything.
-crownAudio.setEnabled(!autoplayEnabled);
+// Sound is on by default and the score is continuous, but the player keeps one
+// switch over the whole of CrownAudio -- music and cues alike. The bot is the
+// other way it can be off: without this the victory seal alone opens an
+// AudioContext in a headless 20x run, with nobody listening.
+crownAudio.setEnabled(state.settings.soundEnabled && !autoplayEnabled);
 crownAudio.bindFirstGesture(document);
 if (qaRecruitRecoveryEnabled) {
   state.player.gold = 164;
@@ -314,7 +314,9 @@ function musicSceneFor() {
 }
 
 function sync() {
-  ui.sync(state, { saveAvailable, autoplayEnabled });
+  // The chip reads the audio engine, not the preference, so what it shows is
+  // always what is actually audible.
+  ui.sync(state, { saveAvailable, autoplayEnabled, soundEnabled: crownAudio.isEnabled() });
   if (!autoplayEnabled && !audioStyleguideEnabled) crownAudio.setMusicScene(musicSceneFor());
 }
 
@@ -480,6 +482,19 @@ ui = createUi({
   onLanguageChange(language) {
     if (!SUPPORTED_LANGUAGES.includes(language)) return;
     state.settings.language = language;
+    persist(true);
+    sync();
+  },
+  onSoundChange(enabled) {
+    state.settings.soundEnabled = Boolean(enabled);
+    // One switch over the whole pipeline: muting fades the music out and stops
+    // scheduling, and unmuting re-enters on the next phrase rather than
+    // resuming the bar it was cut off in.
+    crownAudio.setEnabled(state.settings.soundEnabled);
+    if (state.settings.soundEnabled) {
+      crownAudio.unlock();
+      crownAudio.tap();
+    }
     persist(true);
     sync();
   },

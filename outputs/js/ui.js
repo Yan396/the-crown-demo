@@ -80,6 +80,7 @@ export function createUi(callbacks) {
     dayLabel: element("day-label"),
     day: element("day-value"),
     helpButton: element("help-button"),
+    soundButton: element("sound-button"),
     pause: element("pause-button"),
     settingsButton: element("settings-button"),
     hint: element("hint"),
@@ -135,6 +136,8 @@ export function createUi(callbacks) {
     languageLabel: element("language-label"),
     languageZh: element("language-zh"),
     languageEn: element("language-en"),
+    soundLabel: element("sound-label"),
+    soundToggle: element("sound-toggle"),
     autosaveTitle: element("autosave-title"),
     autosaveStatus: element("autosave-status"),
     helpCard: element("help-card"),
@@ -284,6 +287,18 @@ export function createUi(callbacks) {
   let reportExpanded = false;
   let diagnosticsVisible = false;
   let titleTapCount = 0;
+  let runtimeSoundEnabled = null;
+
+  /*
+   * What the chip shows -- and what a tap on it toggles -- is what is actually
+   * audible: main.js passes the audio engine's own flag, and the stored
+   * preference is only the fallback before the first sync.
+   */
+  function soundIsOn() {
+    return typeof runtimeSoundEnabled === "boolean"
+      ? runtimeSoundEnabled
+      : currentState?.settings.soundEnabled !== false;
+  }
   let lastTitleTapAt = 0;
   let lastRenown = null;
   let progressGlowTimer = null;
@@ -738,6 +753,7 @@ export function createUi(callbacks) {
     refs.dayLabel.textContent = t("hud.day");
     refs.settingsButton.setAttribute("aria-label", t("aria.openSettings"));
     refs.helpButton.setAttribute("aria-label", t("aria.openHelp"));
+    refs.soundButton.setAttribute("aria-label", t("aria.toggleSound"));
     refs.helpClose.setAttribute("aria-label", t("aria.closeHelp"));
     refs.legendText.replaceChildren(...t("legend.items")
       .split(/\u3000+|\s{2,}/)
@@ -779,6 +795,7 @@ export function createUi(callbacks) {
     refs.languageLabel.textContent = t("settings.language");
     refs.languageZh.textContent = t("settings.chinese");
     refs.languageEn.textContent = t("settings.english");
+    refs.soundLabel.textContent = t("settings.sound");
     refs.autosaveTitle.textContent = t("settings.autosave");
     refs.helpTitle.textContent = t("help.title");
     refs.helpGoalLabel.textContent = t("help.goalLabel");
@@ -1052,6 +1069,7 @@ export function createUi(callbacks) {
   function sync(state, runtime = {}) {
     currentState = state;
     if (typeof runtime.saveAvailable === "boolean") saveAvailable = runtime.saveAvailable;
+    if (typeof runtime.soundEnabled === "boolean") runtimeSoundEnabled = runtime.soundEnabled;
     syncStaticStrings();
 
     setCounter(refs.gold, state.player.gold);
@@ -1224,6 +1242,11 @@ export function createUi(callbacks) {
     document.body.classList.toggle("demo-modal-open", Boolean(state.demo.modal) && !state.demo.ended);
     refs.languageZh.setAttribute("aria-pressed", String(language() === "zh"));
     refs.languageEn.setAttribute("aria-pressed", String(language() === "en"));
+    const soundEnabled = soundIsOn();
+    refs.soundButton.textContent = soundEnabled ? "声" : "静";
+    refs.soundButton.setAttribute("aria-pressed", String(soundEnabled));
+    refs.soundToggle.textContent = t(soundEnabled ? "settings.soundOn" : "settings.soundOff");
+    refs.soundToggle.setAttribute("aria-pressed", String(soundEnabled));
     refs.autosaveStatus.textContent = saveAvailable
       ? t("settings.autosaveOn", { day: Math.floor(Math.max(0, state.lastSavedTick) / CONFIG.TICKS_PER_DAY) + 1 })
       : t("settings.autosaveUnavailable");
@@ -1426,6 +1449,7 @@ export function createUi(callbacks) {
   }
 
   refs.helpButton.addEventListener("click", () => setHelpOpen(true, "hud"));
+  refs.soundButton.addEventListener("click", () => callbacks.onSoundChange(!soundIsOn()));
   refs.pause.addEventListener("click", () => callbacks.onTogglePause());
   refs.settingsButton.addEventListener("click", () => setSettingsOpen(true));
   refs.settingsClose.addEventListener("click", () => setSettingsOpen(false));
@@ -1441,6 +1465,7 @@ export function createUi(callbacks) {
   });
   refs.languageZh.addEventListener("click", () => callbacks.onLanguageChange("zh"));
   refs.languageEn.addEventListener("click", () => callbacks.onLanguageChange("en"));
+  refs.soundToggle.addEventListener("click", () => callbacks.onSoundChange(!soundIsOn()));
   refs.helpClose.addEventListener("click", () => setHelpOpen(false));
   refs.recruit.addEventListener("click", () => callbacks.onRecruit("spear"));
   refs.recruitArcher.addEventListener("click", () => callbacks.onRecruit("archer"));
@@ -1542,12 +1567,14 @@ export function createUi(callbacks) {
 
   [
     refs.helpButton,
+    refs.soundButton,
     refs.pause,
     refs.settingsButton,
     refs.settingsClose,
     refs.reportToggle,
     refs.languageZh,
     refs.languageEn,
+    refs.soundToggle,
     refs.helpClose,
     refs.recruit,
     refs.veteran,

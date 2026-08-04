@@ -107,17 +107,14 @@ test("two consecutive retreats repeat the verdict reference; attacking resets th
   assert.equal(recordRetreatDecision(state).showVerdictReminder, false);
 });
 
-test("sound is always on: the settings record survives, the mute does not", () => {
-  // The player-facing mute is gone, so this field is now a compatibility slot
-  // rather than a preference. An old save that recorded a mute must load as
-  // enabled -- otherwise a returning player is silenced with no way back.
+test("sound defaults on and persists in the existing settings record", () => {
   const storage = new MemoryStorage();
   const state = createInitialState(1004, { skipOnboarding: true });
   assert.equal(state.settings.soundEnabled, true);
   state.settings.soundEnabled = false;
   assert.equal(saveState(state, storage), true);
   const loaded = loadState(storage);
-  assert.equal(loaded.settings.soundEnabled, true);
+  assert.equal(loaded.settings.soundEnabled, false);
 });
 
 test("Web Audio is lazy, synthesized, and battle voices are disposable", () => {

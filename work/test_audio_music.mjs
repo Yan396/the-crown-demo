@@ -596,36 +596,123 @@ test("once unlocked, every scene keeps voices alive indefinitely", () => {
   });
 });
 
-/* ---- no player-facing mute ---------------------------------------------- */
+/* ---- the one mute switch ------------------------------------------------ */
 
-test("there is no sound control anywhere in the interface", () => {
+test("the sound chip exists exactly once, in both builds, with no volume slider", () => {
   const html = readFileSync(new URL("../outputs/index.html", import.meta.url), "utf8");
   const ui = readFileSync(new URL("../outputs/js/ui.js", import.meta.url), "utf8");
-  const strings = readFileSync(new URL("../outputs/js/strings.js", import.meta.url), "utf8");
+  // The markup is shared by both builds -- there is no DEMO branch around it,
+  // which is what makes "full and demo both have it" true by construction.
   for (const id of ["sound-button", "sound-toggle", "sound-label"]) {
-    assert.doesNotMatch(html, new RegExp(id), `${id} is still in the markup`);
+    const hits = [...html.matchAll(new RegExp(`id="${id}"`, "g"))].length;
+    assert.equal(hits, 1, `${id} appears ${hits} times`);
   }
-  assert.doesNotMatch(ui, /sound|Sound/, "ui.js still references a sound control");
-  assert.doesNotMatch(strings, /toggleSound|soundOn|soundOff/, "the mute strings are still shipped");
-  assert.doesNotMatch(mainSource, /onSoundChange/, "the mute callback is still wired");
-  // ...and no volume slider was added in its place.
+  assert.doesNotMatch(html, /CONFIG\.DEMO[\s\S]{0,200}sound-button/);
+  assert.match(html, /id="sound-button" class="hud-button hud-text-button"/, "keep the existing HUD visual");
+  assert.match(html, /<div class="settings-row">\s*<span id="sound-label"/, "keep the existing settings row");
+  // One switch, still no volume control. (The garrison and promise sliders are
+  // unrelated and long-standing, so this looks for an AUDIO one specifically.)
   assert.doesNotMatch(html, /volume/i);
+  assert.doesNotMatch(html, /id="(?:sound|audio|music)[^"]*"[^>]*type="range"/i);
   assert.doesNotMatch(ui, /volume/i);
+  assert.doesNotMatch(audioSource, /setVolume|musicVolume/);
 });
 
-test("a save that recorded a mute loads as enabled, and the mute is never written back", () => {
+test("the label and aria state follow what is really audible, not the save", () => {
+  const ui = readFileSync(new URL("../outputs/js/ui.js", import.meta.url), "utf8");
+  // The chip renders from the audio engine's own flag, so it can never claim
+  // sound is on while the engine is muted.
+  assert.match(ui, /function soundIsOn\(\)/);
+  assert.match(ui, /const soundEnabled = soundIsOn\(\);/);
+  assert.match(ui, /refs\.soundButton\.textContent = soundEnabled \? "声" : "静";/);
+  assert.match(ui, /refs\.soundButton\.setAttribute\("aria-pressed", String\(soundEnabled\)\)/);
+  assert.match(ui, /refs\.soundToggle\.textContent = t\(soundEnabled \? "settings\.soundOn" : "settings\.soundOff"\)/);
+  // ...and a tap toggles the same value it is showing.
+  assert.match(ui, /refs\.soundButton\.addEventListener\("click", \(\) => callbacks\.onSoundChange\(!soundIsOn\(\)\)\)/);
+  assert.match(ui, /refs\.soundToggle\.addEventListener\("click", \(\) => callbacks\.onSoundChange\(!soundIsOn\(\)\)\)/);
+  assert.match(mainSource, /ui\.sync\(state, \{ saveAvailable, autoplayEnabled, soundEnabled: crownAudio\.isEnabled\(\) \}\)/);
+  const strings = readFileSync(new URL("../outputs/js/strings.js", import.meta.url), "utf8");
+  for (const key of ["toggleSound", "soundOn", "soundOff"]) {
+    assert.ok(new RegExp(`${key}:`).test(strings), `${key} string is missing`);
+  }
+});
+
+test("muting silences music and cues alike, and unmuting re-enters on a phrase", () => {
+  withAudio((audio, context) => {
+    audio.setMusicScene("battle");
+    audio.charge();
+    assert.ok(audio.musicVoices.size > 0 && audio.battleVoices.size > 0);
+
+    audio.setEnabled(false);
+    assert.equal(audio.isEnabled(), false);
+    // Cues stop dead; the music is faded rather than cut.
+    assert.equal(audio.battleVoices.size, 0, "battle cues must be released on mute");
+    assert.ok(audio.musicActive.every((entry) => entry.stopping), "the music must be fading out");
+    assert.equal(audio.hit({ kill: true }), undefined, "a muted cue must make no node");
+    context.advance(1);
+    audio.disposeMusic({ keepScene: true });
+    assert.equal(audio.musicVoices.size, 0, "nothing may still be sounding once muted");
+    assert.equal(
+      capture(audio, () => audio.pumpMusic()).length, 0,
+      "a muted score must schedule nothing"
+    );
+
+    audio.setEnabled(true);
+    assert.equal(audio.isEnabled(), true);
+    const resumed = audio.musicActive.filter((entry) => !entry.stopping);
+    assert.equal(resumed.length, 1, "unmuting must not stack instances");
+    assert.equal(resumed[0].sceneId, "battle", "the scene must come back");
+    assert.ok(resumed[0].startedAt >= context.currentTime, "resume must not replay the past");
+    assert.ok(audio.musicVoices.size > 0, "the score must be audible again");
+  });
+});
+
+test("a muted save survives a refresh, and a save with no field at all is enabled", () => {
   const storage = new MemoryStorage();
   const state = createInitialState(2001, { skipOnboarding: true });
-  assert.equal(state.settings.soundEnabled, true);
-  // An old save from when the toggle existed.
+  assert.equal(state.settings.soundEnabled, true, "sound is on by default");
+
   state.settings.soundEnabled = false;
   assert.equal(saveState(state, storage), true);
-  const loaded = loadState(storage);
-  assert.equal(loaded.settings.soundEnabled, true, "a returning player must not stay muted");
-  // The field survives for save compatibility, but nothing can set it false.
-  saveState(loaded, storage);
-  assert.equal(loadState(storage).settings.soundEnabled, true);
-  assert.equal(createInitialState(2002, { soundEnabled: false }).settings.soundEnabled, true);
+  // The refresh.
+  const reloaded = loadState(storage);
+  assert.equal(reloaded.settings.soundEnabled, false, "a mute must survive a refresh");
+  saveState(reloaded, storage);
+  assert.equal(loadState(storage).settings.soundEnabled, false, "...and a second one");
+
+  // Compatibility: a save written before the field existed.
+  const key = [...storage.values.keys()][0];
+  const raw = JSON.parse(storage.getItem(key));
+  delete raw.settings.soundEnabled;
+  storage.setItem(key, JSON.stringify(raw));
+  assert.equal(loadState(storage).settings.soundEnabled, true, "a missing field must default to on");
+
+  // A replay carries the preference across, and the save version is untouched.
+  assert.equal(createInitialState(2002, { soundEnabled: false }).settings.soundEnabled, false);
+  assert.equal(JSON.parse(storage.getItem(key)).saveVersion, 2, "the save version must not move");
+});
+
+test("a muted start never opens an AudioContext", () => {
+  const previous = globalThis.AudioContext;
+  globalThis.AudioContext = FakeAudioContext;
+  try {
+    // Exactly what main.js does on a reload of a muted save.
+    const audio = new CrownAudio();
+    audio.setEnabled(false);
+    audio.setMusicScene("map-road");
+    assert.equal(audio.context, null, "a muted reload must not open a context");
+    // Not even a real gesture creates one while muted: the handler bails first.
+    assert.equal(audio.unlock(), null);
+    audio.tap();
+    audio.hit({ kill: true });
+    assert.equal(audio.context, null);
+    assert.equal(audio.musicVoices.size, 0);
+    assert.match(audioSource, /this\.gestureHandler = \(event\) => \{\s*\n\s*if \(!this\.enabled\) return;/);
+    audio.dispose();
+  } finally {
+    if (previous === undefined) delete globalThis.AudioContext;
+    else globalThis.AudioContext = previous;
+  }
 });
 
 /* ---- wiring, and the standing zero-asset contract ------------------------ */
@@ -641,8 +728,14 @@ test("the game drives the scene from its existing lifecycle -- and stays silent 
     "autoplay and the styleguide must both bypass the game's scene selection"
   );
   assert.match(mainSource, /crownAudio\.setPageHidden\(document\.visibilityState === "hidden"\)/);
-  // Silent bot: not even the victory seal may open a context in a 20x run.
-  assert.match(mainSource, /crownAudio\.setEnabled\(!autoplayEnabled\);/);
+  // The one switch, plus the silent bot: without the autoplay clause the
+  // victory seal alone opens a context in a headless 20x run.
+  assert.match(
+    mainSource,
+    /crownAudio\.setEnabled\(state\.settings\.soundEnabled && !autoplayEnabled\);/
+  );
+  assert.match(mainSource, /onSoundChange\(enabled\) \{[\s\S]{0,320}crownAudio\.setEnabled\(state\.settings\.soundEnabled\);/);
+  assert.match(mainSource, /onSoundChange\(enabled\) \{[\s\S]{0,420}persist\(true\);/, "the preference must be saved");
   // One switch, no new player setting.
   assert.equal(/crownAudio\.setEnabled\(/.test(mainSource), true);
   assert.doesNotMatch(mainSource, /musicEnabled|musicVolume|settings\.music/);
