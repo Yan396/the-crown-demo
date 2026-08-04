@@ -2199,16 +2199,6 @@ export function createBattleStage(host, options = {}) {
 
     const tally = root.querySelector(".stage-tally");
     tally.hidden = false;
-    // Dock it to the paper's lower edge, measured rather than assumed, so it
-    // rises into the empty space under the sheet at any viewport height.
-    const paper = root.querySelector(".stage-paper");
-    if (paper) {
-      // Clamp to the viewport: with a full-height battlefield the paper's lower
-      // edge can sit close enough to the bottom that the panel would slide off.
-      const below = paper.getBoundingClientRect().bottom;
-      const room = window.innerHeight - tally.offsetHeight - P.TALLY_VIEWPORT_MARGIN_PX;
-      tally.style.top = `${Math.round(Math.max(0, Math.min(below, room)))}px`;
-    }
     // The seal lands first; the tally slides up from under the field a beat
     // later, so it never covers the ranks it is reporting on.
     if (!skipped && !reducedMotion.matches) {
@@ -2222,6 +2212,21 @@ export function createBattleStage(host, options = {}) {
       `<dl><div><dt>${translate("stage.tallyGold")}</dt><dd data-target="${event.loot.gold}">0</dd></div>` +
       `<div><dt>${translate("stage.tallyRenown")}</dt><dd data-target="${event.loot.renown}">0</dd></div></dl>` +
       `<button type="button" class="stage-continue">${translate("stage.continue")}</button>`;
+
+    // Dock it to the paper's lower edge, measured rather than assumed, so it
+    // rises into the empty space under the sheet at any viewport height.
+    // MUST run after innerHTML: offsetHeight on the empty panel is only its
+    // padding (~36px, against a real ~216px), so the viewport clamp below
+    // reserved a quarter of the room actually needed and the loot values and
+    // the continue button were pushed off the bottom of the screen.
+    const paper = root.querySelector(".stage-paper");
+    if (paper) {
+      // Clamp to the viewport: with a full-height battlefield the paper's lower
+      // edge can sit close enough to the bottom that the panel would slide off.
+      const below = paper.getBoundingClientRect().bottom;
+      const room = window.innerHeight - tally.offsetHeight - P.TALLY_VIEWPORT_MARGIN_PX;
+      tally.style.top = `${Math.round(Math.max(0, Math.min(below, room)))}px`;
+    }
 
     const numbers = [...tally.querySelectorAll("dd")];
     if (reducedMotion.matches || skipped) {
